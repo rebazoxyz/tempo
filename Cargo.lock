@@ -4423,6 +4423,7 @@ dependencies = [
  "alloy-primitives",
  "clap",
  "eyre",
+ "hex",
  "informalsystems-malachitebft-core-types",
  "rand 0.9.1",
  "reth",

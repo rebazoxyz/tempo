@@ -10,6 +10,8 @@ serde.workspace = true
 rand.workspace = true
 clap.workspace = true
 tracing.workspace = true
+hex.workspace = true
+
 
 # Malachite dependencies
 malachite-core-types.workspace = true

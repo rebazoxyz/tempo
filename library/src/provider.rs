@@ -7,6 +7,28 @@ pub struct Ed25519Provider {
     private_key: [u8; 32],
 }
 
+impl Ed25519Provider {
+    pub fn new() -> Self {
+        Self { 
+            private_key: [0u8; 32] // Default/placeholder key
+        }
+    }
+
+    pub fn with_private_key(private_key: [u8; 32]) -> Self {
+        Self { private_key }
+    }
+
+    pub fn private_key(&self) -> &[u8; 32] {
+        &self.private_key
+    }
+}
+
+impl Default for Ed25519Provider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // impl Ed25519Provider {
 //     pub fn new(private_key: PrivateKey) -> Self {
 //         Self { private_key }
