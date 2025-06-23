@@ -1,9 +1,5 @@
-use tokio::sync::{broadcast, mpsc};
-use tracing::warn;
-
-use library::consensus::MalachiteConsensusBuilder;
-use crate::state::State;
-
+use crate::app::state::State;
+use crate::consensus_utils::MalachiteConsensusBuilder;
 use reth::payload::{PayloadBuilderHandle, PayloadServiceCommand};
 use reth::transaction_pool::TransactionPool;
 use reth_chainspec::ChainSpec;
@@ -14,10 +10,12 @@ use reth_node_builder::{
 };
 use reth_node_ethereum::node::{EthereumAddOns, EthereumNetworkBuilder, EthereumPoolBuilder};
 use reth_trie_db::MerklePatriciaTrie;
+use tokio::sync::{broadcast, mpsc};
+use tracing::warn;
 
 /// Type configuration for a regular Malachite node.
 #[derive(Debug, Clone)]
-pub struct MalachiteNode{
+pub struct MalachiteNode {
     // Consensus state
     pub state: State,
 }

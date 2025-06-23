@@ -1,6 +1,6 @@
-use library::context::MalachiteContext;
-use library::height::Height;
-use crate::state::{State, reload_log_level, decode_value, encode_value};
+use crate::context::MalachiteContext;
+use crate::height::Height;
+use crate::app::state::{State, reload_log_level, decode_value, encode_value};
 use eyre::eyre;
 use malachitebft_app_channel::{AppMsg, Channels, ConsensusMsg, NetworkMsg};
 use malachitebft_app_channel::app::streaming::StreamContent;

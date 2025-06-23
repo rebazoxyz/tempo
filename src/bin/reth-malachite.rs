@@ -1,9 +1,9 @@
-use app::cli::{Cli, MalachiteChainSpecParser};
-use app::node::MalachiteNode;
-use app::state::{Config, Genesis, State};
 use clap::{Args, Parser};
-use library::context::MalachiteContext;
-use library::types::Address;
+use reth_malachite::app::node::MalachiteNode;
+use reth_malachite::app::{Config, Genesis, State};
+use reth_malachite::cli::{Cli, MalachiteChainSpecParser};
+use reth_malachite::context::MalachiteContext;
+use reth_malachite::types::Address;
 use reth::builder::NodeHandle;
 
 /// No Additional arguments

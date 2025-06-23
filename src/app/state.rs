@@ -1,26 +1,27 @@
-use malachitebft_core_types::{Round, CommitCertificate, VoteExtensions, Height as HeightTrait};
-use malachitebft_app_channel::app::types::{LocallyProposedValue, ProposedValue, PeerId as MalachitePeerId};
+use bytes::Bytes;
+use eyre::Result;
+use crate::context::{
+    BasePeerAddress, BasePeerSet, BaseProposalPart, BaseValue, MalachiteContext, ValueIdWrapper,
+};
+use crate::height::Height;
+use crate::provider::Ed25519Provider;
+use crate::types::Address;
+use crate::utils::seed_from_address;
 use malachitebft_app_channel::app::streaming::StreamMessage;
-
-use reth_ethereum_engine_primitives::EthPayloadTypes;
-
+use malachitebft_app_channel::app::types::{
+    LocallyProposedValue, PeerId as MalachitePeerId, ProposedValue,
+};
+use malachitebft_core_types::{CommitCertificate, Height as HeightTrait, Round, VoteExtensions};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use reth::payload::PayloadBuilderHandle;
+use reth_ethereum_engine_primitives::EthPayloadTypes;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use bytes::Bytes;
 use tracing::info;
-use eyre::Result;
-
-use library::context::{MalachiteContext, BasePeerSet, BaseValue, BaseProposalPart, ValueIdWrapper, BasePeerAddress};
-use library::height::Height;
-use library::provider::Ed25519Provider;
-use library::types::Address;
-use library::utils::seed_from_address;
 
 /// Represents the internal state of the application node
 /// Contains information about current height, round, proposals and blocks
@@ -94,7 +95,7 @@ impl State {
     ) -> Result<LocallyProposedValue<MalachiteContext>> {
         // Simulate building a block
         sleep(Duration::from_millis(100)).await;
-        
+
         // Create a simple value - in real implementation this would be a proper block
         let value = BaseValue {
             data: vec![1, 2, 3, 4], // Placeholder data
@@ -157,11 +158,13 @@ impl State {
         round: Round,
     ) -> Result<Option<LocallyProposedValue<MalachiteContext>>> {
         // For now, return None - this would check for previously built proposals
-        info!("Requested previously built value for height {} round {}", height, round);
+        info!(
+            "Requested previously built value for height {} round {}",
+            height, round
+        );
         Ok(None)
     }
 }
-
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Genesis {
@@ -244,7 +247,6 @@ pub enum Role {
     /// The node is not participating in the consensus protocol for the current round.
     None,
 }
-
 
 // Use reth store implementation
 #[derive(Debug, Clone)]
@@ -420,3 +422,4 @@ pub fn decode_value(_bytes: Bytes) -> Option<BaseValue> {
 
 // Type alias for compatibility
 pub type ValueId = ValueIdWrapper;
+
