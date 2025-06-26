@@ -1,4 +1,15 @@
-//! Cryptographic providers for signing and verification
+//! Cryptographic providers for signing and verification in Malachite consensus.
+//!
+//! This module provides the Ed25519 signing implementation required by Malachite
+//! for signing and verifying consensus messages. It implements the necessary traits
+//! to enable validators to participate in the consensus protocol by signing votes,
+//! proposals, and other consensus messages.
+//!
+//! # Key Components
+//!
+//! - [`Ed25519Provider`]: Main signing provider implementing Malachite's `SigningProvider` trait
+//! - [`ToSignBytes`]: Trait for converting consensus messages to canonical byte representations
+//! - Re-exports of Ed25519 cryptographic types from the malachite-signing crate
 
 use malachitebft_core_types::{
     SignedExtension, SignedProposal, SignedProposalPart, SignedVote, SigningProvider, SigningScheme,
@@ -36,6 +47,17 @@ impl Ed25519Provider {
     pub fn new_test() -> Self {
         let private_key = PrivateKey::generate(rand::thread_rng());
         Self::new(private_key)
+    }
+
+    /// Create a new provider from raw private key bytes
+    pub fn from_bytes(private_key_bytes: &[u8]) -> Result<Self, String> {
+        if private_key_bytes.len() != 32 {
+            return Err("Private key must be exactly 32 bytes".to_string());
+        }
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(private_key_bytes);
+        let private_key = PrivateKey::from(key_array);
+        Ok(Self::new(private_key))
     }
 
     /// Get the public key
