@@ -2,7 +2,9 @@
 
 ## Overview
 
-This proposal introduces an intermediate "helper" type between ExecutionPayload and Block to eliminate the unnecessary block -> payload -> block roundtrip and provide more flexible payload processing for different blockchain implementations.
+This proposal introduces an intermediate "helper" type between ExecutionPayload and Block to improve internal efficiency of payload processing and provide more flexible validation for different blockchain implementations.
+
+**Important Note**: This proposal primarily improves the internal efficiency of the engine API. To completely eliminate the block -> payload -> block roundtrip for external consensus clients (like Malachite), additional API changes would be required.
 
 ## Implementation Steps
 
@@ -104,9 +106,9 @@ pub struct OpExecutionHelper {
 }
 ```
 
-### 4. Update Engine API Flow
+### 4. Update Engine API Internal Implementation
 
-Modify the engine's `new_payload` handling:
+The helper type improves the internal implementation of existing methods:
 
 ```rust
 impl<V: PayloadValidator> EngineApi<V> {
@@ -133,21 +135,37 @@ impl<V: PayloadValidator> EngineApi<V> {
 }
 ```
 
-### 5. Integration Points
+### 5. Optional: Extended API for Consensus Clients
 
-Update `PayloadTypes` trait:
+To fully eliminate the roundtrip for consensus clients like Malachite, we would need to add new API methods:
+
 ```rust
-pub trait PayloadTypes {
-    type ExecutionData;
-    type BuiltPayload: BuiltPayload;
-    type Helper: ExecutionHelper; // New associated type
-
-    /// Direct conversion for efficiency
-    fn block_to_helper(&self, block: SealedBlock) -> Self::Helper;
-
-    /// Convert helper to payload for network transmission
-    fn helper_to_payload(&self, helper: Self::Helper) -> Self::ExecutionData;
+impl EngineApi {
+    /// New method that accepts blocks directly from consensus
+    pub async fn new_block(&self, block: Block) -> PayloadStatus {
+        // Create helper directly from block (no payload conversion)
+        let helper = BlockExecutionHelper::from_block(block);
+        
+        // Validate
+        if let Err(e) = self.validator.validate_helper(&helper) {
+            return PayloadStatus::invalid(e);
+        }
+        
+        // Execute
+        let block = helper.into_block()?;
+        self.execute_block(block).await
+    }
 }
+```
+
+Without this API addition, consensus clients would still need to convert blocks to ExecutionPayload format:
+```rust
+// Without new API: Still requires conversion
+let payload = block_to_payload(block);
+engine.new_payload(payload).await?;
+
+// With new API: Direct execution
+engine.new_block(block).await?;
 ```
 
 ### 6. Migration Strategy
@@ -162,6 +180,31 @@ impl<T: PayloadValidator> PayloadValidatorCompat for T {
 }
 ```
 
+## What This Proposal Achieves
+
+### Internal Engine Improvements
+
+1. **More efficient payload processing**: The engine can validate payloads without fully converting them to blocks
+2. **Lazy deserialization**: Only decode what's needed for validation
+3. **Preserved encoded data**: Important for chains like Optimism that need original transaction encodings
+4. **Reduced allocations**: The helper type can reference data instead of copying
+
+### Current Limitations
+
+**Without additional API changes**, consensus integrations like Malachite would still need to:
+1. Convert their Block to ExecutionPayload format (`block_to_payload`)
+2. Send the payload to the engine API
+3. The engine would then use the helper internally (more efficient than before, but still a conversion)
+
+The helper type improves step 3, but doesn't eliminate steps 1 and 2.
+
+### Complete Solution
+
+For a complete elimination of the roundtrip, we need:
+1. **This proposal**: Helper type for internal efficiency
+2. **API extension**: New methods like `new_block` that accept blocks directly
+3. **Updated PayloadTypes**: Methods to create helpers directly from blocks
+
 ## Key Benefits
 
 1. **Avoids full deserialization**: Helper can lazily decode only what's needed
@@ -169,118 +212,4 @@ impl<T: PayloadValidator> PayloadValidatorCompat for T {
 3. **Flexible validation**: Can validate without full block construction
 4. **Better performance**: Reduces allocations and conversions
 5. **Extensible**: Different chains can have specialized helpers
-
-## How This Eliminates the Block -> Payload -> Block Roundtrip
-
-### Current Flow (With Roundtrip)
-
-```mermaid
-flowchart LR
-    A[Block<br/>Original] -->|"1. Serialize all fields<br/>block_to_payload()"| B[ExecutionPayload<br/>JSON-RPC format]
-    B -->|"2. Deserialize all fields<br/>try_into_block()"| C[Block<br/>Reconstructed]
-    C -->|"3. Execute & Validate"| D[State Updates]
-
-    style A fill:#ff9999
-    style B fill:#99ccff
-    style C fill:#ff9999
-    style D fill:#99ff99
-```
-
-**Problems with current approach:**
-1. **Double conversion**: Block is fully serialized to ExecutionPayload, then fully deserialized back to Block
-2. **Performance overhead**: Unnecessary allocations and copies
-3. **Inflexibility**: Can't preserve original encoded data (important for Optimism)
-
-### New Flow (With Helper Type)
-
-```mermaid
-flowchart TB
-    subgraph "Consensus Integration (e.g., Malachite)"
-        A[Block<br/>From Consensus] -->|"Direct to Helper"| H[ExecutionHelper<br/>Lightweight wrapper]
-    end
-
-    subgraph "Engine API"
-        P[ExecutionPayload<br/>From Network] -->|"Parse once"| H
-        H -->|"Lazy access"| V{Validation}
-        V -->|"Only if needed"| B[Block<br/>For Execution]
-        V -->|"Can validate without<br/>full conversion"| R[Quick Response]
-    end
-
-    subgraph "Storage/Execution"
-        B --> E[Execute & Store]
-    end
-
-    style A fill:#ff9999
-    style P fill:#99ccff
-    style H fill:#ffff99
-    style B fill:#ff9999
-    style E fill:#99ff99
-```
-
-### Key Differences Explained
-
-#### 1. **For Consensus Integration (Like Malachite)**
-```rust
-// OLD: Forced roundtrip
-let payload = block_to_payload(block.clone());  // Block -> Payload
-let block_again = payload.try_into_block()?;    // Payload -> Block
-engine.execute(block_again)?;                    // Execute the reconstructed block
-
-// NEW: Direct path
-let helper = block_to_helper(block);            // Block -> Helper (cheap wrap)
-engine.validate_and_execute(helper)?;            // No reconstruction needed
-```
-
-#### 2. **For Network Payloads**
-```rust
-// OLD: Always full conversion
-let block = payload.try_into_block()?;          // Full deserialization
-validator.validate(&block)?;                     // Validate
-if valid { executor.execute(block)?; }           // Execute
-
-// NEW: Lazy conversion
-let helper = payload_to_helper(payload)?;        // Partial parse
-validator.validate_helper(&helper)?;             // Validate without full block
-if valid {
-    let block = helper.into_block()?;           // Convert only if executing
-    executor.execute(block)?;
-}
-```
-
-#### 3. **For Optimism (Preserving Encoded Data)**
-```rust
-// OLD: Loses original encoding
-let block = payload.try_into_block()?;          // Decode transactions
-let encoded_again = block.encode();             // Re-encode for storage (different bytes!)
-
-// NEW: Preserves original
-let helper = OpExecutionHelper {
-    encoded_txs: payload.transactions.clone(),   // Keep original encoding
-    // ... other fields
-};
-// Can use original encoded bytes directly
-```
-
-### Real-World Example: Malachite Integration
-
-```rust
-// Before: Unnecessary conversions
-async fn commit_block(block: Block) {
-    // Block -> ExecutionPayload (serialize all fields)
-    let payload = block_to_payload(block.seal_slow());
-
-    // ExecutionPayload -> Block (deserialize all fields)
-    // This happens inside new_payload()
-    let status = engine.new_payload(payload).await?;
-}
-
-// After: Direct execution
-async fn commit_block(block: Block) {
-    // Block -> Helper (cheap wrapper, no serialization)
-    let helper = BlockExecutionHelper::new(block);
-
-    // Helper validates and executes without reconstruction
-    let status = engine.execute_helper(helper).await?;
-}
-```
 
