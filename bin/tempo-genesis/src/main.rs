@@ -2,15 +2,15 @@
 //!
 //! This utility generates a genesis.json file with accounts derived from mnemonics.
 
-use alloy::signers::local::MnemonicBuilder;
-use alloy::signers::local::coins_bip39::English;
-use alloy::signers::utils::secret_key_to_address;
+use alloy::signers::{
+    local::{MnemonicBuilder, coins_bip39::English},
+    utils::secret_key_to_address
+};
 use alloy_genesis::{Genesis, GenesisAccount};
 use alloy_primitives::{Address, B256, Bytes, U256};
 use clap::Parser;
 use eyre::Result;
 use rayon::prelude::*;
-use serde_json;
 use simple_tqdm::ParTqdm;
 use std::{collections::BTreeMap, fs, path::PathBuf};
 
@@ -68,7 +68,7 @@ fn main() -> Result<()> {
 
     // Create genesis accounts
     let mut alloc = BTreeMap::new();
-    for (i, address) in accounts.iter().enumerate() {
+    for (_, address) in accounts.iter().enumerate() {
         alloc.insert(
             *address,
             GenesisAccount {
