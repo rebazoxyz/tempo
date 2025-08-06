@@ -1,0 +1,8 @@
+list-clusters:
+    omnictl get clusters
+
+create-service-account cluster user="terraform":
+    @omnictl kubeconfig --service-account -c {{cluster}} --user {{user}} /tmp/talos_kubeconfig 2>/dev/null
+    @cat /tmp/talos_kubeconfig | yq ".clusters[0].cluster.server"
+    @cat /tmp/talos_kubeconfig | yq ".users[0].user.token"
+    @rm /tmp/talos_kubeconfig
