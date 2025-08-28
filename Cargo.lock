@@ -12026,6 +12026,7 @@ dependencies = [
  "reth-rpc-eth-types",
  "reth-storage-api",
  "reth-tasks",
+ "tokio",
 ]
 
 [[package]]

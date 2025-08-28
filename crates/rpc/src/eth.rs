@@ -2,19 +2,23 @@ use alloy::primitives::U256;
 use reth_rpc::eth::{EthApi, RpcNodeCore};
 use reth_rpc_convert::RpcConvert;
 use reth_rpc_eth_api::{
-    EthApiTypes, RpcNodeCoreExt,
+    EthApiTypes, FromEvmError, RpcNodeCoreExt,
     helpers::{
-        EthApiSpec, EthFees, EthState, FullEthApi, LoadFee, LoadPendingBlock, LoadState,
-        SpawnBlocking, Trace, spec::SignersForApi,
+        EthApiSpec, EthFees, EthState, FullEthApi, LoadBlock, LoadFee, LoadPendingBlock, LoadState,
+        SpawnBlocking, Trace, pending_block::PendingEnvBuilder, spec::SignersForApi,
     },
 };
-use reth_rpc_eth_types::{EthApiError, EthStateCache, FeeHistoryCache, GasPriceOracle};
+use reth_rpc_eth_types::{
+    EthApiError, EthStateCache, FeeHistoryCache, GasPriceOracle, PendingBlock,
+    builder::config::PendingBlockKind,
+};
 use reth_storage_api::{ProviderHeader, ProviderTx};
 use reth_tasks::{
     TaskSpawner,
     pool::{BlockingTaskGuard, BlockingTaskPool},
 };
 use std::ops::Deref;
+use tokio::sync::Mutex;
 
 /// Tempo `Eth` API implementation.
 ///
@@ -145,10 +149,41 @@ where
     }
 }
 
+impl<N, Rpc> LoadBlock for TempoEthApi<N, Rpc>
+where
+    Self: LoadPendingBlock,
+    N: RpcNodeCore,
+    Rpc: RpcConvert<Primitives = N::Primitives, Error = EthApiError>,
+{
+}
+
+impl<N, Rpc> LoadPendingBlock for TempoEthApi<N, Rpc>
+where
+    N: RpcNodeCore,
+    EthApiError: FromEvmError<N::Evm>,
+    Rpc: RpcConvert<Primitives = N::Primitives>,
+{
+    #[inline]
+    fn pending_block(&self) -> &Mutex<Option<PendingBlock<Self::Primitives>>> {
+        self.inner.pending_block()
+    }
+
+    #[inline]
+    fn pending_env_builder(&self) -> &dyn PendingEnvBuilder<Self::Evm> {
+        self.inner.pending_env_builder()
+    }
+
+    #[inline]
+    fn pending_block_kind(&self) -> PendingBlockKind {
+        self.inner.pending_block_kind()
+    }
+}
+
 impl<N, Rpc> LoadFee for TempoEthApi<N, Rpc>
 where
     N: RpcNodeCore,
     Rpc: RpcConvert<Primitives = N::Primitives, Error = EthApiError>,
+    EthApiError: FromEvmError<N::Evm>,
 {
     #[inline]
     fn gas_oracle(&self) -> &GasPriceOracle<Self::Provider> {
@@ -158,10 +193,6 @@ where
     #[inline]
     fn fee_history_cache(&self) -> &FeeHistoryCache<ProviderHeader<N::Provider>> {
         self.inner.fee_history_cache()
-    }
-
-    async fn suggested_priority_fee(&self) -> Result<U256, Self::Error> {
-        self.inner.suggested_priority_fee()
     }
 }
 
@@ -188,15 +219,15 @@ where
 impl<N, Rpc> EthFees for TempoEthApi<N, Rpc>
 where
     N: RpcNodeCore,
-    TempoEthApiError: FromEvmError<N::Evm>,
-    Rpc: RpcConvert<Primitives = N::Primitives, Error = TempoEthApiError>,
+    EthApiError: FromEvmError<N::Evm>,
+    Rpc: RpcConvert<Primitives = N::Primitives, Error = EthApiError>,
 {
 }
 
 impl<N, Rpc> Trace for TempoEthApi<N, Rpc>
 where
     N: RpcNodeCore,
-    TempoEthApiError: FromEvmError<N::Evm>,
+    EthApiError: FromEvmError<N::Evm>,
     Rpc: RpcConvert<Primitives = N::Primitives>,
 {
 }
