@@ -229,12 +229,42 @@ impl<'a, S: StorageProvider> TIP20Token<'a, S> {
     }
 
     // Token operations
+    /// Mints new tokens to specified address
     pub fn mint(&mut self, msg_sender: &Address, call: ITIP20::mintCall) -> Result<(), TIP20Error> {
+        self._mint(msg_sender, call.to, call.amount)
+    }
+
+    /// Mints new tokens to specified address with memo attached
+    pub fn mint_with_memo(
+        &mut self,
+        msg_sender: &Address,
+        call: ITIP20::mintWithMemoCall,
+    ) -> Result<(), TIP20Error> {
+        self._mint(msg_sender, call.to, call.amount)?;
+
+        self.storage
+            .emit_event(
+                self.token_address,
+                TIP20Event::TransferWithMemo(ITIP20::TransferWithMemo {
+                    from: *msg_sender,
+                    to: call.to,
+                    amount: call.amount,
+                    memo: call.memo,
+                })
+                .into_log_data(),
+            )
+            .expect("TODO: handle error");
+
+        Ok(())
+    }
+
+    /// Internal helper to mint new tokens and update balances
+    fn _mint(&mut self, msg_sender: &Address, to: Address, amount: U256) -> Result<(), TIP20Error> {
         self.check_role(msg_sender, *ISSUER_ROLE)?;
         let total_supply = self.total_supply();
 
         let new_supply = total_supply
-            .checked_add(call.amount)
+            .checked_add(amount)
             .ok_or(TIP20Error::supply_cap_exceeded())?;
 
         let supply_cap = self.supply_cap();
@@ -244,20 +274,19 @@ impl<'a, S: StorageProvider> TIP20Token<'a, S> {
 
         self.set_total_supply(new_supply);
 
-        let to_balance = self.get_balance(&call.to);
-        let new_to_balance: alloy::primitives::Uint<256, 4> =
-            to_balance
-                .checked_add(call.amount)
-                .ok_or(TIP20Error::supply_cap_exceeded())?;
-        self.set_balance(&call.to, new_to_balance);
+        let to_balance = self.get_balance(&to);
+        let new_to_balance: alloy::primitives::Uint<256, 4> = to_balance
+            .checked_add(amount)
+            .ok_or(TIP20Error::supply_cap_exceeded())?;
+        self.set_balance(&to, new_to_balance);
 
         self.storage
             .emit_event(
                 self.token_address,
                 TIP20Event::Transfer(ITIP20::Transfer {
                     from: Address::ZERO,
-                    to: call.to,
-                    amount: call.amount,
+                    to,
+                    amount,
                 })
                 .into_log_data(),
             )
@@ -266,34 +295,34 @@ impl<'a, S: StorageProvider> TIP20Token<'a, S> {
         self.storage
             .emit_event(
                 self.token_address,
-                TIP20Event::Mint(ITIP20::Mint {
-                    to: call.to,
-                    amount: call.amount,
-                })
-                .into_log_data(),
+                TIP20Event::Mint(ITIP20::Mint { to, amount }).into_log_data(),
             )
             .expect("TODO: handle error");
 
         Ok(())
     }
 
+    /// Burns tokens from sender's balance and reduces total supply
     pub fn burn(&mut self, msg_sender: &Address, call: ITIP20::burnCall) -> Result<(), TIP20Error> {
-        self.check_role(msg_sender, *ISSUER_ROLE)?;
+        self._burn(msg_sender, call.amount)
+    }
 
-        self._transfer(msg_sender, &Address::ZERO, call.amount)?;
-
-        let total_supply = self.total_supply();
-        let new_supply = total_supply
-            .checked_sub(call.amount)
-            .ok_or(TIP20Error::insufficient_balance())?;
-        self.set_total_supply(new_supply);
+    /// Burns tokens from sender's balance with memo attached
+    pub fn burn_with_memo(
+        &mut self,
+        msg_sender: &Address,
+        call: ITIP20::burnWithMemoCall,
+    ) -> Result<(), TIP20Error> {
+        self._burn(msg_sender, call.amount)?;
 
         self.storage
             .emit_event(
                 self.token_address,
-                TIP20Event::Burn(ITIP20::Burn {
+                TIP20Event::TransferWithMemo(ITIP20::TransferWithMemo {
                     from: *msg_sender,
+                    to: Address::ZERO,
                     amount: call.amount,
+                    memo: call.memo,
                 })
                 .into_log_data(),
             )
@@ -302,6 +331,7 @@ impl<'a, S: StorageProvider> TIP20Token<'a, S> {
         Ok(())
     }
 
+    /// Burns tokens from blocked addresses that cannot transfer
     pub fn burn_blocked(
         &mut self,
         msg_sender: &Address,
@@ -334,6 +364,31 @@ impl<'a, S: StorageProvider> TIP20Token<'a, S> {
                 TIP20Event::BurnBlocked(ITIP20::BurnBlocked {
                     from: call.from,
                     amount: call.amount,
+                })
+                .into_log_data(),
+            )
+            .expect("TODO: handle error");
+
+        Ok(())
+    }
+
+    fn _burn(&mut self, msg_sender: &Address, amount: U256) -> Result<(), TIP20Error> {
+        self.check_role(msg_sender, *ISSUER_ROLE)?;
+
+        self._transfer(msg_sender, &Address::ZERO, amount)?;
+
+        let total_supply = self.total_supply();
+        let new_supply = total_supply
+            .checked_sub(amount)
+            .ok_or(TIP20Error::insufficient_balance())?;
+        self.set_total_supply(new_supply);
+
+        self.storage
+            .emit_event(
+                self.token_address,
+                TIP20Event::Burn(ITIP20::Burn {
+                    from: *msg_sender,
+                    amount,
                 })
                 .into_log_data(),
             )
@@ -383,24 +438,59 @@ impl<'a, S: StorageProvider> TIP20Token<'a, S> {
         msg_sender: &Address,
         call: ITIP20::transferFromCall,
     ) -> Result<bool, TIP20Error> {
+        self._transfer_from(msg_sender, call.from, call.to, call.amount)
+    }
+
+    /// Transfer from `from` to `to` address with memo attached
+    pub fn transfer_from_with_memo(
+        &mut self,
+        msg_sender: &Address,
+        call: ITIP20::transferFromWithMemoCall,
+    ) -> Result<bool, TIP20Error> {
+        self._transfer_from(msg_sender, call.from, call.to, call.amount)?;
+
+        self.storage
+            .emit_event(
+                self.token_address,
+                TIP20Event::TransferWithMemo(ITIP20::TransferWithMemo {
+                    from: *msg_sender,
+                    to: call.to,
+                    amount: call.amount,
+                    memo: call.memo,
+                })
+                .into_log_data(),
+            )
+            .expect("TODO: handle error");
+
+        Ok(true)
+    }
+
+    fn _transfer_from(
+        &mut self,
+        msg_sender: &Address,
+        from: Address,
+        to: Address,
+        amount: U256,
+    ) -> Result<bool, TIP20Error> {
         self.check_not_paused()?;
-        self.check_not_token_address(&call.to)?;
-        self.check_transfer_authorized(&call.from, &call.to)?;
+        self.check_not_token_address(&to)?;
+        self.check_transfer_authorized(&from, &to)?;
 
         // Check and update allowance
-        let allowed = self.get_allowance(&call.from, msg_sender);
-        if call.amount > allowed {
+        let allowed = self.get_allowance(&from, msg_sender);
+        if amount > allowed {
             return Err(TIP20Error::insufficient_allowance());
         }
 
         if allowed != U256::MAX {
             let new_allowance = allowed
-                .checked_sub(call.amount)
+                .checked_sub(amount)
                 .ok_or(TIP20Error::insufficient_allowance())?;
-            self.set_allowance(&call.from, msg_sender, new_allowance);
+            self.set_allowance(&from, msg_sender, new_allowance);
         }
 
-        self._transfer(&call.from, &call.to, call.amount)?;
+        self._transfer(&from, &to, amount)?;
+
         Ok(true)
     }
 
@@ -773,6 +863,7 @@ impl<'a, S: StorageProvider> TIP20Token<'a, S> {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{Address, U256, keccak256};
+    use alloy_primitives::FixedBytes;
     use alloy_signer::SignerSync;
     use alloy_signer_local::PrivateKeySigner;
 
@@ -1025,5 +1116,171 @@ mod tests {
 
         let result = token.transfer(&from, ITIP20::transferCall { to, amount });
         assert!(matches!(result, Err(TIP20Error::InsufficientBalance(_))));
+    }
+
+    #[test]
+    fn test_mint_with_memo() {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        let token_id = 1;
+        let mut token = TIP20Token::new(token_id, &mut storage);
+        token.initialize("Test", "TST", "USD", &admin).unwrap();
+
+        let mut roles = token.get_roles_contract();
+        roles.grant_role_internal(&admin, *ISSUER_ROLE);
+
+        let to = Address::random();
+        let amount = U256::random();
+        let memo = FixedBytes::random();
+
+        token
+            .mint_with_memo(&admin, ITIP20::mintWithMemoCall { to, amount, memo })
+            .unwrap();
+
+        let events = &storage.events[&token_id_to_address(token_id)];
+
+        assert_eq!(
+            events[0],
+            TIP20Event::Transfer(ITIP20::Transfer {
+                from: Address::ZERO,
+                to,
+                amount
+            })
+            .into_log_data()
+        );
+
+        assert_eq!(
+            events[1],
+            TIP20Event::Mint(ITIP20::Mint { to, amount }).into_log_data()
+        );
+
+        assert_eq!(
+            events[2],
+            TIP20Event::TransferWithMemo(ITIP20::TransferWithMemo {
+                from: admin,
+                to,
+                amount,
+                memo
+            })
+            .into_log_data()
+        );
+    }
+
+    #[test]
+    fn test_burn_with_memo() {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        let token_id = 1;
+        let mut token = TIP20Token::new(token_id, &mut storage);
+        token.initialize("Test", "TST", "USD", &admin).unwrap();
+
+        let mut roles = token.get_roles_contract();
+        roles.grant_role_internal(&admin, *ISSUER_ROLE);
+
+        let amount = U256::random();
+        let memo = FixedBytes::random();
+
+        token
+            .mint(&admin, ITIP20::mintCall { to: admin, amount })
+            .unwrap();
+
+        token
+            .burn_with_memo(&admin, ITIP20::burnWithMemoCall { amount, memo })
+            .unwrap();
+
+        let events = &storage.events[&token_id_to_address(token_id)];
+
+        assert_eq!(
+            events[2],
+            TIP20Event::Transfer(ITIP20::Transfer {
+                from: admin,
+                to: Address::ZERO,
+                amount
+            })
+            .into_log_data()
+        );
+
+        assert_eq!(
+            events[3],
+            TIP20Event::Burn(ITIP20::Burn {
+                from: admin,
+                amount
+            })
+            .into_log_data()
+        );
+
+        assert_eq!(
+            events[4],
+            TIP20Event::TransferWithMemo(ITIP20::TransferWithMemo {
+                from: admin,
+                to: Address::ZERO,
+                amount,
+                memo
+            })
+            .into_log_data()
+        );
+    }
+
+    #[test]
+    fn test_transfer_from_with_memo() {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        let token_id = 1;
+        let mut token = TIP20Token::new(token_id, &mut storage);
+        token.initialize("Test", "TST", "USD", &admin).unwrap();
+
+        let mut roles = token.get_roles_contract();
+        roles.grant_role_internal(&admin, *ISSUER_ROLE);
+
+        let owner = Address::random();
+        let spender = Address::random();
+        let to = Address::random();
+        let amount = U256::random();
+        let memo = FixedBytes::random();
+
+        token
+            .mint(&admin, ITIP20::mintCall { to: owner, amount })
+            .unwrap();
+
+        token
+            .approve(&owner, ITIP20::approveCall { spender, amount })
+            .unwrap();
+
+        let result = token
+            .transfer_from_with_memo(
+                &spender,
+                ITIP20::transferFromWithMemoCall {
+                    from: owner,
+                    to,
+                    amount,
+                    memo,
+                },
+            )
+            .unwrap();
+
+        assert!(result);
+
+        let events = &storage.events[&token_id_to_address(token_id)];
+
+        assert_eq!(
+            events[3],
+            TIP20Event::Transfer(ITIP20::Transfer {
+                from: owner,
+                to,
+                amount
+            })
+            .into_log_data()
+        );
+
+        assert_eq!(
+            events[4],
+            TIP20Event::TransferWithMemo(ITIP20::TransferWithMemo {
+                from: spender,
+                to,
+                amount,
+                memo
+            })
+            .into_log_data()
+        );
     }
 }
