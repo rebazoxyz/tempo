@@ -1,0 +1,11 @@
+[package]
+name = "tempo-commonware"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+commonware-runtime = "0.0.58"
+tempo-commonware-node.workspace = true
