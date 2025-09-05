@@ -1,0 +1,12 @@
+[package]
+name = "tempo-eyre"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+eyre.workspace = true
+indenter = "0.3.0"
+
+[lints]
+workspace = true
