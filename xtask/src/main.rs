@@ -5,8 +5,8 @@ use commonware_cryptography::{PrivateKeyExt as _, Signer as _};
 use eyre::{Context, ensure};
 use indexmap::IndexMap;
 use rand::{rngs::OsRng, seq::IteratorRandom as _};
-use tempo_node_config::Config;
-use tempo_node_cryptography::PrivateKey;
+use tempo_commonware_node_config::Config;
+use tempo_commonware_node_cryptography::PrivateKey;
 
 fn main() -> eyre::Result<()> {
     let args = Args::parse();
@@ -125,7 +125,7 @@ fn generate_config(
     let threshold = commonware_utils::quorum(peers as u32);
     let (polynomial, shares) = commonware_cryptography::bls12381::dkg::ops::generate_shares::<
         _,
-        tempo_node_cryptography::BlsScheme,
+        tempo_commonware_node_cryptography::BlsScheme,
     >(&mut OsRng, None, peers as u32, threshold);
 
     // Generate instance configurations
