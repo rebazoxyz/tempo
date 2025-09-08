@@ -76,9 +76,7 @@ pub(crate) struct TempoSpecificArgs {
 
 impl Args {
     pub fn run(self) -> eyre::Result<()> {
-        use tracing_subscriber::fmt;
-        use tracing_subscriber::fmt::format::FmtSpan;
-        use tracing_subscriber::prelude::*;
+        use tracing_subscriber::{fmt, fmt::format::FmtSpan, prelude::*};
 
         let env_filter = tracing_subscriber::EnvFilter::builder()
             .parse(&self.filter_directives)

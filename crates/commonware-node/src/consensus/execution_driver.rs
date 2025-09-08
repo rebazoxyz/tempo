@@ -1,7 +1,6 @@
 //! Drives the execution engine by forwarding consensus messages.
 
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::{sync::Arc, time::SystemTime};
 
 use alloy_primitives::B256;
 use alloy_rpc_types_engine::{ExecutionData, ForkchoiceState};
@@ -11,15 +10,16 @@ use commonware_runtime::{Clock, Handle, Metrics, Spawner, Storage};
 use commonware_utils::SystemTimeExt;
 use eyre::{OptionExt, WrapErr as _, bail, ensure, eyre};
 use futures_channel::{mpsc, oneshot};
-use futures_util::future::{BoxFuture, Either, try_join};
-use futures_util::{FutureExt as _, SinkExt as _, StreamExt as _, TryFutureExt};
+use futures_util::{
+    FutureExt as _, SinkExt as _, StreamExt as _, TryFutureExt,
+    future::{BoxFuture, Either, try_join},
+};
 use rand::{CryptoRng, Rng};
 use reth::payload::PayloadBuilderHandle;
 use reth_ethereum_engine_primitives::EthBuiltPayload;
-use reth_node_builder::rpc::RethRpcAddOns;
 use reth_node_builder::{
     ConsensusEngineHandle, FullNode, FullNodeComponents, FullNodeTypes, NodePrimitives, NodeTypes,
-    PayloadTypes,
+    PayloadTypes, rpc::RethRpcAddOns,
 };
 
 use reth_provider::{BlockReader as _, DatabaseProviderFactory};

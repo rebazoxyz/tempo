@@ -2,22 +2,23 @@
 //!
 //! [`alto`]: https://github.com/commonwarexyx/alto
 
-use std::num::{NonZeroU64, NonZeroUsize};
-use std::time::Duration;
+use std::{
+    num::{NonZeroU64, NonZeroUsize},
+    time::Duration,
+};
 
 use commonware_broadcast::buffered;
 use commonware_consensus::{marshal, threshold_simplex};
 use commonware_cryptography::Signer as _;
 use commonware_p2p::{Blocker, Receiver, Sender};
-use commonware_runtime::buffer::PoolRef;
-use commonware_runtime::{Clock, Handle, Metrics, Spawner, Storage};
+use commonware_runtime::{Clock, Handle, Metrics, Spawner, Storage, buffer::PoolRef};
 use eyre::WrapErr as _;
 use futures_util::future::try_join_all;
 use governor::Quota;
 use rand::{CryptoRng, Rng};
-use reth_node_builder::rpc::RethRpcAddOns;
 use reth_node_builder::{
     FullNode, FullNodeComponents, FullNodeTypes, NodePrimitives, NodeTypes, PayloadTypes,
+    rpc::RethRpcAddOns,
 };
 
 use reth_provider::DatabaseProviderFactory;
@@ -25,8 +26,7 @@ use tempo_commonware_node_cryptography::{
     BlsScheme, GroupShare, PrivateKey, PublicKey, PublicPolynomial,
 };
 
-use super::block::Block;
-use super::supervisor::Supervisor;
+use super::{block::Block, supervisor::Supervisor};
 
 // A bunch of constants to configure commonwarexyz singletons and copied over form alto.
 

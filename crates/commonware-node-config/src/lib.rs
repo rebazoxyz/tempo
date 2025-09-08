@@ -257,7 +257,7 @@ mod _serde {
     }
 
     pub(crate) mod bootstrappers {
-        use serde::{de::Visitor, ser::SerializeSeq, Deserializer, Serializer};
+        use serde::{Deserializer, Serializer, de::Visitor, ser::SerializeSeq};
 
         use tempo_commonware_node_cryptography::PublicKey;
 
@@ -361,7 +361,7 @@ mod _serde {
         use std::net::SocketAddr;
 
         use indexmap::IndexMap;
-        use serde::{de::Visitor, ser::SerializeMap, Deserializer, Serializer};
+        use serde::{Deserializer, Serializer, de::Visitor, ser::SerializeMap};
 
         use tempo_commonware_node_cryptography::PublicKey;
 
