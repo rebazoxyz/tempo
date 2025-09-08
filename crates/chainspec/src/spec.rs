@@ -187,4 +187,10 @@ mod tests {
         let _ = super::TempoChainSpecParser::parse("adagio")
             .expect("the adagio chainspec must always be well formed");
     }
+
+    #[test]
+    fn can_load_dev() {
+        let _ = super::TempoChainSpecParser::parse("dev")
+            .expect("the dev chainspec must always be well formed");
+    }
 }
