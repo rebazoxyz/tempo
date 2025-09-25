@@ -80,7 +80,7 @@
     path: "{{ ansible_env.HOME }}/malachite/config/commonware.toml"
     section: "timeouts"
     option: "new_payload_wait_time"
-    value: "\"500ms\""
+    value: "\"0ms\""
 
 - name: Modify peers in configuration files
   ini_file:
@@ -88,3 +88,23 @@
     section: ""
     option: "storage_directory"
     value: "\"{{ ansible_env.HOME }}/malachite/commonware\""
+
+- name: Modify peers in configuration files
+  ini_file:
+    path: "{{ ansible_env.HOME }}/malachite/config/commonware.toml"
+    section: "timeouts"
+    option: "time_to_propose"
+    value: "\"6s\""
+
+- name: Modify peers in configuration files
+  ini_file:
+    path: "{{ ansible_env.HOME }}/malachite/config/commonware.toml"
+    section: "timeouts"
+    option: "time_to_collect_notarizations"
+    value: "\"6s\""
+- name: Modify peers in configuration files
+  ini_file:
+    path: "{{ ansible_env.HOME }}/malachite/config/commonware.toml"
+    section: "p2p"
+    option: "max_message_size_bytes"
+    value: "1_048_576"

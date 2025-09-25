@@ -25,10 +25,10 @@ ExecStart=/usr/local/bin/tempo node --datadir {{ ansible_env.HOME }}/malachite/r
   --genesis {{ ansible_env.HOME }}/malachite/config/genesis.json \
   --node-id "{{ ansible_host }}" \
   --chain-id "{{ tempo_chain_id }}" \
-  --builder.gaslimit 3000000000 \
+  --builder.gaslimit 50000000 \
   --builder.max-tasks 16 \
-  --builder.deadline 3 \
-  --builder.interval 100ms \
+  --builder.deadline 1 \
+  --builder.interval 300ms \
   --txpool.pending-max-count 10000000000000 \
   --txpool.basefee-max-count 10000000000000 \
   --txpool.queued-max-count 10000000000000 \
@@ -40,10 +40,9 @@ ExecStart=/usr/local/bin/tempo node --datadir {{ ansible_env.HOME }}/malachite/r
   --txpool.max-pending-txns 10000000000000 \
   --txpool.max-new-txns 10000000000000 \
   --txpool.disable-transactions-backup \
-  --txpool.additional-validation-tasks 8 \
   --txpool.minimal-protocol-fee 0 \
   --txpool.minimum-priority-fee 0 \
-  --txpool.max-batch-size 50000 \
+  --txpool.max-batch-size 1000 \
   --rpc.max-connections 429496729 \
   --rpc.max-request-size 1000000 \
   --rpc.max-response-size 1000000 \
