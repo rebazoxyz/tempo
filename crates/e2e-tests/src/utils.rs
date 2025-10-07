@@ -27,7 +27,9 @@ impl Node {
 
 pub async fn setup_validators(count: usize) -> Vec<Node> {
     let prefix = &Uuid::new_v4().to_string()[..8];
-    let hostnames = (1..count).map(|i| format!("{}-node-{i}", prefix).collect::<Vec<_>>();
+    let hostnames = (1..count)
+        .map(|i| format!("{}-node-{i}", prefix))
+        .collect::<Vec<_>>();
 
     let configs = generate_commonware_config(hostnames.clone());
 
@@ -101,7 +103,7 @@ pub async fn setup_validators(count: usize) -> Vec<Node> {
             ])
             .with_env_var("RUST_LOG", "debug")
             .with_container_name(config.0.clone())
-            .with_network(prefix.clone())
+            .with_network(prefix)
             .start()
             .await
             .unwrap();
