@@ -32,7 +32,6 @@ pub async fn setup_validators(count: usize) -> Vec<Node> {
     let configs = generate_commonware_config(hostnames.clone());
 
     let mut nodes = Vec::new();
-    let network_name = Uuid::new_v4().to_string();
 
     let reth_peers = hostnames
         .iter()
@@ -102,7 +101,7 @@ pub async fn setup_validators(count: usize) -> Vec<Node> {
             ])
             .with_env_var("RUST_LOG", "debug")
             .with_container_name(config.0.clone())
-            .with_network(network_name.clone())
+            .with_network(prefix.clone())
             .start()
             .await
             .unwrap();
