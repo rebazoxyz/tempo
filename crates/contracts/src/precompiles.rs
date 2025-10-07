@@ -289,6 +289,31 @@ sol! {
         error CannotChangeWithinBlock();
         error TokenPolicyForbids();
     }
+
+    #[derive(Debug, PartialEq, Eq)]
+    #[sol(rpc)]
+    interface IStablecoinDex {
+        // View functions
+        function balanceOf(address user, address token) external view returns (uint128);
+        function quoteBuy(address tokenIn, address tokenOut, uint128 amountOut) external view returns (uint128 amountIn);
+        function quoteSell(address tokenIn, address tokenOut, uint128 amountIn) external view returns (uint128 amountOut);
+
+        // Taker functions
+        function sell(address tokenIn, address tokenOut, uint128 amountIn, uint128 minAmountOut) external returns (uint128 amountOut);
+        function buy(address tokenIn, address tokenOut, uint128 amountOut, uint128 maxAmountIn) external returns (uint128 amountIn);
+
+        // Maker functions
+        function place(address token, uint128 amount, bool isBid, int16 tick) external returns (uint128 orderId);
+        function placeFlip(address token, uint128 amount, bool isBid, int16 tick, int16 flipTick) external returns (uint128 orderId);
+        function cancel(uint128 orderId) external;
+
+        // Balance management
+        function withdraw(address token, uint128 amount) external;
+
+        // TODO: Events
+
+        // TODO: Errors
+    }
 }
 
 impl TIPFeeAMMError {
@@ -513,6 +538,9 @@ macro_rules! fee_manager_err {
 // Use the auto-generated error and event enums
 pub use IFeeManager::{IFeeManagerErrors as FeeManagerError, IFeeManagerEvents as FeeManagerEvent};
 pub use IRolesAuth::{IRolesAuthErrors as RolesAuthError, IRolesAuthEvents as RolesAuthEvent};
+// pub use IStablecoinDex::{
+//     IStablecoinDexErrors as StablecoinDexError, IStablecoinDexEvents as StablecoinDexEvent,
+// };
 pub use ITIP20::{ITIP20Errors as TIP20Error, ITIP20Events as TIP20Event};
 pub use ITIP20Factory::ITIP20FactoryEvents as TIP20FactoryEvent;
 pub use ITIP403Registry::{
