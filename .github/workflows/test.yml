@@ -65,6 +65,7 @@ jobs:
           context: .
           platforms: linux/amd64
           tags: tempo-node:latest
+          load: true
       - name: Run tests
         run: cargo nextest run -p tempo-e2e-tests
   test-success:
