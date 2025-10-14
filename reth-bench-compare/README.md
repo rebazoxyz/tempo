@@ -69,22 +69,6 @@ python3 reth_bench_compare.py
 - Enhanced log parsing with block decision tracking for debugging
 - Detailed reporting of which blocks were included/excluded and why
 
-## Library
-
-### lib/log_analysis.py
-
-Core log analysis functions shared by all scripts.
-
-**Key Functions:**
-- `strip_ansi_codes(text)` - Remove ANSI escape codes
-- `parse_timestamp(line)` - Extract timestamp from log line
-- `parse_time_to_ms(time_str)` - Parse time strings to milliseconds
-- `find_block_range(log_file)` - Detect steady-state block range
-- `parse_log_file(log_file, block_range)` - Extract timing metrics
-- `compute_statistics(times)` - Compute mean, median, min, max, std_dev
-- `build_summary(log_file, block_range, metrics)` - Build metrics summary
-- `analyze_log(log_file, label)` - Analyze a single log file
-
 ## Metrics
 
 The analysis extracts these timing metrics from logs:
