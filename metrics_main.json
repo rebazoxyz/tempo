@@ -1,0 +1,42 @@
+{
+  "label": "main",
+  "log_file": "/Users/yongkang/Code/tempo/tempo/debug_main.log",
+  "block_range": [
+    20496,
+    20504
+  ],
+  "metrics": {
+    "Build Payload Time": {
+      "count": 9,
+      "mean": 358.3776344444444,
+      "median": 321.440333,
+      "min": 252.534334,
+      "max": 578.11925,
+      "std_dev": 103.1232340433878
+    },
+    "State Root Computation": {
+      "count": 9,
+      "mean": 6.871777777777777,
+      "median": 4.785,
+      "min": 2.892,
+      "max": 25.717,
+      "std_dev": 7.11495883294095
+    },
+    "Explicit State Root Task": {
+      "count": 128,
+      "mean": 9.870809874999999,
+      "median": 5.04675,
+      "min": 0.003625,
+      "max": 83.489833,
+      "std_dev": 13.416808466919525
+    },
+    "Block Added to Canonical Chain": {
+      "count": 9,
+      "mean": 2122.482337777778,
+      "median": 1902.425,
+      "min": 1340.895291,
+      "max": 3388.7891250000002,
+      "std_dev": 728.5690161532444
+    }
+  }
+}
