@@ -35,6 +35,7 @@ MAIN_COMMIT = "d2070f4de34f523f6097ebc64fa9d63a04878055"
 # Navigate to repo root (2 levels up from scripts/)
 SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent
 TEMPO_BIN = SCRIPT_DIR / "target" / "release" / "tempo"
+BENCH_AND_KILL_SCRIPT = Path(__file__).resolve().parent / "bench_and_kill.py"
 LOG_SELECTORS = re.compile(
     r"build_payload|Received block from consensus engine|State root task finished|Block added to canonical chain"
 )
@@ -535,7 +536,8 @@ def run_bench_cycle(label: str, commit: str, log_path: Path, metrics_path: Path,
     print(f"Running bench_and_kill.sh for {label}...")
     run_command(
         [
-            "./bench_and_kill.sh",
+            sys.executable,
+            str(BENCH_AND_KILL_SCRIPT),
             "--log",
             str(log_path),
             "--skip-analysis",
@@ -646,8 +648,8 @@ def main() -> None:
 
     # Feature-specific arguments for testing engine worker counts
     feature_args = [
-        "--engine.account-worker-count", "64",
-        "--engine.storage-worker-count", "64",
+        "--engine.account-worker-count", "32",
+        "--engine.storage-worker-count", "32",
     ]
 
     print("Starting main -> feature bench cycles...")
