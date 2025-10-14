@@ -12,6 +12,8 @@ import os
 import signal
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 # Resolve repository root from scripts/ directory.
@@ -54,13 +56,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--duration-seconds",
         type=int,
-        default=180,
-        help="Duration to run tempo-bench before stopping (default: 180 seconds)",
+        default=600,
+        help="Duration to run tempo-bench before stopping (default: 600 seconds)",
     )
     return parser.parse_args()
 
 
-def run_tempo_bench(duration_seconds: int) -> None:
+def run_tempo_bench(duration_seconds: int, log_dir: Path) -> None:
     print("Step 1: Running tempo-bench with max-tps...")
     cmd = [
         "cargo",
@@ -79,16 +81,42 @@ def run_tempo_bench(duration_seconds: int) -> None:
         "--chain-id",
         "1337",
     ]
-    process = subprocess.Popen(cmd, cwd=REPO_ROOT)
+    process = subprocess.Popen(
+        cmd,
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    bench_cli_log = log_dir / "bench.log"
+
+    def stream_output() -> None:
+        if not process.stdout:
+            return
+        with bench_cli_log.open("a") as log_handle:
+            for line in process.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                log_handle.write(line)
+                log_handle.flush()
+
+    stream_thread = threading.Thread(target=stream_output, name="tempo-bench-log", daemon=True)
+    stream_thread.start()
+
     # Add buffer time for tempo-bench to finish cleanly after its internal duration expires
     timeout = duration_seconds + 30
+    stopped_by_timer = False
     try:
         process.wait(timeout=timeout)
         if process.returncode not in (0, None):
+            # Failed before the timer elapsed
             raise subprocess.CalledProcessError(process.returncode, cmd)
-        print(f"tempo-bench completed successfully.")
+        print("tempo-bench completed successfully.")
         return
     except subprocess.TimeoutExpired:
+        stopped_by_timer = True
         print(f"tempo-bench still running after {timeout}s timeout, stopping workload...")
         process.send_signal(signal.SIGINT)
         try:
@@ -97,9 +125,37 @@ def run_tempo_bench(duration_seconds: int) -> None:
             print("tempo-bench did not exit after SIGINT, killing process.")
             process.kill()
             process.wait()
-    if process.returncode not in (0, None):
-        raise subprocess.CalledProcessError(process.returncode or -1, cmd)
-    print("tempo-bench stopped successfully.")
+    finally:
+        # Ensure stdout is closed so the streaming thread exits
+        if process.stdout:
+            try:
+                process.stdout.close()
+            except Exception:
+                pass
+        stream_thread.join(timeout=5)
+
+    return_code = process.returncode
+    if return_code in (None, 0):
+        print("tempo-bench stopped successfully.")
+        return
+
+    # Normalise signal-based exits (e.g., 130, -2) when we initiated the stop.
+    expected_signals = {
+        -signal.SIGINT,
+        -signal.SIGTERM,
+        -signal.SIGKILL,
+        128 + signal.SIGINT,
+        128 + signal.SIGTERM,
+        128 + signal.SIGKILL,
+        256 - signal.SIGINT,
+        256 - signal.SIGTERM,
+        256 - signal.SIGKILL,
+    }
+    if stopped_by_timer and return_code in expected_signals:
+        print(f"tempo-bench stopped via signal (return code {return_code}).")
+        return
+
+    raise subprocess.CalledProcessError(return_code or -1, cmd)
 
 
 def find_tempo_pids() -> list[int]:
@@ -180,7 +236,7 @@ def main() -> None:
     log_path = Path(args.log)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    run_tempo_bench(args.duration_seconds)
+    run_tempo_bench(args.duration_seconds, log_path.parent)
 
     pids = find_tempo_pids()
     if not pids:
