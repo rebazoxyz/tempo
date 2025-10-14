@@ -114,6 +114,78 @@ def find_block_range(log_file: Path, min_gas: int = 1000) -> tuple[Optional[int]
     return None, None
 
 
+def print_block_decisions(block_decisions: dict[int, dict[str, object]], block_range: Optional[Sequence[int]]) -> None:
+    """Print a summary of which blocks were included/excluded and why."""
+    if not block_decisions:
+        return
+
+    included_blocks = []
+    excluded_blocks = []
+
+    for block_num in sorted(block_decisions.keys()):
+        decision = block_decisions[block_num]
+        if decision["include"] and (block_range is None or (block_range[0] <= block_num <= block_range[1])):
+            included_blocks.append(block_num)
+        else:
+            excluded_blocks.append((block_num, decision))
+
+    print("\n" + "="*80)
+    print("BLOCK FILTERING DECISIONS")
+    print("="*80)
+
+    if block_range:
+        print(f"Steady-state range: [{block_range[0]} - {block_range[1]}]")
+    else:
+        print("Steady-state range: None (all blocks analyzed)")
+
+    print(f"\n✓ Included blocks: {len(included_blocks)}")
+    if included_blocks and len(included_blocks) <= 20:
+        print(f"  Block numbers: {included_blocks}")
+    elif included_blocks:
+        print(f"  Block range: {included_blocks[0]} to {included_blocks[-1]}")
+
+    # Check for metric consistency
+    metric_issues = []
+    for block_num in included_blocks:
+        decision = block_decisions[block_num]
+        missing = []
+        if not decision["has_build_time"]:
+            missing.append("build_time")
+        if not decision["has_state_root_time"]:
+            missing.append("state_root")
+        if not decision["has_payload_to_received_time"]:
+            missing.append("payload_to_received")
+        if not decision["has_block_added_time"]:
+            missing.append("block_added")
+
+        if missing:
+            metric_issues.append((block_num, missing))
+
+    if metric_issues:
+        print(f"\n  ⚠️  WARNING: {len(metric_issues)} blocks have missing metrics:")
+        for block_num, missing in metric_issues[:10]:  # Show first 10
+            print(f"      Block {block_num}: missing {', '.join(missing)}")
+        if len(metric_issues) > 10:
+            print(f"      ... and {len(metric_issues) - 10} more")
+
+    print(f"\n✗ Excluded blocks: {len(excluded_blocks)}")
+    if excluded_blocks and len(excluded_blocks) <= 20:
+        for block_num, decision in excluded_blocks:
+            reason = decision["reason"] or "Unknown"
+            tx_count = decision["tx_count"]
+            print(f"  Block {block_num}: {reason} (txs={tx_count})")
+    elif excluded_blocks:
+        # Group by reason
+        reason_counts: dict[str, int] = {}
+        for _, decision in excluded_blocks:
+            reason = decision["reason"] or "Unknown"
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        for reason, count in reason_counts.items():
+            print(f"  {reason}: {count} blocks")
+
+    print("="*80 + "\n")
+
+
 def parse_log_file(log_file: Path, block_range: Optional[Sequence[int]] = None) -> tuple[list[float], list[float], list[float], list[float]]:
     build_times: list[float] = []
     explicit_state_root_times: list[float] = []
@@ -122,6 +194,9 @@ def parse_log_file(log_file: Path, block_range: Optional[Sequence[int]] = None) 
 
     built_payload_times: dict[int, dict[str, object]] = {}
     current_block_context: Optional[dict[str, object]] = None
+
+    # Track block decisions for verification
+    block_decisions: dict[int, dict[str, object]] = {}
 
     with log_file.open("r", encoding="utf-8") as handle:
         for raw_line in handle:
@@ -136,6 +211,18 @@ def parse_log_file(log_file: Path, block_range: Optional[Sequence[int]] = None) 
                     block_number = parent_number + 1
                     total_transactions = int(txs_match.group(1)) if txs_match else 0
                     include_block = total_transactions > 1 and block_number != 1
+
+                    # Track block decision
+                    block_decisions[block_number] = {
+                        "tx_count": total_transactions,
+                        "include": include_block,
+                        "reason": None,
+                        "has_build_time": False,
+                        "has_state_root_time": False,
+                        "has_payload_to_received_time": False,
+                        "has_block_added_time": False,
+                    }
+
                     if include_block or block_number > 1:
                         built_payload_times[block_number] = {"timestamp": timestamp, "include": include_block}
 
@@ -143,14 +230,20 @@ def parse_log_file(log_file: Path, block_range: Optional[Sequence[int]] = None) 
                 if match and parent_match:
                     block_number = int(parent_match.group(1)) + 1
                     block_info = built_payload_times.get(block_number)
-                    if (
-                        block_info
-                        and block_info["include"]
-                        and (block_range is None or (block_range[0] <= block_number <= block_range[1]))
-                    ):
+                    in_range = block_range is None or (block_range[0] <= block_number <= block_range[1])
+
+                    if block_number in block_decisions:
+                        if not block_info or not block_info["include"]:
+                            block_decisions[block_number]["reason"] = "Block #1 or ≤1 tx"
+                        elif not in_range:
+                            block_decisions[block_number]["reason"] = f"Outside range [{block_range[0]}-{block_range[1]}]" if block_range else None
+
+                    if block_info and block_info["include"] and in_range:
                         time_ms = parse_time_to_ms(match.group(1))
                         if time_ms is not None:
                             build_times.append(time_ms)
+                            if block_number in block_decisions:
+                                block_decisions[block_number]["has_build_time"] = True
 
             elif "Received block from consensus engine" in clean_line:
                 number_match = re.search(r"number\s*=\s*(\d+)", clean_line)
@@ -171,6 +264,8 @@ def parse_log_file(log_file: Path, block_range: Optional[Sequence[int]] = None) 
                             start_time = block_info["timestamp"]
                             elapsed_ms = (timestamp - start_time).total_seconds() * 1000
                             payload_to_received_times.append(elapsed_ms)
+                            if block_number in block_decisions:
+                                block_decisions[block_number]["has_payload_to_received_time"] = True
                         del built_payload_times[block_number]
                 continue
 
@@ -182,6 +277,9 @@ def parse_log_file(log_file: Path, block_range: Optional[Sequence[int]] = None) 
                         time_ms = parse_time_to_ms(match.group(1))
                         if time_ms is not None:
                             explicit_state_root_times.append(time_ms)
+                            block_num = current_block_context["block_number"]
+                            if block_num in block_decisions:
+                                block_decisions[block_num]["has_state_root_time"] = True
 
             elif "Block added to canonical chain" in clean_line:
                 number_match = re.search(r"number\s*=\s*(\d+)", clean_line)
@@ -196,8 +294,13 @@ def parse_log_file(log_file: Path, block_range: Optional[Sequence[int]] = None) 
                         time_ms = parse_time_to_ms(match.group(1))
                         if time_ms is not None:
                             block_added_times.append(time_ms)
+                            if block_number in block_decisions:
+                                block_decisions[block_number]["has_block_added_time"] = True
                 # Clear the block context after processing the block
                 current_block_context = None
+
+    # Print block decisions summary
+    print_block_decisions(block_decisions, block_range)
 
     return build_times, explicit_state_root_times, payload_to_received_times, block_added_times
 
