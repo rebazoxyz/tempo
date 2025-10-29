@@ -25,16 +25,16 @@ use indexmap::IndexSet;
 use rand_core::CryptoRngCore;
 use tracing::{Level, debug, error, info, instrument, warn};
 
+use tempo_dkg_onchain_artifacts::{Ack, IntermediateOutcome};
+
 use crate::consensus::block::Block;
 
-mod on_chain;
 mod payload;
 mod persisted;
 
-pub(crate) use on_chain::{IntermediateOutcome, PublicOutcome};
 pub(super) use persisted::State;
 
-use payload::{Ack, Message, Payload, Share};
+use payload::{Message, Payload, Share};
 use persisted::Dealing;
 
 const ACK_NAMESPACE: &[u8] = b"_DKG_ACK";
@@ -110,6 +110,7 @@ where
     TSender: Sender<PublicKey = PublicKey>,
 {
     /// Initialize a DKG ceremony.
+    #[instrument(skip_all, fields(for_epoch = config.epoch), err)]
     pub(super) async fn init(
         context: &mut TContext,
         mux: &mut MuxHandle<TSender, TReceiver>,
@@ -141,6 +142,7 @@ where
 
         let mut dealer_me = None;
 
+        debug!("attempting to read ceremony state from disk");
         // TODO(janis): move this "recovery" logic to a function.
         // Clone in order to not hold onto the lock too long.
         let recovered = ceremony_metadata
@@ -153,13 +155,13 @@ where
             info!("found a previous ceremony state written to disk; recovering it");
             for outcome in &recovered.outcomes {
                 let ack_indices = outcome
-                    .acks
+                    .acks()
                     .iter()
                     .filter_map(|ack| {
-                        let idx = players_indexed.get_index_of(&ack.player);
+                        let idx = players_indexed.get_index_of(ack.player());
                         if idx.is_none() {
                             warn!(
-                                player = %ack.player,
+                                player = %ack.player(),
                                 "ack for player recovered from disk not among players of this ceremony",
                             );
                         }
@@ -169,10 +171,10 @@ where
 
                 if let Err(error) = arbiter
                     .commitment(
-                        outcome.dealer.clone(),
-                        outcome.commitment.clone(),
+                        outcome.dealer().clone(),
+                        outcome.commitment().clone(),
                         ack_indices,
-                        outcome.reveals.clone(),
+                        outcome.reveals().to_vec(),
                     )
                     .wrap_err("failed to verify and track commitment")
                 {
@@ -197,11 +199,11 @@ where
                     config.players.clone(),
                 );
                 for ack in dealing.acks.values() {
-                    dkg_dealer.ack(ack.player.clone()).wrap_err_with(|| {
+                    dkg_dealer.ack(ack.player().clone()).wrap_err_with(|| {
                         format!(
                             "failed updating dealer information with ack for \
                              player `{player}` recovered from disk",
-                            player = ack.player,
+                            player = ack.player(),
                         )
                     })?;
                 }
@@ -212,11 +214,30 @@ where
                     outcome: recovered.dealing_outcome,
                 });
             }
-        } else if let Some(share) = config.share.clone() {
-            // XXX: It is critical to write the initial ceremony state with the
-            // correct number of players to disk. The upsert operations in the
-            // rest of the ceremony write the default value for the number of
-            // players, with is 0.
+        } else {
+            info!("starting a fresh ceremony");
+
+            if let Some(share) = config.share.clone() {
+                info!("we have a share, so we are a dealer in this ceremony");
+                let (_, commitment, shares) = dkg::Dealer::<PublicKey, MinSig>::new(
+                    context,
+                    Some(share),
+                    config.players.clone(),
+                );
+                let shares = config
+                    .players
+                    .iter()
+                    .zip(&shares)
+                    .map(|(player, share)| (player.clone(), share.clone()))
+                    .collect();
+                dealer_me = Some(Dealer {
+                    commitment,
+                    shares,
+                    acks: BTreeMap::new(),
+                    outcome: None,
+                });
+            }
+
             ceremony_metadata
                 .lock()
                 .await
@@ -224,26 +245,16 @@ where
                     config.epoch.into(),
                     State {
                         num_players: config.players.len() as u64,
+                        dealing: dealer_me.as_ref().map(|me| Dealing {
+                            commitment: me.commitment.clone(),
+                            shares: me.shares.clone(),
+                            acks: BTreeMap::new(),
+                        }),
                         ..State::default()
                     },
                 )
                 .await
                 .expect("must always be able to initialize the ceremony state to disk");
-
-            let (_, commitment, shares) =
-                dkg::Dealer::<PublicKey, MinSig>::new(context, Some(share), config.players.clone());
-            let shares = config
-                .players
-                .iter()
-                .zip(&shares)
-                .map(|(player, share)| (player.clone(), share.clone()))
-                .collect();
-            dealer_me = Some(Dealer {
-                commitment,
-                shares,
-                acks: BTreeMap::new(),
-                outcome: None,
-            });
         };
 
         let previous = config.share.clone().map_or_else(
@@ -417,7 +428,7 @@ where
         fields(
             epoch = %self.epoch(),
             %peer,
-            player = %ack.player,
+            player = %ack.player(),
         ),
         err(level = Level::WARN),
         ret,
@@ -428,7 +439,7 @@ where
         };
 
         ensure!(
-            ack.player == peer,
+            ack.player() == &peer,
             "player recorded in ack does not match peer that sent it; dropping ack",
         );
 
@@ -548,9 +559,9 @@ where
 
         // Ensure the outcome is for the current round.
         ensure!(
-            block_outcome.epoch == self.epoch(),
+            block_outcome.epoch() == self.epoch(),
             "deal outcome in block was for epoch `{}`, but current dkg ceremony is for epoch `{}`",
-            block_outcome.epoch,
+            block_outcome.epoch(),
             self.epoch(),
         );
 
@@ -561,29 +572,29 @@ where
         );
 
         // Verify all ack signatures
-        if !block_outcome.acks.iter().all(|ack| {
-            self.players_indexed.contains(&ack.player)
+        if !block_outcome.acks().iter().all(|ack| {
+            self.players_indexed.contains(ack.player())
                 && ack.verify(
                     &union(&self.config.namespace, ACK_NAMESPACE),
-                    &ack.player,
+                    &ack.player(),
                     self.epoch(),
-                    &block_outcome.dealer,
-                    &block_outcome.commitment,
+                    block_outcome.dealer(),
+                    block_outcome.commitment(),
                 )
         }) {
-            self.arbiter.disqualify(block_outcome.dealer.clone());
+            self.arbiter.disqualify(block_outcome.dealer().clone());
             bail!("invalid ack signatures; disqualifying dealer");
         }
 
         // Check dealer commitment
         let ack_indices = block_outcome
-            .acks
+            .acks()
             .iter()
             .filter_map(|ack| {
-                let idx = self.players_indexed.get_index_of(&ack.player);
+                let idx = self.players_indexed.get_index_of(ack.player());
                 if idx.is_none() {
                     warn!(
-                        player = %ack.player,
+                        player = %ack.player(),
                         "ack for player stored on disk not among players of this ceremony",
                     );
                 }
@@ -593,14 +604,14 @@ where
 
         self.arbiter
             .commitment(
-                block_outcome.dealer.clone(),
-                block_outcome.commitment.clone(),
+                block_outcome.dealer().clone(),
+                block_outcome.commitment().clone(),
                 ack_indices,
-                block_outcome.reveals.clone(),
+                block_outcome.reveals().to_vec(),
             )
             .wrap_err("failed to track dealer outcome in arbiter")?;
 
-        let block_dealer = block_outcome.dealer.clone();
+        let block_dealer = block_outcome.dealer().clone();
         self.ceremony_metadata
             .lock()
             .await
@@ -608,7 +619,7 @@ where
                 if let Some(pos) = info
                     .outcomes
                     .iter()
-                    .position(|outcome| outcome.dealer == block_outcome.dealer)
+                    .position(|outcome| outcome.dealer() == block_outcome.dealer())
                 {
                     info.outcomes[pos] = block_outcome;
                 } else {
@@ -780,10 +791,6 @@ where
         })
     }
 
-    pub(super) fn config(&self) -> &Config {
-        &self.config
-    }
-
     pub(super) fn epoch(&self) -> Epoch {
         self.config.epoch
     }
@@ -791,6 +798,22 @@ where
     pub(super) fn deal_outcome(&self) -> Option<&IntermediateOutcome> {
         let dealer_me = self.dealer_me.as_ref()?;
         dealer_me.outcome.as_ref()
+    }
+
+    pub(super) fn dealers(&self) -> &[PublicKey] {
+        self.config.dealers.as_ref()
+    }
+
+    pub(super) fn players(&self) -> &[PublicKey] {
+        self.config.players.as_ref()
+    }
+
+    pub(super) fn is_dealer(&self) -> bool {
+        self.dealer_me.is_some()
+    }
+
+    pub(super) fn is_player(&self) -> bool {
+        self.player_me.is_some()
     }
 }
 

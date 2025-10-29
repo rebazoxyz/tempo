@@ -1,8 +1,9 @@
+use commonware_codec::Encode as _;
 use commonware_cryptography::{PrivateKeyExt as _, Signer as _, ed25519::PrivateKey};
 use eyre::{WrapErr as _, ensure};
-use indexmap::IndexMap;
+use itertools::Itertools as _;
 use rand::SeedableRng;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use tempo_commonware_node_config::Config;
 
 /// Generates a config file to run a bunch of validators locally.
@@ -93,16 +94,11 @@ pub(crate) fn generate_config(
 
     // Generate instance configurations
     let mut port = from_port;
-    let mut these_will_be_peers = IndexMap::new();
     let mut configurations = Vec::new();
 
     for (signer, share) in signers.into_iter().zip(shares) {
         // Create peer config
         let name = signer.public_key().to_string();
-        these_will_be_peers.insert(
-            signer.public_key(),
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port).to_string(),
-        );
         let dst = {
             let mut p = output.join(&name);
             p.set_extension("toml");
@@ -110,18 +106,13 @@ pub(crate) fn generate_config(
         };
         let peer_config = Config {
             signer,
-            share,
-            // 1 week worth of blocks, assuming 2s per block
-            epoch_length: 302_400,
-            polynomial: polynomial.clone(),
+            share: Some(share),
             listen_addr: SocketAddr::from(([127, 0, 0, 1], port)),
-            dialable_addr: SocketAddr::from(([127, 0, 0, 1], port)),
             metrics_port: Some(port + 1),
             p2p: Default::default(),
             storage_directory: output.join(&name).join("storage"),
             worker_threads: 3,
             // this will be updated after we have collected all peers
-            peers: IndexMap::new(),
             message_backlog,
             mailbox_size,
             deque_size,
@@ -132,10 +123,6 @@ pub(crate) fn generate_config(
         port += 2;
     }
 
-    configurations
-        .iter_mut()
-        .for_each(|(_, _, cfg)| cfg.peers = these_will_be_peers.clone());
-
     // Write configuration files
     for (_, dst, cfg) in &configurations {
         let pretty = toml::to_string_pretty(&cfg).wrap_err("failed to convert config to toml")?;
@@ -144,8 +131,23 @@ pub(crate) fn generate_config(
         eprintln!("wrote config to file: `{dst}`");
     }
 
-    eprintln!("Config files written");
-    eprintln!("To start validators, run:");
+    let genesis_dst = output.join("genesis.json");
+    eprintln!("Config files written\n");
+    eprintln!("To start validators, first generate a genesis with the following arguments:");
+    eprintln!(
+        "--output {genesis_dst} \
+        \\\n--public-polynomial {} \
+        \\\n--validator-addresses {} \
+        \\\n--validator-pubkeys {}\n",
+        const_hex::encode(polynomial.encode()),
+        configurations
+            .iter()
+            .map(|(_, _, conf)| &conf.listen_addr)
+            .join(","),
+        configurations.iter().map(|(name, _, _)| name).join(","),
+    );
+
+    eprint!("Then run:");
     for (instance, (name, dst, cfg)) in (1u32..).zip(&configurations) {
         let eth_dst = cfg.storage_directory.with_file_name("reth_storage");
         let command = format!(
@@ -153,19 +155,19 @@ pub(crate) fn generate_config(
                 \\\nnode \
                 \\\n--consensus-config {dst} \
                 \\\n--datadir {eth_dst} \
-                \\\n--chain dev \
+                \\\n--chain {genesis_dst} \
                 \\\n--instance {instance} \
                 \\\n--http"
         );
-        println!("{name}: {command}");
+        eprintln!("{name}:\n{command}\n");
     }
-    println!("\nTo view metrics, run:");
+    eprintln!("\nTo view metrics, run:");
     for (name, _, peer_config) in &configurations {
         let cmd = match peer_config.metrics_port {
             None => "<metrics port not set>".to_string(),
             Some(metrics_port) => format!("curl http://localhost:{metrics_port}/metrics",),
         };
-        println!("{name}: {cmd}");
+        eprintln!("{name}: {cmd}");
     }
     Ok(())
 }

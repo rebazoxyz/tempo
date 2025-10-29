@@ -120,10 +120,7 @@ impl Write for Dealing {
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::dkg::{
-        IntermediateOutcome,
-        ceremony::{ACK_NAMESPACE, Ack, OUTCOME_NAMESPACE},
-    };
+    use crate::dkg::ceremony::{ACK_NAMESPACE, Ack, OUTCOME_NAMESPACE};
 
     use super::{Dealing, State};
     use commonware_codec::{Decode as _, Encode as _, Read as _};
@@ -134,6 +131,7 @@ mod tests {
     };
     use commonware_utils::{quorum, set::Ordered, union};
     use rand::{SeedableRng as _, rngs::StdRng};
+    use tempo_dkg_onchain_artifacts::IntermediateOutcome;
 
     fn four_private_keys() -> Ordered<PrivateKey> {
         vec![

@@ -19,12 +19,15 @@ use tempo_primitives::TempoHeader;
 pub const TEMPO_BASE_FEE: u64 = 10_000_000_000;
 
 /// Tempo genesis info extracted from genesis extra_fields
-#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TempoGenesisInfo {
+pub struct TempoGenesisInfo {
     /// Timestamp of Adagio hardfork activation
     #[serde(skip_serializing_if = "Option::is_none")]
-    adagio_time: Option<u64>,
+    pub adagio_time: Option<u64>,
+
+    /// The length of measures in heights.
+    pub epoch_length: u64,
 }
 
 impl TempoGenesisInfo {
@@ -94,6 +97,7 @@ pub static DEV: LazyLock<Arc<TempoChainSpec>> = LazyLock::new(|| {
             shared_gas_limit: 0,
             inner,
         }),
+        info: TempoGenesisInfo::default(),
     }
     .into()
 });
@@ -103,19 +107,20 @@ pub static DEV: LazyLock<Arc<TempoChainSpec>> = LazyLock::new(|| {
 pub struct TempoChainSpec {
     /// [`ChainSpec`].
     pub inner: ChainSpec<TempoHeader>,
+    pub info: TempoGenesisInfo,
 }
 
 impl TempoChainSpec {
     /// Converts the given [`Genesis`] into a [`TempoChainSpec`].
     pub fn from_genesis(genesis: Genesis) -> Self {
         // Extract Tempo genesis info from extra_fields
-        let tempo_genesis_info = TempoGenesisInfo::extract_from(&genesis);
+        let info = TempoGenesisInfo::extract_from(&genesis);
 
         // Create base chainspec from genesis (already has ordered Ethereum hardforks)
         let mut base_spec = ChainSpec::from_genesis(genesis);
 
         // Collect Tempo hardforks to insert
-        let tempo_forks: Vec<_> = [tempo_genesis_info
+        let tempo_forks: Vec<_> = [info
             .adagio_time
             .map(|time| (TempoHardfork::Adagio, ForkCondition::Timestamp(time)))]
         .into_iter()
@@ -131,6 +136,7 @@ impl TempoChainSpec {
                 shared_gas_limit: 0,
                 inner,
             }),
+            info,
         }
     }
 }
@@ -146,6 +152,7 @@ impl From<ChainSpec> for TempoChainSpec {
                 inner,
                 shared_gas_limit: 0,
             }),
+            info: TempoGenesisInfo::default(),
         }
     }
 }

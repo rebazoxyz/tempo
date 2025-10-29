@@ -13,7 +13,7 @@ members = [
   "crates/alloy",
   "crates/chainspec",
   "crates/commonware-node",
-  "crates/commonware-node-config",
+  "crates/dkg-onchain-artifacts",
   "crates/consensus",
   "crates/eyre",
   "crates/evm",
@@ -100,6 +100,7 @@ tempo-chainspec = { path = "crates/chainspec", default-features = false }
 tempo-commonware-node = { path = "crates/commonware-node", default-features = false }
 tempo-commonware-node-config = { path = "crates/commonware-node-config", default-features = false }
 tempo-consensus = { path = "crates/consensus", default-features = false }
+tempo-dkg-onchain-artifacts = { path = "crates/dkg-onchain-artifacts", default-features = false }
 tempo-e2e = { path = "crates/e2e" }
 tempo-faucet = { path = "crates/faucet", default-features = false }
 tempo-evm = { path = "crates/evm", default-features = false }
@@ -212,6 +213,7 @@ test-fuzz = "7"
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4"
+itertools = "0.14.0"
 governor = "0.6.3"
 humantime-serde = "1.1.1"
 indexmap = { version = "2.11.0" }
@@ -242,3 +244,15 @@ test-case = "3"
 # build deps
 vergen = "9"
 vergen-git2 = "1"
+
+[patch.crates-io]
+commonware-broadcast = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-codec = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-consensus = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-cryptography = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-macros = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-p2p = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-resolver = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-runtime = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-storage = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }
+commonware-utils = { git = "https://github.com/commonwarexyz/monorepo", rev = "554fd5adca87404903326b20a95d8893c038e2f8" }

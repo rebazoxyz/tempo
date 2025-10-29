@@ -37,6 +37,7 @@ use futures::{
 use rand::{CryptoRng, Rng};
 use reth_node_builder::ConsensusEngineHandle;
 use reth_primitives_traits::SealedBlock;
+use tempo_dkg_onchain_artifacts::PublicOutcome;
 use tempo_node::{TempoExecutionData, TempoFullNode, TempoPayloadTypes};
 
 use reth_provider::BlockReader as _;
@@ -52,7 +53,6 @@ use super::{
 };
 use crate::{
     consensus::{Digest, block::Block},
-    dkg::PublicOutcome,
     epoch::SchemeProvider,
     subblocks,
 };
@@ -497,12 +497,17 @@ impl Inner<Init> {
             let outcome = self
                 .state
                 .dkg_manager
-                .get_public_ceremony_outcome(round.epoch())
+                .get_public_ceremony_outcome()
                 .await
-                .transpose()
-                .ok_or_eyre("public dkg ceremony outcome does not exist")
-                .and_then(|this| this)
                 .wrap_err("failed getting public dkg ceremony outcome")?;
+            ensure!(
+                round.epoch() + 1 == outcome.epoch,
+                "outcome is for epoch `{}`, but we are trying to include the \
+                outcome for epoch `{}`",
+                outcome.epoch,
+                round.epoch() + 1,
+            );
+
             outcome.encode().freeze().into()
         } else {
             // Regular block: try to include intermediate dealing
@@ -635,12 +640,8 @@ impl Inner<Init> {
             let our_outcome = self
                 .state
                 .dkg_manager
-                .get_public_ceremony_outcome(round.epoch())
+                .get_public_ceremony_outcome()
                 .await
-                .transpose()
-                .ok_or_eyre("public dkg ceremony outcome does not exist")
-                // TODO(janis): Result::flatten once msrv 1.89
-                .and_then(|this| this)
                 .wrap_err(
                     "failed getting public dkg ceremony outcome; cannot verify end of epoch block",
                 )?;
@@ -656,8 +657,10 @@ impl Inner<Init> {
             };
             if our_outcome != block_outcome {
                 warn!(
+                    our.epoch = our_outcome.epoch,
                     our.participants = ?our_outcome.participants,
                     our.public = ?our_outcome.public,
+                    block.epoch = block_outcome.epoch,
                     block.participants = ?block_outcome.participants,
                     block.public = ?block_outcome.public,
                     "our public dkg ceremont outcome does not match what's stored in the block; failing block",

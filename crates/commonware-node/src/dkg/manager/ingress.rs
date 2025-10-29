@@ -1,12 +1,10 @@
 use commonware_consensus::{Reporter, marshal::Update, types::Epoch};
 use eyre::WrapErr as _;
 use futures::channel::{mpsc, oneshot};
+use tempo_dkg_onchain_artifacts::{IntermediateOutcome, PublicOutcome};
 use tracing::{Span, warn};
 
-use crate::{
-    consensus::block::Block,
-    dkg::ceremony::{IntermediateOutcome, PublicOutcome},
-};
+use crate::consensus::block::Block;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Mailbox {
@@ -33,13 +31,10 @@ impl Mailbox {
             .wrap_err("actor dropped channel before responding with ceremony deal outcome")
     }
 
-    pub(crate) async fn get_public_ceremony_outcome(
-        &self,
-        epoch: Epoch,
-    ) -> eyre::Result<Option<PublicOutcome>> {
+    pub(crate) async fn get_public_ceremony_outcome(&self) -> eyre::Result<PublicOutcome> {
         let (response, rx) = oneshot::channel();
         self.inner
-            .unbounded_send(Message::in_current_span(GetOutcome { epoch, response }))
+            .unbounded_send(Message::in_current_span(GetOutcome { response }))
             .wrap_err("failed sending message to actor")?;
         rx.await
             .wrap_err("actor dropped channel before responding with ceremony deal outcome")
@@ -86,7 +81,6 @@ impl From<GetOutcome> for Command {
 
 pub(super) struct Finalize {
     pub(super) update: Box<Update<Block>>,
-    pub(super) response: oneshot::Sender<()>,
 }
 
 pub(super) struct GetIntermediateDealing {
@@ -95,26 +89,21 @@ pub(super) struct GetIntermediateDealing {
 }
 
 pub(super) struct GetOutcome {
-    pub(super) epoch: Epoch,
-    pub(super) response: oneshot::Sender<Option<PublicOutcome>>,
+    pub(super) response: oneshot::Sender<PublicOutcome>,
 }
 
 impl Reporter for Mailbox {
     type Activity = Update<Block>;
 
     async fn report(&mut self, update: Self::Activity) {
-        let (response, rx) = oneshot::channel();
-        // TODO: panicking here is really not necessary. Just log at the ERROR or WARN levels instead?
         if let Err(error) = self
             .inner
             .unbounded_send(Message::in_current_span(Finalize {
                 update: update.into(),
-                response,
             }))
             .wrap_err("dkg manager no longer running")
         {
             warn!(%error, "failed to report finalized block to dkg manager")
         }
-        let _ = rx.await;
     }
 }

@@ -189,7 +189,7 @@ fn generate_consensus_configs(
 
     // generate consensus key
     let threshold = commonware_utils::quorum(nodes.len() as u32);
-    let (polynomial, shares) = commonware_cryptography::bls12381::dkg::ops::generate_shares::<
+    let (_, shares) = commonware_cryptography::bls12381::dkg::ops::generate_shares::<
         _,
         commonware_cryptography::bls12381::primitives::variant::MinSig,
     >(&mut rand::thread_rng(), None, nodes.len() as u32, threshold);
@@ -203,17 +203,14 @@ fn generate_consensus_configs(
         these_will_be_peers.insert(signer.public_key(), url.to_string());
         let peer_config = Config {
             signer,
-            share,
-            polynomial: polynomial.clone(),
-            epoch_length: 302_400,
+            share: Some(share),
             metrics_port: Some(8002),
             listen_addr: SocketAddr::from(([127, 0, 0, 1], url.port)),
-            dialable_addr: SocketAddr::from(([127, 0, 0, 1], url.port)),
             p2p: Default::default(),
             storage_directory: storage_directory.clone(),
             worker_threads: 3,
             // this will be updated after we have collected all peers
-            peers: IndexMap::new(),
+            // peers: IndexMap::new(),
             message_backlog: 16384,
             mailbox_size: 16384,
             deque_size: 10,
@@ -224,9 +221,9 @@ fn generate_consensus_configs(
         consensus_configs.push(Some(peer_config));
     }
 
-    consensus_configs.iter_mut().for_each(|cfg| {
-        cfg.as_mut().expect("this should always be Some").peers = these_will_be_peers.clone()
-    });
+    // consensus_configs.iter_mut().for_each(|cfg| {
+    //     cfg.as_mut().expect("this should always be Some").peers = these_will_be_peers.clone()
+    // });
 
     consensus_configs
 }

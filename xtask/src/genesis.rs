@@ -1,12 +1,18 @@
 use alloy::{
     genesis::{ChainConfig, Genesis, GenesisAccount},
-    primitives::{Address, B256, Bytes, U256, address},
+    primitives::{Address, U256, address},
     signers::{
         local::{MnemonicBuilder, coins_bip39::English},
         utils::secret_key_to_address,
     },
 };
 use clap::Parser;
+use commonware_codec::{Decode as _, DecodeExt as _, Encode as _};
+use commonware_cryptography::{
+    bls12381::primitives::{poly::Public, variant::MinSig},
+    ed25519::PublicKey,
+};
+use commonware_utils::quorum;
 use eyre::WrapErr as _;
 use rayon::prelude::*;
 use reth::revm::{
@@ -15,7 +21,6 @@ use reth::revm::{
     inspector::JournalExt,
 };
 use reth_evm::{Evm, EvmEnv, EvmFactory, EvmInternals};
-use serde::{Deserialize, Serialize};
 use simple_tqdm::{ParTqdm, Tqdm};
 use std::{collections::BTreeMap, fs, path::PathBuf};
 use tempo_chainspec::spec::TEMPO_BASE_FEE;
@@ -24,6 +29,7 @@ use tempo_contracts::{
     MULTICALL_ADDRESS, PERMIT2_ADDRESS, SAFE_DEPLOYER_ADDRESS,
     contracts::ARACHNID_CREATE2_FACTORY_BYTECODE,
 };
+use tempo_dkg_onchain_artifacts::PublicOutcome;
 use tempo_evm::evm::{TempoEvm, TempoEvmFactory};
 use tempo_precompiles::{
     LINKING_USD_ADDRESS, TIP_FEE_MANAGER_ADDRESS, VALIDATOR_CONFIG_ADDRESS,
@@ -38,21 +44,6 @@ use tempo_precompiles::{
     tip403_registry::TIP403Registry,
     validator_config::{IValidatorConfig, ValidatorConfig},
 };
-
-/// Initial validator configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct InitialValidator {
-    /// Validator address
-    address: Address,
-    /// Communication key (32 bytes)
-    pub key: B256,
-    /// IP address or DNS name
-    inbound_address: String,
-    /// Outbound address
-    outbound_address: String,
-    /// Whether validator starts active
-    active: bool,
-}
 
 /// Generate genesis allocation file for testing
 #[derive(Parser, Debug)]
@@ -93,9 +84,29 @@ pub(crate) struct GenesisArgs {
     #[arg(long, default_value_t = 0)]
     pub adagio_time: u64,
 
-    /// Path to validators config file (JSON)
-    #[arg(long)]
-    pub validators_config: Option<PathBuf>,
+    /// A list of comma-separated socket addresses or host names with port.
+    /// Example: 127.0.0.1:8000,network-service:9000,0.0.0.0:1024
+    ///
+    /// The addresses listed here are mapped to the respective entries in
+    /// `validator_pubkeys`.
+    #[arg(long, default_value = "")]
+    pub validator_addresses: String,
+
+    /// A list of comma-separated ed25519 public keys.
+    ///
+    /// The keys listed here are mapped to the respective entry in
+    /// `validator_addresses`.
+    #[arg(long, default_value = "")]
+    pub validator_pubkeys: String,
+
+    /// The public polynomial that will be written to genesis.
+    #[arg(long, default_value = "")]
+    pub public_polynomial: String,
+
+    /// The length of an epoch. The default value of 302_400 blocks is about
+    /// 1 week of blocks, assuming a block time of 2s.
+    #[arg(long, default_value_t = 302_400)]
+    pub epoch_length: u64,
 }
 
 impl GenesisArgs {
@@ -167,7 +178,14 @@ impl GenesisArgs {
         initialize_tip20_rewards_registry(&mut evm)?;
 
         println!("Initializing validator config");
-        let validators = initialize_validator_config(admin, self.validators_config, &mut evm)?;
+        let (initial_dkg, validators) = initialize_validator_config(
+            admin,
+            self.validator_addresses,
+            self.validator_pubkeys,
+            self.public_polynomial,
+            self.mnemonic,
+            &mut evm,
+        )?;
 
         println!("Initializing fee manager");
         initialize_fee_manager(alpha_token_address, addresses, validators, &mut evm);
@@ -297,12 +315,17 @@ impl GenesisArgs {
             "adagioTime".to_string(),
             serde_json::json!(self.adagio_time),
         );
+        chain_config.extra_fields.insert(
+            "epochLength".to_string(),
+            serde_json::json!(self.epoch_length),
+        );
 
         let mut genesis = Genesis::default()
             .with_gas_limit(self.gas_limit)
             .with_base_fee(Some(self.base_fee_per_gas))
             .with_nonce(0x42)
-            .with_extra_data(Bytes::from_static(b"tempo-genesis"))
+            // TODO(janis): should use rlp here.
+            .with_extra_data(initial_dkg.encode().freeze().to_vec().into())
             .with_coinbase(Address::ZERO);
 
         genesis.alloc = genesis_alloc;
@@ -447,7 +470,7 @@ fn initialize_fee_manager(
     validators: Vec<Address>,
     evm: &mut TempoEvm<CacheDB<EmptyDB>>,
 ) {
-    // Update the beneficiary since the validator cant set the validator fee token for themselves
+    // Update the beneficiary since the validator can't set the validator fee token for themselves
     let block = evm.block.clone();
 
     let evm_internals = EvmInternals::new(evm.journal_mut(), &block);
@@ -524,9 +547,12 @@ fn initialize_nonce_manager(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre::Resul
 /// Returns a vec of the validator public keys
 fn initialize_validator_config(
     owner: Address,
-    validators_config: Option<PathBuf>,
+    addresses: String,
+    public_keys: String,
+    polynomial: String,
+    mnemonic: String,
     evm: &mut TempoEvm<CacheDB<EmptyDB>>,
-) -> eyre::Result<Vec<Address>> {
+) -> eyre::Result<(PublicOutcome, Vec<Address>)> {
     let block = evm.block.clone();
     let evm_internals = EvmInternals::new(evm.journal_mut(), &block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, 1);
@@ -536,37 +562,64 @@ fn initialize_validator_config(
         .initialize(owner)
         .wrap_err("Failed to initialize validator config")?;
 
-    // Load initial validators if config file provided
-    let initial_validators = if let Some(config_path) = validators_config {
-        println!("Loading validators from {config_path:?}");
-        let config_content = fs::read_to_string(config_path)?;
-        let validators: Vec<InitialValidator> = serde_json::from_str(&config_content)?;
-        println!("Loaded {} initial validators", validators.len());
-        validators
-    } else {
-        Vec::new()
-    };
+    let privkey_builder = MnemonicBuilder::<English>::default().phrase(mnemonic);
 
-    // Add initial validators
-    let mut validator_addresses = Vec::new();
-    for validator in initial_validators.iter().tqdm() {
+    let addresses = addresses.trim().split(',');
+    let public_keys = public_keys.trim().split(',');
+
+    let mut n_validators = 0u32;
+    let mut validator_addresses = vec![];
+    let mut participants = vec![];
+
+    for (i, (addr, key)) in addresses.zip(public_keys).enumerate() {
+        let signer = privkey_builder.clone().index(i as u32)?.build()?;
+        let address = secret_key_to_address(signer.credential());
+
+        let key_bytes =
+            const_hex::decode(key).wrap_err_with(|| format!("failed decoding `{key}` as hex"))?;
+        let key = PublicKey::decode(&key_bytes[..])
+            .wrap_err_with(|| format!("failed decoding `{key}` as public ed25519 key"))?;
+        participants.push(key.clone());
+
         validator_config
             .add_validator(
                 &owner,
                 IValidatorConfig::addValidatorCall {
-                    newValidatorAddress: validator.address,
-                    publicKey: validator.key,
-                    active: validator.active,
-                    inboundAddress: validator.inbound_address.to_string(),
-                    outboundAddress: validator.outbound_address.to_string(),
+                    newValidatorAddress: address,
+                    publicKey: key_bytes
+                        .as_slice()
+                        .try_into()
+                        .expect("we just decoded it; it fits"),
+                    active: true,
+                    inboundAddress: addr.to_string(),
+                    outboundAddress: addr.to_string(),
                 },
             )
-            .wrap_err("Failed to add validator")?;
+            .wrap_err("failed to call addValidator smart contract")?;
+        println!("added validator {i}; pubkey: `{key}`, address: `{address}`");
+        n_validators += 1;
 
-        validator_addresses.push(validator.address);
+        validator_addresses.push(address);
     }
+    let polynomial_bytes = const_hex::decode(&polynomial)
+        .wrap_err_with(|| format!("failed decoding `{polynomial}` as bytes"))?;
+    let quorum = quorum(n_validators);
+    let polynomial_decoded =
+        Public::<MinSig>::decode_cfg(polynomial_bytes.as_slice(), &(quorum as usize))
+            .wrap_err_with(|| {
+                format!(
+                    "failed decoding provided public polynomial with a quorum of \
+        `{quorum}` for `{n_validators}` validators"
+                )
+            })?;
 
-    Ok(validator_addresses)
+    let initial_dkg_outcome = PublicOutcome {
+        epoch: 0,
+        participants: participants.into(),
+        public: polynomial_decoded,
+    };
+
+    Ok((initial_dkg_outcome, validator_addresses))
 }
 
 fn mint_pairwise_liquidity(

@@ -3,6 +3,7 @@
 //! [`alto`]: https://github.com/commonwarexyx/alto
 
 use std::{
+    net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     time::Duration,
 };
@@ -11,11 +12,7 @@ use commonware_broadcast::buffered;
 use commonware_consensus::{Reporters, marshal};
 use commonware_cryptography::{
     Signer as _,
-    bls12381::primitives::{
-        group::Share,
-        poly::Poly,
-        variant::{MinSig, Variant},
-    },
+    bls12381::primitives::group::Share,
     ed25519::{PrivateKey, PublicKey},
 };
 use commonware_p2p::{Blocker, Receiver, Sender};
@@ -23,11 +20,12 @@ use commonware_runtime::{
     Clock, ContextCell, Handle, Metrics, Network, Pacer, Spawner, Storage, buffer::PoolRef,
     spawn_cell,
 };
-use commonware_utils::set::Ordered;
+use commonware_utils::set::OrderedAssociated;
 use eyre::WrapErr as _;
 use futures::future::try_join_all;
 use rand::{CryptoRng, Rng};
 use tempo_node::TempoFullNode;
+use tracing::info;
 
 use crate::{
     config::{BLOCKS_FREEZER_TABLE_INITIAL_SIZE_BYTES, MARSHAL_LIMIT},
@@ -61,13 +59,7 @@ const MAX_REPAIR: u64 = 20;
 ///
 // XXX: Mostly a one-to-one copy of alto for now. We also put the context in here
 // because there doesn't really seem to be a point putting it into an extra initializer.
-pub struct Builder<
-    TBlocker,
-    TContext,
-    TPeerManager,
-    // TODO: add the indexer. It's part of alto and we have skipped it, for now.
-    // TIndexer,
-> {
+pub struct Builder<TBlocker, TContext, TPeerManager> {
     /// The contextg
     pub context: TContext,
 
@@ -80,13 +72,9 @@ pub struct Builder<
 
     pub partition_prefix: String,
     pub signer: PrivateKey,
-    pub polynomial: Poly<<MinSig as Variant>::Public>,
-    pub share: Share,
-    pub participants: Ordered<PublicKey>,
+    pub share: Option<Share>,
     pub mailbox_size: usize,
     pub deque_size: usize,
-
-    pub epoch_length: u64,
 
     pub time_to_propose: Duration,
     pub time_to_collect_notarizations: Duration,
@@ -110,7 +98,10 @@ where
         + Storage
         + Metrics
         + Network,
-    TPeerManager: commonware_p2p::Manager<PublicKey = PublicKey>,
+    TPeerManager: commonware_p2p::Manager<
+            PublicKey = PublicKey,
+            Peers = OrderedAssociated<PublicKey, SocketAddr>,
+        >,
 {
     pub async fn try_init(self) -> eyre::Result<Engine<TBlocker, TContext, TPeerManager>> {
         let (broadcast, broadcast_mailbox) = buffered::Engine::new(
@@ -124,6 +115,10 @@ where
             },
         );
 
+        let epoch_length = self.execution_node.chain_spec().info.epoch_length;
+
+        info!(epoch_length, "determined epoch length from genesis info");
+
         // Create the buffer pool
         let buffer_pool = PoolRef::new(BUFFER_POOL_PAGE_SIZE, BUFFER_POOL_CAPACITY);
 
@@ -132,7 +127,7 @@ where
         // https://github.com/commonwarexyz/monorepo/commit/92870f39b4a9e64a28434b3729ebff5aba67fb4e
         let resolver_config = commonware_consensus::marshal::resolver::p2p::Config {
             public_key: self.signer.public_key(),
-            manager: self.peer_manager,
+            manager: self.peer_manager.clone(),
             mailbox_size: self.mailbox_size,
             requester_config: commonware_p2p::utils::requester::Config {
                 me: Some(self.signer.public_key()),
@@ -149,8 +144,7 @@ where
             self.context.with_label("marshal"),
             marshal::Config {
                 scheme_provider: scheme_provider.clone(),
-                epoch_length: self.epoch_length,
-                // identity: *self.polynomial.constant(),
+                epoch_length,
                 partition_prefix: self.partition_prefix.clone(),
                 mailbox_size: self.mailbox_size,
                 view_retention_timeout: self
@@ -183,7 +177,7 @@ where
             node: self.execution_node.clone(),
             fee_recipient: self.fee_recipient,
             time_to_build_subblock: self.time_to_build_subblock,
-            epoch_length: self.epoch_length,
+            epoch_length,
         });
 
         let (application, application_mailbox) = application::init(super::application::Config {
@@ -192,11 +186,11 @@ where
             fee_recipient: self.fee_recipient,
             mailbox_size: self.mailbox_size,
             marshal: marshal_mailbox.clone(),
-            execution_node: self.execution_node,
+            execution_node: self.execution_node.clone(),
             new_payload_wait_time: self.new_payload_wait_time,
             subblocks: subblocks.mailbox(),
-            epoch_length: self.epoch_length,
             scheme_provider: scheme_provider.clone(),
+            epoch_length,
         })
         .await
         .wrap_err("failed initializing application actor")?;
@@ -206,7 +200,7 @@ where
                 application: application_mailbox.clone(),
                 blocker: self.blocker.clone(),
                 buffer_pool: buffer_pool.clone(),
-                epoch_length: self.epoch_length,
+                epoch_length,
                 time_for_peer_response: self.time_for_peer_response,
                 time_to_propose: self.time_to_propose,
                 mailbox_size: self.mailbox_size,
@@ -226,17 +220,18 @@ where
             self.context.with_label("dkg_manager"),
             dkg::manager::Config {
                 epoch_manager: epoch_manager_mailbox,
-                epoch_length: self.epoch_length,
-                initial_participants: self.participants.clone(),
-                initial_public: self.polynomial.clone(),
-                initial_share: Some(self.share.clone()),
+                epoch_length,
+                execution_node: self.execution_node.clone(),
+                initial_share: self.share.clone(),
                 mailbox_size: self.mailbox_size,
-                namespace: crate::config::NAMESPACE.to_vec(),
                 me: self.signer.clone(),
+                namespace: crate::config::NAMESPACE.to_vec(),
                 partition_prefix: format!("{}_dkg_manager", self.partition_prefix),
+                peer_manager: self.peer_manager.clone(),
             },
         )
-        .await;
+        .await
+        .wrap_err("failed initializing dkg manager")?;
 
         Ok(Engine {
             context: ContextCell::new(self.context),
@@ -262,7 +257,6 @@ where
 
 pub struct Engine<TBlocker, TContext, TPeerManager>
 where
-    TBlocker: Blocker<PublicKey = PublicKey>,
     TContext: Clock
         + governor::clock::Clock
         + Rng
@@ -272,10 +266,10 @@ where
         + Pacer
         + Spawner
         + Storage,
-    TPeerManager: commonware_p2p::Manager<PublicKey = PublicKey>,
-    // XXX: alto also defines an Indexer trait (not part of commonwarexyz itself); we will
-    // not define it for now.
-    // TIndexer,
+    TPeerManager: commonware_p2p::Manager<
+            PublicKey = PublicKey,
+            Peers = OrderedAssociated<PublicKey, SocketAddr>,
+        >,
 {
     context: ContextCell<TContext>,
 
@@ -284,7 +278,7 @@ where
     broadcast: buffered::Engine<TContext, PublicKey, Block>,
     broadcast_mailbox: buffered::Mailbox<PublicKey, Block>,
 
-    dkg_manager: dkg::manager::Actor<TContext>,
+    dkg_manager: dkg::manager::Actor<TContext, TPeerManager>,
     dkg_manager_mailbox: dkg::manager::Mailbox,
 
     /// The core of the application, the glue between commonware-xyz consensus and reth-execution.
@@ -315,7 +309,10 @@ where
         + Pacer
         + Spawner
         + Storage,
-    TPeerManager: commonware_p2p::Manager<PublicKey = PublicKey>,
+    TPeerManager: commonware_p2p::Manager<
+            PublicKey = PublicKey,
+            Peers = OrderedAssociated<PublicKey, SocketAddr>,
+        >,
 {
     #[expect(
         clippy::too_many_arguments,

@@ -14,16 +14,20 @@ workspace = true
 tempo-chainspec.workspace = true
 tempo-commonware-node-config.workspace = true
 tempo-contracts.workspace = true
+tempo-dkg-onchain-artifacts.workspace = true
 tempo-evm.workspace = true
 tempo-precompiles.workspace = true
 
 alloy-primitives.workspace = true
 camino = "1.1.11"
 clap = { version = "4.5.45", features = ["derive"] }
+commonware-codec.workspace = true
 commonware-cryptography.workspace = true
 commonware-utils.workspace = true
+const-hex.workspace = true
 eyre.workspace = true
 indexmap.workspace = true
+itertools.workspace = true
 rand.workspace = true
 reth.workspace = true
 reth-evm.workspace = true
@@ -40,7 +44,6 @@ alloy = { workspace = true, features = [
   "signer-mnemonic",
   "sol-types",
 ] }
-itertools = "0.14.0"
 rayon = "1.10"
 secp256k1 = "0.30.0"
 simple-tqdm = { version = "0.2.0", features = ["rayon"] }

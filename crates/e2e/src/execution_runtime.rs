@@ -1,8 +1,32 @@
 //! The environment to launch tempo execution nodes in.
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
+use alloy::{
+    providers::ProviderBuilder,
+    signers::{
+        local::{MnemonicBuilder, coins_bip39::English},
+        utils::secret_key_to_address,
+    },
+    transports::http::reqwest::Url,
+};
+use alloy_genesis::{Genesis, GenesisAccount};
+use alloy_primitives::Address;
+use commonware_codec::Encode;
+use commonware_cryptography::{
+    bls12381::primitives::{poly::Public, variant::MinSig},
+    ed25519::PublicKey,
+};
+use commonware_utils::set::OrderedAssociated;
 use eyre::WrapErr as _;
 use futures::StreamExt;
+use reth::{
+    revm::{
+        context::ContextTr as _,
+        db::{CacheDB, EmptyDB},
+        inspector::JournalExt,
+    },
+    rpc::types::TransactionReceipt,
+};
 use reth_db::mdbx::DatabaseArguments;
 use reth_ethereum::{
     network::{
@@ -14,6 +38,7 @@ use reth_ethereum::{
     },
     tasks::{TaskExecutor, TaskManager},
 };
+use reth_evm::{EvmEnv, EvmFactory, EvmInternals};
 use reth_node_builder::{NodeBuilder, NodeConfig};
 use reth_node_core::{
     args::{DatadirArgs, PayloadBuilderArgs, RpcServerArgs},
@@ -22,7 +47,20 @@ use reth_node_core::{
 use reth_rpc_builder::RpcModuleSelection;
 use tempfile::TempDir;
 use tempo_chainspec::TempoChainSpec;
+use tempo_dkg_onchain_artifacts::PublicOutcome;
+use tempo_evm::{TempoEvmFactory, evm::TempoEvm};
 use tempo_node::{TempoFullNode, node::TempoNode};
+use tempo_precompiles::{
+    VALIDATOR_CONFIG_ADDRESS,
+    storage::evm::EvmPrecompileStorageProvider,
+    validator_config::{IValidatorConfig, ValidatorConfig},
+};
+
+const ADMIN_INDEX: u32 = 0;
+const VALIDATOR_START_INDEX: u32 = 1;
+
+/// Same mnemonic as used in the imported test-genesis and in the `tempo-node` integration tests.
+pub const TEST_MNEMONIC: &str = "test test test test test test test test test test test junk";
 
 /// An execution runtime wrapping a thread running a [`tokio::runtime::Runtime`].
 ///
@@ -56,15 +94,53 @@ impl ExecutionRuntime {
         let rt = std::thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new()
                 .expect("must be able to initialize a runtime to run execution/reth nodes");
+            let wallet = MnemonicBuilder::from_phrase(crate::execution_runtime::TEST_MNEMONIC)
+                .build()
+                .unwrap();
             rt.block_on(async move {
                 let task_manager = TaskManager::current();
                 while let Some(msg) = from_handle.recv().await {
                     match msg {
-                        Message::SpawnNode { name, response } => {
-                            let node =
-                                launch_execution_node(task_manager.executor(), datadir.join(name))
-                                    .await
-                                    .expect("must be able to launch execution nodes");
+                        Message::AddValidator {
+                            http_url,
+                            address,
+                            public_key,
+                            addr,
+                            response,
+                        } => {
+                            let provider = ProviderBuilder::new()
+                                .wallet(wallet.clone())
+                                .connect_http(http_url);
+                            let validator_config =
+                                IValidatorConfig::new(VALIDATOR_CONFIG_ADDRESS, provider);
+                            let receipt = validator_config
+                                .addValidator(
+                                    address,
+                                    public_key.encode().as_ref().try_into().unwrap(),
+                                    true,
+                                    addr.to_string(),
+                                    addr.to_string(),
+                                )
+                                .send()
+                                .await
+                                .unwrap()
+                                .get_receipt()
+                                .await
+                                .unwrap();
+                            let _ = response.send(receipt);
+                        }
+                        Message::SpawnNode {
+                            name,
+                            genesis_setup,
+                            response,
+                        } => {
+                            let node = launch_execution_node(
+                                task_manager.executor(),
+                                datadir.join(name),
+                                genesis_setup,
+                            )
+                            .await
+                            .expect("must be able to launch execution nodes");
                             response.send(node).expect(
                                 "receiver must hold the return channel until the node is returned",
                             );
@@ -93,12 +169,38 @@ impl ExecutionRuntime {
         }
     }
 
+    pub async fn add_validator(
+        &self,
+        http_url: Url,
+        address: Address,
+        public_key: PublicKey,
+        addr: SocketAddr,
+    ) -> eyre::Result<TransactionReceipt> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.to_runtime
+            .send(Message::AddValidator {
+                http_url,
+                address,
+                public_key,
+                addr,
+                response: tx,
+            })
+            .wrap_err("the execution runtime went away")?;
+        rx.await
+            .wrap_err("the execution runtime dropped the response channel before sending a receipt")
+    }
+
     /// Requests a new execution node and blocks until its returned.
-    pub async fn spawn_node(&self, name: &str) -> eyre::Result<ExecutionNode> {
+    pub async fn spawn_node(
+        &self,
+        name: &str,
+        genesis_setup: GenesisSetup,
+    ) -> eyre::Result<ExecutionNode> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_runtime
             .send(Message::SpawnNode {
                 name: name.to_string(),
+                genesis_setup,
                 response: tx,
             })
             .wrap_err("the execution runtime went away")?;
@@ -108,11 +210,16 @@ impl ExecutionRuntime {
     }
 
     /// Requests a new execution node and blocks until its returned.
-    pub fn spawn_node_blocking(&self, name: &str) -> eyre::Result<ExecutionNode> {
+    pub fn spawn_node_blocking(
+        &self,
+        name: &str,
+        genesis_setup: GenesisSetup,
+    ) -> eyre::Result<ExecutionNode> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_runtime
             .send(Message::SpawnNode {
                 name: name.to_string(),
+                genesis_setup,
                 response: tx,
             })
             .wrap_err("the execution runtime went away")?;
@@ -148,11 +255,16 @@ pub struct ExecutionRuntimeHandle {
 
 impl ExecutionRuntimeHandle {
     /// Requests a new execution node and blocks until its returned.
-    pub async fn spawn_node(&self, name: &str) -> eyre::Result<ExecutionNode> {
+    pub async fn spawn_node(
+        &self,
+        name: &str,
+        genesis_setup: GenesisSetup,
+    ) -> eyre::Result<ExecutionNode> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_runtime
             .send(Message::SpawnNode {
                 name: name.to_string(),
+                genesis_setup,
                 response: tx,
             })
             .wrap_err("the execution runtime went away")?;
@@ -162,11 +274,16 @@ impl ExecutionRuntimeHandle {
     }
 
     /// Requests a new execution node and blocks until its returned.
-    pub fn spawn_node_blocking(&self, name: &str) -> eyre::Result<ExecutionNode> {
+    pub fn spawn_node_blocking(
+        &self,
+        name: &str,
+        genesis_setup: GenesisSetup,
+    ) -> eyre::Result<ExecutionNode> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_runtime
             .send(Message::SpawnNode {
                 name: name.to_string(),
+                genesis_setup,
                 response: tx,
             })
             .wrap_err("the execution runtime went away")?;
@@ -214,13 +331,6 @@ impl ExecutionNode {
     }
 }
 
-// TODO(janis): allow configuring this.
-fn chainspec() -> Arc<TempoChainSpec> {
-    Arc::new(TempoChainSpec::from_genesis(
-        serde_json::from_str(include_str!("../../node/tests/assets/test-genesis.json")).unwrap(),
-    ))
-}
-
 // TODO(janis): would be nicer if we could identify the node somehow?
 impl std::fmt::Debug for ExecutionNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -242,8 +352,9 @@ impl std::fmt::Debug for ExecutionNode {
 pub async fn launch_execution_node<P: AsRef<Path>>(
     executor: TaskExecutor,
     datadir: P,
+    genesis_setup: GenesisSetup,
 ) -> eyre::Result<ExecutionNode> {
-    let node_config = NodeConfig::new(chainspec())
+    let node_config = NodeConfig::new(genesis_setup.into_chainspec())
         .with_rpc(
             RpcServerArgs::default()
                 .with_unused_ports()
@@ -287,7 +398,139 @@ pub async fn launch_execution_node<P: AsRef<Path>>(
 enum Message {
     SpawnNode {
         name: String,
+        genesis_setup: GenesisSetup,
         response: tokio::sync::oneshot::Sender<ExecutionNode>,
     },
+    AddValidator {
+        /// URL of the node to send this to.
+        http_url: Url,
+        address: Address,
+        public_key: PublicKey,
+        addr: SocketAddr,
+        response: tokio::sync::oneshot::Sender<TransactionReceipt>,
+    },
     Stop,
+}
+
+#[derive(Debug, Clone)]
+pub struct GenesisSetup {
+    pub epoch_length: u64,
+    pub polynomial: Public<MinSig>,
+    pub peers: OrderedAssociated<PublicKey, SocketAddr>,
+}
+
+impl GenesisSetup {
+    /// Populates the hardcoded `crates/node/tests/assets/test-genesis.json` with
+    /// an initial validator config.
+    ///
+    // TODO(janis): we should generate the entire genesis ad-hoc. Possibly merge
+    // with the gen-genesis tool in xtasks.
+    fn into_chainspec(self) -> Arc<TempoChainSpec> {
+        let Self {
+            epoch_length,
+            polynomial,
+            peers,
+        } = self;
+        let mut genesis: Genesis =
+            serde_json::from_str(include_str!("../../node/tests/assets/test-genesis.json"))
+                .unwrap();
+        genesis
+            .config
+            .extra_fields
+            .insert("epochLength".into(), serde_json::json!(epoch_length));
+
+        let participants = peers.keys().clone();
+
+        genesis.extra_data = PublicOutcome {
+            epoch: 0,
+            participants,
+            public: polynomial,
+        }
+        .encode()
+        .freeze()
+        .to_vec()
+        .into();
+
+        let mut evm = setup_tempo_evm();
+
+        {
+            let block = evm.block.clone();
+            let evm_internals = EvmInternals::new(evm.journal_mut(), &block);
+            let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, 1);
+
+            // TODO(janis): figure out the owner of the test-genesis.json
+            let mut validator_config =
+                ValidatorConfig::new(VALIDATOR_CONFIG_ADDRESS, &mut provider);
+            validator_config
+                .initialize(admin())
+                .wrap_err("Failed to initialize validator config")
+                .unwrap();
+
+            for (i, (peer, addr)) in peers.iter_pairs().enumerate() {
+                validator_config
+                    .add_validator(
+                        &admin(),
+                        IValidatorConfig::addValidatorCall {
+                            newValidatorAddress: validator(i as u32),
+                            publicKey: peer.encode().freeze().as_ref().try_into().unwrap(),
+                            active: true,
+                            inboundAddress: addr.to_string(),
+                            outboundAddress: addr.to_string(),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+
+        let evm_state = evm.ctx_mut().journaled_state.evm_state();
+        for (address, account) in evm_state.iter() {
+            let storage = if !account.storage.is_empty() {
+                Some(
+                    account
+                        .storage
+                        .iter()
+                        .map(|(key, val)| ((*key).into(), val.present_value.into()))
+                        .collect(),
+                )
+            } else {
+                None
+            };
+            genesis.alloc.insert(
+                *address,
+                GenesisAccount {
+                    nonce: Some(account.info.nonce),
+                    code: account.info.code.as_ref().map(|c| c.original_bytes()),
+                    storage,
+                    ..Default::default()
+                },
+            );
+        }
+
+        Arc::new(TempoChainSpec::from_genesis(genesis))
+    }
+}
+
+pub fn admin() -> Address {
+    address(ADMIN_INDEX)
+}
+
+pub fn validator(idx: u32) -> Address {
+    address(VALIDATOR_START_INDEX + idx)
+}
+
+pub fn address(index: u32) -> Address {
+    let signer = MnemonicBuilder::<English>::default()
+        .phrase(TEST_MNEMONIC)
+        .index(index)
+        .unwrap()
+        .build()
+        .unwrap();
+    secret_key_to_address(signer.credential())
+}
+
+fn setup_tempo_evm() -> TempoEvm<CacheDB<EmptyDB>> {
+    let db = CacheDB::default();
+    let env = EvmEnv::default();
+    let factory = TempoEvmFactory::default();
+    factory.create_evm(db, env)
 }
