@@ -1,6 +1,7 @@
 //! Tempo precompile implementations.
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![feature(adt_const_params)]
 
 pub mod error;
 pub use error::Result;
