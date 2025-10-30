@@ -11742,6 +11742,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempo-precompiles-macros"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "proc-macro2",
+ "quote",
+ "revm",
+ "syn 2.0.106",
+ "tempo-contracts",
+ "tempo-precompiles",
+]
+
+[[package]]
 name = "tempo-primitives"
 version = "0.1.0"
 dependencies = [

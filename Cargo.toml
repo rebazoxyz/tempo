@@ -22,6 +22,7 @@ members = [
   "crates/payload/builder",
   "crates/payload/types",
   "crates/precompiles",
+  "crates/precompiles-macros",
   "crates/primitives",
   "crates/contracts",
   "crates/telemetry-util",
@@ -104,6 +105,7 @@ tempo-revm = { path = "crates/revm" }
 tempo-payload-builder = { path = "crates/payload/builder" }
 tempo-payload-types = { path = "crates/payload/types" }
 tempo-precompiles = { path = "crates/precompiles" }
+tempo-precompiles-macros = { path = "crates/precompiles-macros" }
 tempo-primitives = { path = "crates/primitives" }
 tempo-contracts = { path = "crates/contracts" }
 tempo-telemetry-util = { path = "crates/telemetry-util" }

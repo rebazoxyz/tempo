@@ -57,9 +57,9 @@ pub const STABLECOIN_EXCHANGE_ADDRESS: Address =
 pub const NONCE_PRECOMPILE_ADDRESS: Address =
     address!("0x4E4F4E4345000000000000000000000000000000");
 
-const METADATA_GAS: u64 = 50;
-const VIEW_FUNC_GAS: u64 = 100;
-const MUTATE_FUNC_GAS: u64 = 1000;
+pub const METADATA_GAS: u64 = 50;
+pub const VIEW_FUNC_GAS: u64 = 100;
+pub const MUTATE_FUNC_GAS: u64 = 1000;
 
 pub trait Precompile {
     fn call(&mut self, calldata: &[u8], msg_sender: &Address) -> PrecompileResult;
@@ -196,12 +196,12 @@ impl LinkingUSDPrecompile {
 }
 
 #[inline]
-fn metadata<T: SolCall>(f: impl FnOnce() -> Result<T::Return>) -> PrecompileResult {
+pub fn metadata<T: SolCall>(f: impl FnOnce() -> Result<T::Return>) -> PrecompileResult {
     f().into_precompile_result(METADATA_GAS, |ret| T::abi_encode_returns(&ret).into())
 }
 
 #[inline]
-fn view<T: SolCall>(calldata: &[u8], f: impl FnOnce(T) -> Result<T::Return>) -> PrecompileResult {
+pub fn view<T: SolCall>(calldata: &[u8], f: impl FnOnce(T) -> Result<T::Return>) -> PrecompileResult {
     let Ok(call) = T::abi_decode(calldata) else {
         return Ok(PrecompileOutput::new_reverted(VIEW_FUNC_GAS, Bytes::new()));
     };
@@ -225,7 +225,7 @@ pub fn mutate<T: SolCall>(
 }
 
 #[inline]
-fn mutate_void<T: SolCall>(
+pub fn mutate_void<T: SolCall>(
     calldata: &[u8],
     sender: &Address,
     f: impl FnOnce(&Address, T) -> Result<()>,
