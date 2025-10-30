@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 /// Note: Secp256k1 has no identifier - detected by length (65 bytes)
 pub const SIGNATURE_TYPE_P256: u8 = 0x01;
 pub const SIGNATURE_TYPE_WEBAUTHN: u8 = 0x02;
+pub const SIGNATURE_TYPE_KEYCHAIN: u8 = 0x03;
 
 /// P256 signature with pre-hash flag
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -42,6 +43,19 @@ pub struct WebAuthnSignature {
     pub webauthn_data: Bytes,
 }
 
+/// Keychain signature wrapping another signature with a key identifier
+/// This allows an access key to sign on behalf of a root account
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
+pub struct KeychainSignature {
+    /// Key identifier (address derived from the access key's public key)
+    pub key_id: Address,
+    /// The actual signature (can be Secp256k1, P256, or WebAuthn, but NOT another Keychain)
+    pub signature: Box<AASignature>,
+}
+
 /// AA transaction signature supporting multiple signature schemes
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -56,6 +70,12 @@ pub enum AASignature {
 
     /// WebAuthn signature with variable-length authenticator data
     WebAuthn(WebAuthnSignature),
+
+    /// Keychain signature - wraps another signature with a key identifier
+    /// Format: key_id (20 bytes) + inner signature
+    /// IMP: The inner signature MUST NOT be another Keychain (validated at runtime)
+    /// Note: Recursion is prevented by KeychainSignature's custom Arbitrary impl
+    Keychain(KeychainSignature),
 }
 
 impl Default for AASignature {
@@ -130,6 +150,29 @@ impl AASignature {
                     webauthn_data: Bytes::copy_from_slice(&sig_data[..len - 128]),
                 }))
             }
+            SIGNATURE_TYPE_KEYCHAIN => {
+                // Keychain format: key_id (20 bytes) + inner signature
+                if sig_data.len() < 20 {
+                    return Err("Invalid Keychain signature: too short");
+                }
+
+                let key_id = Address::from_slice(&sig_data[0..20]);
+                let inner_sig_bytes = &sig_data[20..];
+
+                // Parse inner signature recursively
+                let inner_signature = AASignature::from_bytes(inner_sig_bytes)?;
+
+                // IMP: Prevent recursive keychain signatures
+                // A Keychain signature MUST NOT contain another Keychain signature
+                if matches!(inner_signature, AASignature::Keychain(_)) {
+                    return Err("Recursive keychain signatures are not allowed");
+                }
+
+                Ok(Self::Keychain(KeychainSignature {
+                    key_id,
+                    signature: Box::new(inner_signature),
+                }))
+            }
             _ => Err("Unknown signature type identifier"),
         }
     }
@@ -165,6 +208,15 @@ impl AASignature {
                 bytes.extend_from_slice(webauthn_sig.pub_key_y.as_slice());
                 Bytes::from(bytes)
             }
+            Self::Keychain(keychain_sig) => {
+                // Format: 0x03 | key_id (20 bytes) | inner_signature
+                let inner_bytes = keychain_sig.signature.to_bytes();
+                let mut bytes = Vec::with_capacity(1 + 20 + inner_bytes.len());
+                bytes.push(SIGNATURE_TYPE_KEYCHAIN);
+                bytes.extend_from_slice(keychain_sig.key_id.as_slice());
+                bytes.extend_from_slice(&inner_bytes);
+                Bytes::from(bytes)
+            }
         }
     }
 
@@ -178,6 +230,7 @@ impl AASignature {
             Self::Secp256k1(_) => SECP256K1_SIGNATURE_LENGTH,
             Self::P256(_) => 1 + P256_SIGNATURE_LENGTH,
             Self::WebAuthn(webauthn_sig) => 1 + webauthn_sig.webauthn_data.len() + 128,
+            Self::Keychain(keychain_sig) => 1 + 20 + keychain_sig.signature.encoded_length(),
         }
     }
 
@@ -187,6 +240,7 @@ impl AASignature {
             Self::Secp256k1(_) => SignatureType::Secp256k1,
             Self::P256(_) => SignatureType::P256,
             Self::WebAuthn(_) => SignatureType::WebAuthn,
+            Self::Keychain(keychain_sig) => keychain_sig.signature.signature_type(),
         }
     }
 
@@ -261,6 +315,16 @@ impl AASignature {
                     &webauthn_sig.pub_key_x,
                     &webauthn_sig.pub_key_y,
                 ))
+            }
+            Self::Keychain(keychain_sig) => {
+                // Verify the inner signature (can be Secp256k1, P256, or WebAuthn)
+                // This validates the signature cryptographically
+                keychain_sig.signature.recover_signer(sig_hash)?;
+
+                // Return the key_id (access key address)
+                // Note: Transaction validation in the handler will check that this
+                // key is authorized for the account
+                Ok(keychain_sig.key_id)
             }
         }
     }

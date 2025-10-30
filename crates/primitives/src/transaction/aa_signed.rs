@@ -22,12 +22,12 @@ use std::sync::OnceLock;
 /// A transaction with an AA signature and hash seal.
 ///
 /// This wraps a TxAA transaction with its multi-signature-type signature
-/// (secp256k1, P256, or WebAuthn) and provides a cached transaction hash.
+/// (secp256k1, P256, Webauthn, Keychain) and provides a cached transaction hash.
 #[derive(Clone, Debug)]
 pub struct AASigned {
     /// The inner AA transaction
     tx: TxAA,
-    /// The signature (can be secp256k1, P256, or WebAuthn)
+    /// The signature (can be secp256k1, P256, Webauthn, Keychain)
     signature: AASignature,
     /// Cached transaction hash
     #[doc(alias = "tx_hash", alias = "transaction_hash")]
