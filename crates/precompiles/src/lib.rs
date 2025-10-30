@@ -12,6 +12,7 @@ pub mod stablecoin_exchange;
 pub mod storage;
 pub mod tip20;
 pub mod tip20_factory;
+pub mod tip20_rewards_registry;
 pub mod tip403_registry;
 pub mod tip4217_registry;
 pub mod tip_account_registrar;
@@ -27,6 +28,7 @@ use crate::{
     tip_fee_manager::TipFeeManager,
     tip20::{TIP20Token, address_to_token_id_unchecked, is_tip20},
     tip20_factory::TIP20Factory,
+    tip20_rewards_registry::TIP20RewardsRegistry,
     tip403_registry::TIP403Registry,
     tip4217_registry::TIP4217Registry,
 };
@@ -49,6 +51,8 @@ pub const LINKING_USD_ADDRESS: Address = address!("0x20C000000000000000000000000
 pub const DEFAULT_FEE_TOKEN: Address = address!("0x20C0000000000000000000000000000000000001");
 pub const TIP403_REGISTRY_ADDRESS: Address = address!("0x403C000000000000000000000000000000000000");
 pub const TIP20_FACTORY_ADDRESS: Address = address!("0x20FC000000000000000000000000000000000000");
+pub const TIP20_REWARDS_REGISTRY_ADDRESS: Address =
+    address!("0x2100000000000000000000000000000000000000");
 pub const TIP4217_REGISTRY_ADDRESS: Address =
     address!("0x4217C00000000000000000000000000000000000");
 pub const TIP_ACCOUNT_REGISTRAR: Address = address!("0x7702ac0000000000000000000000000000000000");
@@ -62,20 +66,22 @@ pub const VIEW_FUNC_GAS: u64 = 100;
 pub const MUTATE_FUNC_GAS: u64 = 1000;
 
 pub trait Precompile {
-    fn call(&mut self, calldata: &[u8], msg_sender: &Address) -> PrecompileResult;
+    fn call(&mut self, calldata: &[u8], msg_sender: Address) -> PrecompileResult;
 }
 
 pub fn extend_tempo_precompiles(precompiles: &mut PrecompilesMap, chain_id: u64) {
     precompiles.set_precompile_lookup(move |address: &Address| {
-        if is_tip20(address) {
-            let token_id = address_to_token_id_unchecked(address);
+        if is_tip20(*address) {
+            let token_id = address_to_token_id_unchecked(*address);
             if token_id == 0 {
                 Some(LinkingUSDPrecompile::create(chain_id))
             } else {
-                Some(TIP20Precompile::create(address, chain_id))
+                Some(TIP20Precompile::create(*address, chain_id))
             }
         } else if *address == TIP20_FACTORY_ADDRESS {
             Some(TIP20FactoryPrecompile::create(chain_id))
+        } else if *address == TIP20_REWARDS_REGISTRY_ADDRESS {
+            Some(TIP20RewardsRegistryPrecompile::create(chain_id))
         } else if *address == TIP403_REGISTRY_ADDRESS {
             Some(TIP403RegistryPrecompile::create(chain_id))
         } else if *address == TIP4217_REGISTRY_ADDRESS {
@@ -107,7 +113,7 @@ macro_rules! tempo_precompile {
                     DelegateCallNotAllowed {}.abi_encode().into(),
                 ));
             }
-            $impl.call($input.data, &$input.caller)
+            $impl.call($input.data, $input.caller)
         })
     };
 }
@@ -139,6 +145,15 @@ impl TIP4217RegistryPrecompile {
     }
 }
 
+pub struct TIP20RewardsRegistryPrecompile;
+impl TIP20RewardsRegistryPrecompile {
+    pub fn create(chain_id: u64) -> DynPrecompile {
+        tempo_precompile!("TIP20RewardsRegistry", |input| TIP20RewardsRegistry::new(
+            &mut EvmPrecompileStorageProvider::new(input.internals, chain_id),
+        ))
+    }
+}
+
 pub struct TIP403RegistryPrecompile;
 impl TIP403RegistryPrecompile {
     pub fn create(chain_id: u64) -> DynPrecompile {
@@ -159,7 +174,7 @@ impl TIP20FactoryPrecompile {
 
 pub struct TIP20Precompile;
 impl TIP20Precompile {
-    pub fn create(address: &Address, chain_id: u64) -> DynPrecompile {
+    pub fn create(address: Address, chain_id: u64) -> DynPrecompile {
         let token_id = address_to_token_id_unchecked(address);
         tempo_precompile!("TIP20Token", |input| TIP20Token::new(
             token_id,
@@ -214,8 +229,8 @@ pub fn view<T: SolCall>(
 #[inline]
 pub fn mutate<T: SolCall>(
     calldata: &[u8],
-    sender: &Address,
-    f: impl FnOnce(&Address, T) -> Result<T::Return>,
+    sender: Address,
+    f: impl FnOnce(Address, T) -> Result<T::Return>,
 ) -> PrecompileResult {
     let Ok(call) = T::abi_decode(calldata) else {
         return Ok(PrecompileOutput::new_reverted(
@@ -230,8 +245,8 @@ pub fn mutate<T: SolCall>(
 #[inline]
 pub fn mutate_void<T: SolCall>(
     calldata: &[u8],
-    sender: &Address,
-    f: impl FnOnce(&Address, T) -> Result<()>,
+    sender: Address,
+    f: impl FnOnce(Address, T) -> Result<()>,
 ) -> PrecompileResult {
     let Ok(call) = T::abi_decode(calldata) else {
         return Ok(PrecompileOutput::new_reverted(

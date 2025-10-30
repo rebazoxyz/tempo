@@ -31,6 +31,7 @@ use tempo_precompiles::{
     tip_fee_manager::{IFeeManager, ITIPFeeAMM, TipFeeManager},
     tip20::{ISSUER_ROLE, ITIP20, TIP20Token},
     tip20_factory::{ITIP20Factory, TIP20Factory},
+    tip20_rewards_registry::TIP20RewardsRegistry,
     tip403_registry::TIP403Registry,
 };
 
@@ -133,6 +134,9 @@ impl GenesisArgs {
 
         println!("Initializing LinkingUSD");
         initialize_linking_usd(admin, &mut evm)?;
+
+        println!("Initializing TIP20RewardsRegistry");
+        initialize_tip20_rewards_registry(&mut evm)?;
 
         println!("Initializing fee manager");
         initialize_fee_manager(alpha_token_address, addresses, &mut evm);
@@ -299,7 +303,7 @@ fn create_and_mint_token(
             .expect("Could not initialize tip20 factory");
         factory
             .create_token(
-                &admin,
+                admin,
                 ITIP20Factory::createTokenCall {
                     name: name.into(),
                     symbol: symbol.into(),
@@ -315,10 +319,10 @@ fn create_and_mint_token(
     let mut token = TIP20Token::new(token_id, &mut provider);
     token
         .get_roles_contract()
-        .grant_role_internal(&admin, *ISSUER_ROLE)?;
+        .grant_role_internal(admin, *ISSUER_ROLE)?;
 
     let result = token.set_supply_cap(
-        &admin,
+        admin,
         ITIP20::setSupplyCapCall {
             newSupplyCap: U256::MAX,
         },
@@ -327,7 +331,7 @@ fn create_and_mint_token(
 
     token
         .mint(
-            &admin,
+            admin,
             ITIP20::mintCall {
                 to: admin,
                 amount: mint_amount,
@@ -338,7 +342,7 @@ fn create_and_mint_token(
     for address in recipients.iter().tqdm() {
         token
             .mint(
-                &admin,
+                admin,
                 ITIP20::mintCall {
                     to: *address,
                     amount: U256::from(u64::MAX),
@@ -360,11 +364,20 @@ fn initialize_linking_usd(
 
     let mut linking_usd = LinkingUSD::new(&mut provider);
     linking_usd
-        .initialize(&admin)
+        .initialize(admin)
         .expect("LinkingUSD initialization should succeed");
     let mut roles = linking_usd.get_roles_contract();
-    roles.grant_role_internal(&admin, *ISSUER_ROLE)?;
-    roles.grant_role_internal(&admin, *TRANSFER_ROLE)?;
+    roles.grant_role_internal(admin, *ISSUER_ROLE)?;
+    roles.grant_role_internal(admin, *TRANSFER_ROLE)?;
+
+    Ok(())
+}
+
+fn initialize_tip20_rewards_registry(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre::Result<()> {
+    let block = evm.block.clone();
+    let evm_internals = EvmInternals::new(evm.journal_mut(), &block);
+    let mut provider = EvmPrecompileStorageProvider::new(evm_internals, 1);
+    TIP20RewardsRegistry::new(&mut provider).initialize()?;
 
     Ok(())
 }
@@ -388,7 +401,7 @@ fn initialize_fee_manager(
     for address in initial_accounts.iter().tqdm() {
         fee_manager
             .set_user_token(
-                address,
+                *address,
                 IFeeManager::setUserTokenCall {
                     token: default_fee_address,
                 },
@@ -398,7 +411,7 @@ fn initialize_fee_manager(
 
     fee_manager
         .set_validator_token(
-            &Address::ZERO,
+            Address::ZERO,
             IFeeManager::setValidatorTokenCall {
                 token: default_fee_address,
             },
