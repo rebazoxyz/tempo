@@ -2,7 +2,7 @@ pub mod dex;
 
 mod request;
 
-pub use dex::TempoDexApiServer;
+pub use dex::{TempoDex, TempoDexApiServer};
 pub use request::TempoTransactionRequest;
 
 use crate::{TempoNetwork, node::TempoNode};

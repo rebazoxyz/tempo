@@ -1,8 +1,37 @@
 use alloy::primitives::{Address, B256};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 
 pub type OrdersParams = PaginationParams<OrdersFilters>;
 pub type Tick = i16;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PaginationResponse<Item> {
+    /// Cursor for next page, null if no more results
+    pub next_cursor: Option<String>,
+    /// Array of items matching the input query
+    pub items: Vec<Item>,
+}
+
+/// A trait whose implementation determines a field name for [`PaginationResponse`] implementation
+/// of [`Serialize`]r.
+pub trait FieldName {
+    /// Returns the camel case plural name for this field.
+    ///
+    /// For example a struct called `RoleChange` would likely return `"roleChanges"`.
+    fn field_plural_camel_case() -> &'static str;
+}
+
+impl<Item: Serialize + FieldName> Serialize for PaginationResponse<Item> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut ser = serializer.serialize_struct("PaginationResponse", 2)?;
+        ser.serialize_field("nextCursor", &self.next_cursor)?;
+        ser.serialize_field(Item::field_plural_camel_case(), &self.items)?;
+        ser.end()
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,13 +105,6 @@ pub struct FilterRange<T> {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OrdersResponse {
-    pub next_cursor: Option<String>,
-    pub orders: Vec<Order>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Order {
     /// Original order amount
     pub amount: B256,
@@ -112,6 +134,12 @@ pub struct Order {
     pub base_token: Address,
     /// Address of the quote token
     pub quote_token: Address,
+}
+
+impl FieldName for Order {
+    fn field_plural_camel_case() -> &'static str {
+        "orders"
+    }
 }
 
 #[cfg(test)]
