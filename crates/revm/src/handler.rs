@@ -846,6 +846,7 @@ where
         // Call collectFeePostTx on TipFeeManager precompile
         let context = evm.ctx();
         let tx = context.tx();
+        let tx_caller = tx.caller; // Get tx.caller before mutable borrows
         let basefee = context.block().basefee() as u128;
         let effective_gas_price = tx.effective_gas_price(basefee);
         let gas = exec_result.gas();
@@ -878,6 +879,17 @@ where
                 )
                 .map_err(|e| EVMError::Custom(format!("{e:?}")))?;
         }
+
+        // Clear the transaction key after transaction execution completes
+        // This ensures the transaction key doesn't persist across transactions
+        // The transaction key is used to track which key (main or access) authorized the transaction
+        let mut keychain = AccountKeychain::new(
+            &mut storage_provider,
+            tempo_precompiles::ACCOUNT_KEYCHAIN_ADDRESS,
+        );
+        keychain
+            .set_transaction_key(&tx_caller, &Address::ZERO)
+            .map_err(|e| EVMError::Custom(e.to_string()))?;
 
         Ok(())
     }
