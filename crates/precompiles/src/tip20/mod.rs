@@ -533,9 +533,13 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     pub fn transfer(&mut self, msg_sender: Address, call: ITIP20::transferCall) -> Result<bool> {
         trace!(%msg_sender, ?call, "transferring TIP20");
         self.check_not_paused()?;
-        self.check_not_token_address(call.to)?;
-        self.ensure_transfer_authorized(msg_sender, call.to)?;
-        self._transfer(msg_sender, call.to, call.amount)?;
+        self.check_not_token_address(&call.to)?;
+        self.ensure_transfer_authorized(msg_sender, &call.to)?;
+
+        // Check spending limits if using access key
+        self.check_spending_limit(msg_sender, call.amount)?;
+
+        self._transfer(msg_sender, &call.to, call.amount)?;
         Ok(true)
     }
 
@@ -616,7 +620,10 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
             self.set_allowance(from, msg_sender, new_allowance)?;
         }
 
-        self._transfer(from, to, amount)?;
+        // Check spending limits if using access key (based on 'from' account)
+        self.check_spending_limit(&from, amount)?;
+
+        self._transfer(&from, &to, amount)?;
 
         Ok(true)
     }
@@ -770,7 +777,46 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         Ok(())
     }
 
-    fn _transfer(&mut self, from: Address, to: Address, amount: U256) -> Result<()> {
+    /// Check spending limits for access key transfers
+    ///
+    /// This method uses the AccountKeychain precompile to check and update
+    /// spending limits if the transaction is using an access key.
+    fn check_spending_limit(
+        &mut self,
+        account: &Address,
+        amount: U256,
+    ) -> Result<(), TempoPrecompileError> {
+        use crate::account_keychain::AccountKeychain;
+
+        // Create AccountKeychain instance to read transaction key
+        let mut keychain = AccountKeychain::new(self.storage, crate::ACCOUNT_KEYCHAIN_ADDRESS);
+
+        // Get the transaction key for this account
+        let transaction_key = keychain
+            .get_transaction_key(crate::account_keychain::getTransactionKeyCall {}, account)?;
+
+        // If using main key (Address::ZERO), no spending limits apply
+        if transaction_key == Address::ZERO {
+            return Ok(());
+        }
+
+        // Verify and update spending limits for this access key
+        keychain.verify_and_update_spending(
+            account,
+            &transaction_key,
+            &self.token_address,
+            amount,
+        )?;
+
+        Ok(())
+    }
+
+    fn _transfer(
+        &mut self,
+        from: Address,
+        to: Address,
+        amount: U256,
+    ) -> Result<(), TempoPrecompileError> {
         let from_balance = self.get_balance(from)?;
         if amount > from_balance {
             return Err(
