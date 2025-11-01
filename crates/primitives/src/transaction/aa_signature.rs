@@ -21,6 +21,7 @@ pub const SIGNATURE_TYPE_KEYCHAIN: u8 = 0x03;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 pub struct P256SignatureWithPreHash {
     pub r: B256,
     pub s: B256,
@@ -34,6 +35,7 @@ pub struct P256SignatureWithPreHash {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 pub struct WebAuthnSignature {
     pub r: B256,
     pub s: B256,
@@ -55,6 +57,7 @@ pub struct WebAuthnSignature {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 pub struct KeychainSignature {
     /// Root account address that this transaction is being executed for
     pub user_address: Address,
@@ -67,6 +70,7 @@ pub struct KeychainSignature {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", rename_all = "camelCase"))]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 pub enum AASignature {
     /// Standard secp256k1 ECDSA signature (65 bytes: r, s, v)
     Secp256k1(Signature),

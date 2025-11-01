@@ -116,6 +116,7 @@ impl Decodable for Call {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 pub struct TokenLimit {
     /// TIP20 token address
     pub token: Address,
@@ -173,25 +174,6 @@ impl Decodable for TokenLimit {
     }
 }
 
-#[cfg(feature = "reth-codec")]
-impl reth_codecs::Compact for TokenLimit {
-    fn to_compact<B>(&self, buf: &mut B) -> usize
-    where
-        B: BufMut + AsMut<[u8]>,
-    {
-        let mut len = 0;
-        len += self.token.to_compact(buf);
-        len += self.limit.to_compact(buf);
-        len
-    }
-
-    fn from_compact(buf: &[u8], len: usize) -> (Self, &[u8]) {
-        let (token, buf) = Address::from_compact(buf, len);
-        let (limit, buf) = U256::from_compact(buf, len);
-        (Self { token, limit }, buf)
-    }
-}
-
 /// Key authorization for provisioning access keys
 ///
 /// Used in TxAA to add a new key to the AccountKeychain precompile.
@@ -200,15 +182,13 @@ impl reth_codecs::Compact for TokenLimit {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 pub struct KeyAuthorization {
     /// Unix timestamp when key expires (0 = never expires)
     pub expiry: u64,
 
     /// TIP20 spending limits for this key
     pub limits: Vec<TokenLimit>,
-
-    /// The type of they key (secp256k1, P256, WebAuthn)
-    pub key_type: SignatureType,
 
     /// Key identifier, is the address derived from the public key of the key type.
     pub key_id: Address,
@@ -221,14 +201,8 @@ impl KeyAuthorization {
     /// Returns the RLP header for this key authorization
     #[inline]
     fn rlp_header(&self) -> alloy_rlp::Header {
-        let key_type_byte: u8 = match self.key_type {
-            SignatureType::Secp256k1 => 0,
-            SignatureType::P256 => 1,
-            SignatureType::WebAuthn => 2,
-        };
         let payload_length = self.expiry.length()
             + self.limits.length()
-            + key_type_byte.length()
             + self.key_id.length()
             + self.signature.length();
         alloy_rlp::Header {
@@ -243,12 +217,6 @@ impl Encodable for KeyAuthorization {
         self.rlp_header().encode(out);
         self.expiry.encode(out);
         self.limits.encode(out);
-        let key_type_byte: u8 = match self.key_type {
-            SignatureType::Secp256k1 => 0,
-            SignatureType::P256 => 1,
-            SignatureType::WebAuthn => 2,
-        };
-        key_type_byte.encode(out);
         self.key_id.encode(out);
         self.signature.encode(out);
     }
@@ -272,13 +240,6 @@ impl Decodable for KeyAuthorization {
 
         let expiry: u64 = Decodable::decode(buf)?;
         let limits: Vec<TokenLimit> = Decodable::decode(buf)?;
-        let key_type_byte: u8 = Decodable::decode(buf)?;
-        let key_type = match key_type_byte {
-            0 => SignatureType::Secp256k1,
-            1 => SignatureType::P256,
-            2 => SignatureType::WebAuthn,
-            _ => return Err(alloy_rlp::Error::Custom("Invalid signature type")),
-        };
         let key_id: Address = Decodable::decode(buf)?;
         let signature_bytes: Bytes = Decodable::decode(buf)?;
         let signature =
@@ -287,7 +248,6 @@ impl Decodable for KeyAuthorization {
         let this = Self {
             expiry,
             limits,
-            key_type,
             key_id,
             signature,
         };
@@ -300,56 +260,7 @@ impl Decodable for KeyAuthorization {
     }
 }
 
-#[cfg(feature = "reth-codec")]
-impl reth_codecs::Compact for KeyAuthorization {
-    fn to_compact<B>(&self, buf: &mut B) -> usize
-    where
-        B: BufMut + AsMut<[u8]>,
-    {
-        let mut len = 0;
-        len += self.expiry.to_compact(buf);
-        len += self.limits.to_compact(buf);
-        let key_type_byte: u8 = match self.key_type {
-            SignatureType::Secp256k1 => 0,
-            SignatureType::P256 => 1,
-            SignatureType::WebAuthn => 2,
-        };
-        len += key_type_byte.to_compact(buf);
-        len += self.key_id.to_compact(buf);
-        let signature_bytes = self.signature.to_bytes();
-        len += signature_bytes.to_compact(buf);
-        len
-    }
-
-    fn from_compact(buf: &[u8], len: usize) -> (Self, &[u8]) {
-        let (expiry, buf) = u64::from_compact(buf, len);
-        let (limits, buf) = Vec::<TokenLimit>::from_compact(buf, len);
-        let (key_type_byte, buf) = u8::from_compact(buf, len);
-        let key_type = match key_type_byte {
-            0 => SignatureType::Secp256k1,
-            1 => SignatureType::P256,
-            2 => SignatureType::WebAuthn,
-            _ => SignatureType::Secp256k1, // Default to Secp256k1 for invalid values
-        };
-        let (key_id, buf) = Address::from_compact(buf, len);
-        let (signature_bytes, buf) = Bytes::from_compact(buf, len);
-        let signature = AASignature::from_bytes(&signature_bytes).unwrap_or_else(|_| {
-            AASignature::Secp256k1(alloy_primitives::Signature::test_signature())
-        });
-        (
-            Self {
-                expiry,
-                limits,
-                key_type,
-                key_id,
-                signature,
-            },
-            buf,
-        )
-    }
-}
-
-/// Account abstraction transaction following the Tempo spec.
+// Account abstraction transaction following the Tempo spec.
 ///
 /// This transaction type supports:
 /// - Multiple signature types (secp256k1, P256, WebAuthn)
@@ -483,7 +394,6 @@ impl TxAA {
         // key_authorization (optional)
         if let Some(key_auth) = &self.key_authorization {
             mem::size_of::<u64>() + // expiry
-            mem::size_of::<SignatureType>() + // key_type
             mem::size_of::<Address>() + // key_id
             key_auth.signature.to_bytes().len() + // signature
             key_auth.limits.iter().map(|_limit| {

@@ -521,11 +521,14 @@ fn generate_p256_access_key() -> (
 fn create_key_authorization(
     root_signer: &impl SignerSync,
     access_key_addr: Address,
-    key_type: tempo_primitives::transaction::SignatureType,
+    access_key_signature: AASignature,
     expiry: u64,
     spending_limits: Vec<tempo_primitives::transaction::account_abstraction::TokenLimit>,
 ) -> eyre::Result<tempo_primitives::transaction::account_abstraction::KeyAuthorization> {
     use tempo_primitives::transaction::account_abstraction::KeyAuthorization;
+
+    // Infer key_type from the access key signature
+    let key_type = access_key_signature.signature_type();
 
     // Create authorization message
     let mut auth_message = Vec::new();
@@ -544,7 +547,6 @@ fn create_key_authorization(
     Ok(KeyAuthorization {
         expiry,
         limits: spending_limits,
-        key_type,
         key_id: access_key_addr,
         signature: AASignature::Secp256k1(root_auth_signature),
     })
@@ -2382,7 +2384,6 @@ async fn test_aa_access_key() -> eyre::Result<()> {
     let key_authorization = KeyAuthorization {
         expiry: key_expiry,
         limits: spending_limits,
-        key_type: tempo_primitives::transaction::SignatureType::P256, // P256 access key
         key_id: access_key_addr, // Address derived from P256 public key
         signature: AASignature::Secp256k1(root_auth_signature), // Root key signature (secp256k1)
     };
@@ -2642,11 +2643,21 @@ async fn test_aa_keychain_negative_cases() -> eyre::Result<()> {
 
     // Test 2: Authorize same key twice (should fail on second attempt)
     println!("Test 2: Duplicate key authorization");
-    let (_, _, _, access_key_addr) = generate_p256_access_key();
+    let (_, pub_x, pub_y, access_key_addr) = generate_p256_access_key();
+    // Create a mock P256 signature to indicate this is a P256 key
+    let mock_p256_sig = AASignature::P256(
+        tempo_primitives::transaction::aa_signature::P256SignatureWithPreHash {
+            r: B256::ZERO,
+            s: B256::ZERO,
+            pub_key_x: pub_x,
+            pub_key_y: pub_y,
+            pre_hash: false,
+        },
+    );
     let key_auth = create_key_authorization(
         &root_signer,
         access_key_addr,
-        tempo_primitives::transaction::SignatureType::P256,
+        mock_p256_sig,
         u64::MAX,
         vec![TokenLimit {
             token: DEFAULT_FEE_TOKEN,
@@ -2681,10 +2692,20 @@ async fn test_aa_keychain_negative_cases() -> eyre::Result<()> {
     // Test 3: Access key trying to authorize another key (should fail)
     println!("Test 3: Unauthorized authorize attempt");
     let (access_key_1, pub_x_1, pub_y_1, access_addr_1) = generate_p256_access_key();
+    // Create a mock P256 signature to indicate this is a P256 key
+    let mock_p256_sig_1 = AASignature::P256(
+        tempo_primitives::transaction::aa_signature::P256SignatureWithPreHash {
+            r: B256::ZERO,
+            s: B256::ZERO,
+            pub_key_x: pub_x_1,
+            pub_key_y: pub_y_1,
+            pre_hash: false,
+        },
+    );
     let key_auth_1 = create_key_authorization(
         &root_signer,
         access_addr_1,
-        tempo_primitives::transaction::SignatureType::P256,
+        mock_p256_sig_1,
         u64::MAX,
         vec![TokenLimit {
             token: DEFAULT_FEE_TOKEN,
@@ -2702,11 +2723,21 @@ async fn test_aa_keychain_negative_cases() -> eyre::Result<()> {
     .await?;
 
     // Try to authorize second key using first access key
-    let (_, _, _, access_addr_2) = generate_p256_access_key();
+    let (_, pub_x_2, pub_y_2, access_addr_2) = generate_p256_access_key();
+    // Create a mock P256 signature to indicate this is a P256 key
+    let mock_p256_sig_2 = AASignature::P256(
+        tempo_primitives::transaction::aa_signature::P256SignatureWithPreHash {
+            r: B256::ZERO,
+            s: B256::ZERO,
+            pub_key_x: pub_x_2,
+            pub_key_y: pub_y_2,
+            pre_hash: false,
+        },
+    );
     let key_auth_2 = create_key_authorization(
         &root_signer,
         access_addr_2,
-        tempo_primitives::transaction::SignatureType::P256,
+        mock_p256_sig_2,
         u64::MAX,
         vec![],
     )?;
