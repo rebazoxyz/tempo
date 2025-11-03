@@ -330,7 +330,7 @@ pub(crate) fn gen_getters_and_setters(
                     // Compile-time validation: ensure slot_count attribute matches Storable::SLOT_COUNT
                     const #validation_const: () = {
                         const EXPECTED: usize = #expected_slot_count;
-                        const ACTUAL: usize = <#ty as crate::storage::Storable>::SLOT_COUNT;
+                        const ACTUAL: usize = <#ty>::SLOT_COUNT;
 
                         // This will fail at compile time if they don't match
                         if EXPECTED != ACTUAL {
@@ -351,7 +351,7 @@ pub(crate) fn gen_getters_and_setters(
                         // Reference the validation const to ensure it's evaluated
                         let _ = Self::#validation_const;
 
-                        <#ty as crate::storage::Storable>::load(
+                        <#ty as crate::storage::Storable<{ <#ty>::SLOT_COUNT }>>::load(
                             self,
                             ::alloy::primitives::U256::from_limbs(#slot_limbs),
                         )
@@ -362,7 +362,7 @@ pub(crate) fn gen_getters_and_setters(
                         // Reference the validation const to ensure it's evaluated
                         let _ = Self::#validation_const;
 
-                        <#ty as crate::storage::Storable>::delete(
+                        <#ty as crate::storage::Storable<{ <#ty>::SLOT_COUNT }>>::delete(
                             self,
                             ::alloy::primitives::U256::from_limbs(#slot_limbs),
                         )

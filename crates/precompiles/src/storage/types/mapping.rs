@@ -63,7 +63,7 @@ impl<K, V, const SLOT: [u64; 4]> Mapping<K, V, SLOT> {
     ///
     /// This method:
     /// 1. Computes the storage slot via keccak256(key || base_slot)
-    /// 2. Delegates to `Storable::load`, which may read one or more consecutive slots
+    /// 2. Delegates to `Storable::load`, which reads `N` consecutive slots
     ///
     /// # Example
     ///
@@ -72,10 +72,10 @@ impl<K, V, const SLOT: [u64; 4]> Mapping<K, V, SLOT> {
     /// let name = NamedMapping::read(&mut contract, user_address)?;
     /// ```
     #[inline]
-    pub fn read<S: StorageOps>(storage: &mut S, key: K) -> Result<V>
+    pub fn read<S: StorageOps, const N: usize>(storage: &mut S, key: K) -> Result<V>
     where
         K: StorageKey,
-        V: Storable,
+        V: Storable<N>,
     {
         let slot = mapping_slot(key.as_storage_bytes(), Self::slot());
         V::load(storage, slot)
@@ -85,7 +85,7 @@ impl<K, V, const SLOT: [u64; 4]> Mapping<K, V, SLOT> {
     ///
     /// This method:
     /// 1. Computes the storage slot via keccak256(key || base_slot)
-    /// 2. Delegates to `Storable::store`, which may write one or more consecutive slots
+    /// 2. Delegates to `Storable::store`, which writes to `N` consecutive slots
     ///
     /// # Example
     ///
@@ -94,10 +94,10 @@ impl<K, V, const SLOT: [u64; 4]> Mapping<K, V, SLOT> {
     /// NamedMapping::write(&mut contract, user_address, U256::from(100))?;
     /// ```
     #[inline]
-    pub fn write<S: StorageOps>(storage: &mut S, key: K, value: V) -> Result<()>
+    pub fn write<S: StorageOps, const N: usize>(storage: &mut S, key: K, value: V) -> Result<()>
     where
         K: StorageKey,
-        V: Storable,
+        V: Storable<N>,
     {
         let slot = mapping_slot(key.as_storage_bytes(), Self::slot());
         value.store(storage, slot)
@@ -107,7 +107,7 @@ impl<K, V, const SLOT: [u64; 4]> Mapping<K, V, SLOT> {
     ///
     /// This method:
     /// 1. Computes the storage slot via keccak256(key || base_slot)
-    /// 2. Delegates to `Storable::delete`, which sets `V::SLOT_COUNT` consecutive slots to zero
+    /// 2. Delegates to `Storable::delete`, which sets `N` consecutive slots to zero
     ///
     /// # Example
     ///
@@ -116,10 +116,10 @@ impl<K, V, const SLOT: [u64; 4]> Mapping<K, V, SLOT> {
     /// NamedMapping::delete(&mut contract, user_address)?;
     /// ```
     #[inline]
-    pub fn delete<S: StorageOps>(storage: &mut S, key: K) -> Result<()>
+    pub fn delete<S: StorageOps, const N: usize>(storage: &mut S, key: K) -> Result<()>
     where
         K: StorageKey,
-        V: Storable,
+        V: Storable<N>,
     {
         let slot = mapping_slot(key.as_storage_bytes(), Self::slot());
         V::delete(storage, slot)
@@ -146,11 +146,15 @@ impl<K1, K2, V, const SLOT: [u64; 4], const DUMMY: [u64; 4]>
     /// )?;
     /// ```
     #[inline]
-    pub fn read_nested<S: StorageOps>(storage: &mut S, key1: K1, key2: K2) -> Result<V>
+    pub fn read_nested<S: StorageOps, const N: usize>(
+        storage: &mut S,
+        key1: K1,
+        key2: K2,
+    ) -> Result<V>
     where
         K1: StorageKey,
         K2: StorageKey,
-        V: Storable,
+        V: Storable<N>,
     {
         let slot = double_mapping_slot(
             key1.as_storage_bytes(),
@@ -178,11 +182,16 @@ impl<K1, K2, V, const SLOT: [u64; 4], const DUMMY: [u64; 4]>
     /// )?;
     /// ```
     #[inline]
-    pub fn write_nested<S: StorageOps>(storage: &mut S, key1: K1, key2: K2, value: V) -> Result<()>
+    pub fn write_nested<S: StorageOps, const N: usize>(
+        storage: &mut S,
+        key1: K1,
+        key2: K2,
+        value: V,
+    ) -> Result<()>
     where
         K1: StorageKey,
         K2: StorageKey,
-        V: Storable,
+        V: Storable<N>,
     {
         let slot = double_mapping_slot(
             key1.as_storage_bytes(),
@@ -196,7 +205,7 @@ impl<K1, K2, V, const SLOT: [u64; 4], const DUMMY: [u64; 4]>
     ///
     /// This method:
     /// 1. Computes the storage slot using: `keccak256(k2 || keccak256(k1 || base_slot))`
-    /// 2. Delegates to `Storable::delete`, which sets `V::SLOT_COUNT` consecutive slots to zero
+    /// 2. Delegates to `Storable::delete`, which sets `N` consecutive slots to zero
     ///
     /// # Example
     ///
@@ -209,11 +218,15 @@ impl<K1, K2, V, const SLOT: [u64; 4], const DUMMY: [u64; 4]>
     /// )?;
     /// ```
     #[inline]
-    pub fn delete_nested<S: StorageOps>(storage: &mut S, key1: K1, key2: K2) -> Result<()>
+    pub fn delete_nested<S: StorageOps, const N: usize>(
+        storage: &mut S,
+        key1: K1,
+        key2: K2,
+    ) -> Result<()>
     where
         K1: StorageKey,
         K2: StorageKey,
-        V: Storable,
+        V: Storable<N>,
     {
         let slot = double_mapping_slot(
             key1.as_storage_bytes(),

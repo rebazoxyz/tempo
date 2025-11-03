@@ -119,9 +119,7 @@ pub(crate) fn parse_interface(interface_ident: &Ident) -> syn::Result<Interface>
 }
 
 // TODO(rusowsky): Implement automatic method discovery from sol! generated interfaces.
-fn get_interface_metadata(
-    interface_ident: &Ident,
-) -> syn::Result<Interface> {
+fn get_interface_metadata(interface_ident: &Ident) -> syn::Result<Interface> {
     let interface_name = interface_ident.to_string();
     match interface_name.as_str() {
         // crates/contracts/src/precompiles/tip20.rs

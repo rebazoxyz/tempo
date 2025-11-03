@@ -5,7 +5,9 @@ use syn::{Ident, Type, parse_quote};
 pub(crate) fn get_functions(interface_ident: &Ident) -> Vec<InterfaceFunction> {
     // Helper to convert parameter tuples to ParamName
     let params = |p: Vec<(&'static str, Type)>| -> Vec<(ParamName, Type)> {
-        p.into_iter().map(|(name, ty)| (ParamName::new(name), ty)).collect()
+        p.into_iter()
+            .map(|(name, ty)| (ParamName::new(name), ty))
+            .collect()
     };
 
     vec![
@@ -173,7 +175,10 @@ pub(crate) fn get_functions(interface_ident: &Ident) -> Vec<InterfaceFunction> {
         },
         InterfaceFunction {
             name: "burn_with_memo",
-            params: params(vec![("amount", parse_quote!(U256)), ("memo", parse_quote!(B256))]),
+            params: params(vec![
+                ("amount", parse_quote!(U256)),
+                ("memo", parse_quote!(B256)),
+            ]),
             return_type: parse_quote!(()),
             is_view: false,
             call_type_path: quote!(#interface_ident::burnWithMemoCall),

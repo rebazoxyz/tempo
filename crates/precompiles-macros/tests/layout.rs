@@ -349,7 +349,7 @@ fn test_struct_storage() {
 //    #[contract]
 //    pub struct Layout {
 //        #[slot(10)]
-//        #[slot_count(3)]
+//        #[slot_count(2)]
 //        pub block: TestBlock,  // Occupies slots 10-12
 //        #[slot(11)]
 //        pub field: U256,       // ERROR: slot 11 already used!
@@ -458,8 +458,8 @@ fn test_user_profile_struct_in_contract() {
     pub struct Layout {
         pub counter: U256, // Auto: slot 0
         #[slot(20)]
-        #[slot_count(3)]
-        pub profile: UserProfile, // Explicit: slots 20-22
+        #[slot_count(2)]
+        pub profile: UserProfile, // Explicit: slots 20-21
         pub flag: bool,    // Auto: slot 1
     }
 
@@ -489,10 +489,17 @@ fn test_user_profile_struct_in_contract() {
     assert_eq!(storage.sload(addr, U256::from(0)), Ok(U256::from(5))); // counter
     assert_eq!(
         storage.sload(addr, U256::from(20)),
-        Ok(U256::from_be_bytes(test_address(42).into_word().into()))
-    ); // profile.owner
-    assert_eq!(storage.sload(addr, U256::from(21)), Ok(U256::from(1))); // profile.active
-    assert_eq!(storage.sload(addr, U256::from(22)), Ok(U256::from(999_999))); // profile.balance
+        // 0x                                       (packed: owner + active)
+        // 000000000000000000000000000000000000002A (addr(42))
+        // 00                                       (true)
+        // 0000000000000000000000                   (unused)
+        Ok(
+            "0x000000000000000000000000000000000000002A010000000000000000000000"
+                .parse::<U256>()
+                .unwrap()
+        )
+    );
+    assert_eq!(storage.sload(addr, U256::from(21)), Ok(U256::from(999_999))); // profile.balance
     assert_eq!(storage.sload(addr, U256::from(1)), Ok(U256::from(1))); // flag
 
     // Verify slots module
@@ -506,10 +513,9 @@ fn test_user_profile_struct_in_contract() {
         layout.clear_profile().unwrap();
     }
 
-    // Verify profile slots are zeroed
-    assert_eq!(storage.sload(addr, U256::from(20)), Ok(U256::ZERO));
-    assert_eq!(storage.sload(addr, U256::from(21)), Ok(U256::ZERO));
-    assert_eq!(storage.sload(addr, U256::from(22)), Ok(U256::ZERO));
+    // Verify profile slots are zeroed (only 2 slots: 20 and 21)
+    assert_eq!(storage.sload(addr, U256::from(20)), Ok(U256::ZERO)); // owner + active (packed)
+    assert_eq!(storage.sload(addr, U256::from(21)), Ok(U256::ZERO)); // balance
 
     // Verify other fields unchanged
     assert_eq!(storage.sload(addr, U256::from(0)), Ok(U256::from(5)));
@@ -631,7 +637,7 @@ fn test_round_trip_operations_in_contract() {
         #[slot_count(3)]
         pub block: TestBlock,
         #[slot(200)]
-        #[slot_count(3)]
+        #[slot_count(2)]
         pub profile: UserProfile,
     }
 

@@ -55,7 +55,7 @@ impl<T, const SLOT: [u64; 4]> Slot<T, SLOT> {
     /// Reads a value from storage at this slot.
     ///
     /// This method delegates to the `Storable::load` implementation,
-    /// which may read one or more consecutive slots depending on `T::SLOT_COUNT`.
+    /// which may read one or more consecutive slots depending on `N`.
     ///
     /// # Example
     ///
@@ -64,9 +64,9 @@ impl<T, const SLOT: [u64; 4]> Slot<T, SLOT> {
     /// let name = NamedSlot::read(&mut contract)?;
     /// ```
     #[inline]
-    pub fn read<S: StorageOps>(storage: &mut S) -> Result<T>
+    pub fn read<S: StorageOps, const N: usize>(storage: &mut S) -> Result<T>
     where
-        T: Storable,
+        T: Storable<N>,
     {
         T::load(storage, Self::slot())
     }
@@ -74,7 +74,7 @@ impl<T, const SLOT: [u64; 4]> Slot<T, SLOT> {
     /// Writes a value to storage at this slot.
     ///
     /// This method delegates to the `Storable::store` implementation,
-    /// which may write one or more consecutive slots depending on `T::SLOT_COUNT`.
+    /// which may write one or more consecutive slots depending on `N`.
     ///
     /// # Example
     ///
@@ -83,9 +83,9 @@ impl<T, const SLOT: [u64; 4]> Slot<T, SLOT> {
     /// NamedSlot::write(&mut contract, "MyToken".to_string())?;
     /// ```
     #[inline]
-    pub fn write<S: StorageOps>(storage: &mut S, value: T) -> Result<()>
+    pub fn write<S: StorageOps, const N: usize>(storage: &mut S, value: T) -> Result<()>
     where
-        T: Storable,
+        T: Storable<N>,
     {
         value.store(storage, Self::slot())
     }
@@ -93,7 +93,7 @@ impl<T, const SLOT: [u64; 4]> Slot<T, SLOT> {
     /// Deletes the value at this slot (sets all slots to zero).
     ///
     /// This method delegates to the `Storable::delete` implementation,
-    /// which sets `T::SLOT_COUNT` consecutive slots to zero.
+    /// which sets `N` consecutive slots to zero.
     ///
     /// # Example
     ///
@@ -102,9 +102,9 @@ impl<T, const SLOT: [u64; 4]> Slot<T, SLOT> {
     /// NamedSlot::delete(&mut contract)?;
     /// ```
     #[inline]
-    pub fn delete<S: StorageOps>(storage: &mut S) -> Result<()>
+    pub fn delete<S: StorageOps, const N: usize>(storage: &mut S) -> Result<()>
     where
-        T: Storable,
+        T: Storable<N>,
     {
         T::delete(storage, Self::slot())
     }
