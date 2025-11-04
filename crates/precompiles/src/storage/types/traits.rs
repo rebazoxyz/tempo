@@ -1,4 +1,4 @@
-use alloy::primitives::{Address, U256, keccak256};
+use alloy::primitives::{Address, Bytes, U256, keccak256};
 use revm::interpreter::instructions::utility::{IntoAddress, IntoU256};
 use tempo_precompiles_macros::{storable_alloy_bytes, storable_alloy_ints, storable_rust_ints};
 
@@ -190,7 +190,77 @@ impl Storable<1> for Address {
     }
 }
 
-/// String storage using Solidity's string encoding.
+impl StorableType for Bytes {
+    const BYTE_COUNT: usize = 32;
+}
+
+impl Storable<1> for Bytes {
+    #[inline]
+    fn load<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<Self> {
+        load_bytes_like(storage, base_slot, |data| Ok(Self::from(data)))
+    }
+
+    #[inline]
+    fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256) -> Result<()> {
+        store_bytes_like(self.as_ref(), storage, base_slot)
+    }
+
+    #[inline]
+    fn delete<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<()> {
+        delete_bytes_like(storage, base_slot)
+    }
+
+    #[inline]
+    fn to_evm_words(&self) -> Result<[U256; 1]> {
+        to_evm_words_bytes_like(self.as_ref())
+    }
+
+    #[inline]
+    fn from_evm_words(words: [U256; 1]) -> Result<Self> {
+        from_evm_words_bytes_like(words, |data| Ok(Self::from(data)))
+    }
+}
+
+impl StorableType for String {
+    const BYTE_COUNT: usize = 32;
+}
+
+impl Storable<1> for String {
+    #[inline]
+    fn load<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<Self> {
+        load_bytes_like(storage, base_slot, |data| {
+            Self::from_utf8(data).map_err(|e| {
+                TempoPrecompileError::Fatal(format!("Invalid UTF-8 in stored string: {e}"))
+            })
+        })
+    }
+
+    #[inline]
+    fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256) -> Result<()> {
+        store_bytes_like(self.as_bytes(), storage, base_slot)
+    }
+
+    #[inline]
+    fn delete<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<()> {
+        delete_bytes_like(storage, base_slot)
+    }
+
+    #[inline]
+    fn to_evm_words(&self) -> Result<[U256; 1]> {
+        to_evm_words_bytes_like(self.as_bytes())
+    }
+
+    #[inline]
+    fn from_evm_words(words: [U256; 1]) -> Result<Self> {
+        from_evm_words_bytes_like(words, |data| {
+            Self::from_utf8(data).map_err(|e| {
+                TempoPrecompileError::Fatal(format!("Invalid UTF-8 in stored string: {e}"))
+            })
+        })
+    }
+}
+
+/// Generic load implementation for string-like types (String, Bytes) using Solidity's encoding.
 ///
 /// **Short strings (≤31 bytes)** are stored inline in a single slot:
 /// - Bytes 0..len: UTF-8 string data (left-aligned)
@@ -199,122 +269,143 @@ impl Storable<1> for Address {
 /// **Long strings (≥32 bytes)** use keccak256-based storage:
 /// - Base slot: stores `length * 2 + 1` (bit 0 = 1 indicates long string)
 /// - Data slots: stored at `keccak256(main_slot) + i` for each 32-byte chunk
-impl StorableType for String {
-    const BYTE_COUNT: usize = 32;
+///
+/// The converter function transforms raw bytes into the target type.
+#[inline]
+fn load_bytes_like<T, S, F>(storage: &mut S, base_slot: U256, into: F) -> Result<T>
+where
+    S: StorageOps,
+    F: FnOnce(Vec<u8>) -> Result<T>,
+{
+    let base_value = storage.sload(base_slot)?;
+    let is_long = is_long_string(base_value);
+    let length = extract_string_length(base_value, is_long);
+
+    if is_long {
+        // Long string: read data from keccak256(base_slot) + i
+        let slot_start = compute_string_data_slot(base_slot);
+        let chunks = calc_chunks(length);
+        let mut data = Vec::with_capacity(length);
+
+        for i in 0..chunks {
+            let slot = slot_start + U256::from(i);
+            let chunk_value = storage.sload(slot)?;
+            let chunk_bytes = chunk_value.to_be_bytes::<32>();
+
+            // For the last chunk, only take the remaining bytes
+            let bytes_to_take = if i == chunks - 1 {
+                length - (i * 32)
+            } else {
+                32
+            };
+            data.extend_from_slice(&chunk_bytes[..bytes_to_take]);
+        }
+
+        into(data)
+    } else {
+        // Short string: data is inline in the main slot
+        let bytes = base_value.to_be_bytes::<32>();
+        into(bytes[..length].to_vec())
+    }
 }
 
-impl Storable<1> for String {
-    fn load<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<Self> {
-        let base_value = storage.sload(base_slot)?;
-        let is_long = is_long_string(base_value);
-        let length = extract_string_length(base_value, is_long);
+/// Generic store implementation for byte-like types (String, Bytes) using Solidity's encoding.
+///
+/// **Short strings (≤31 bytes)** are stored inline in a single slot:
+/// - Bytes 0..len: UTF-8 string data (left-aligned)
+/// - Byte 31 (LSB): length * 2 (bit 0 = 0 indicates short string)
+///
+/// **Long strings (≥32 bytes)** use keccak256-based storage:
+/// - Base slot: stores `length * 2 + 1` (bit 0 = 1 indicates long string)
+/// - Data slots: stored at `keccak256(main_slot) + i` for each 32-byte chunk
+#[inline]
+fn store_bytes_like<S: StorageOps>(bytes: &[u8], storage: &mut S, base_slot: U256) -> Result<()> {
+    let length = bytes.len();
 
-        if is_long {
-            // Long string: read data from keccak256(base_slot) + i
-            let slot_start = compute_string_data_slot(base_slot);
-            let chunks = calc_chunks(length);
-            let mut data = Vec::with_capacity(length);
+    if length <= 31 {
+        storage.sstore(base_slot, encode_short_string(bytes))
+    } else {
+        storage.sstore(base_slot, encode_long_string_length(length))?;
 
-            for i in 0..chunks {
-                let slot = slot_start + U256::from(i);
-                let chunk_value = storage.sload(slot)?;
-                let chunk_bytes = chunk_value.to_be_bytes::<32>();
+        // Store data in chunks at keccak256(base_slot) + i
+        let slot_start = compute_string_data_slot(base_slot);
+        let chunks = calc_chunks(length);
 
-                // For the last chunk, only take the remaining bytes
-                let bytes_to_take = if i == chunks - 1 {
-                    length - (i * 32)
-                } else {
-                    32
-                };
-                data.extend_from_slice(&chunk_bytes[..bytes_to_take]);
-            }
+        for i in 0..chunks {
+            let slot = slot_start + U256::from(i);
+            let chunk_start = i * 32;
+            let chunk_end = (chunk_start + 32).min(length);
+            let chunk = &bytes[chunk_start..chunk_end];
 
-            Self::from_utf8(data).map_err(|e| {
-                TempoPrecompileError::Fatal(format!("Invalid UTF-8 in stored string: {e}"))
-            })
-        } else {
-            // Short string: data is inline in the main slot
-            decode_short_string(base_value, length)
+            // Pad chunk to 32 bytes if it's the last chunk
+            let mut chunk_bytes = [0u8; 32];
+            chunk_bytes[..chunk.len()].copy_from_slice(chunk);
+
+            storage.sstore(slot, U256::from_be_bytes(chunk_bytes))?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Generic delete implementation for byte-like types (String, Bytes) using Solidity's encoding.
+///
+/// Clears both the main slot and any keccak256-addressed data slots for long strings.
+#[inline]
+fn delete_bytes_like<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<()> {
+    let base_value = storage.sload(base_slot)?;
+    let is_long = is_long_string(base_value);
+
+    if is_long {
+        // Long string: need to clear data slots as well
+        let length = extract_string_length(base_value, true);
+        let slot_start = compute_string_data_slot(base_slot);
+        let chunks = calc_chunks(length);
+
+        // Clear all data slots
+        for i in 0..chunks {
+            let slot = slot_start + U256::from(i);
+            storage.sstore(slot, U256::ZERO)?;
         }
     }
 
-    fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256) -> Result<()> {
-        let bytes = self.as_bytes();
-        let length = bytes.len();
+    // Clear the main slot
+    storage.sstore(base_slot, U256::ZERO)
+}
 
-        if length <= 31 {
-            storage.sstore(base_slot, encode_short_string(bytes))
-        } else {
-            storage.sstore(base_slot, encode_long_string_length(length))?;
+/// Returns the encoded length for long strings or the inline data for short strings.
+#[inline]
+fn to_evm_words_bytes_like(bytes: &[u8]) -> Result<[U256; 1]> {
+    let length = bytes.len();
 
-            // Store data in chunks at keccak256(base_slot) + i
-            let slot_start = compute_string_data_slot(base_slot);
-            let chunks = calc_chunks(length);
-
-            for i in 0..chunks {
-                let slot = slot_start + U256::from(i);
-                let chunk_start = i * 32;
-                let chunk_end = (chunk_start + 32).min(length);
-                let chunk = &bytes[chunk_start..chunk_end];
-
-                // Pad chunk to 32 bytes if it's the last chunk
-                let mut chunk_bytes = [0u8; 32];
-                chunk_bytes[..chunk.len()].copy_from_slice(chunk);
-
-                storage.sstore(slot, U256::from_be_bytes(chunk_bytes))?;
-            }
-
-            Ok(())
-        }
+    if length <= 31 {
+        Ok([encode_short_string(bytes)])
+    } else {
+        // Note: actual string data is in keccak256-addressed slots (not included here)
+        Ok([encode_long_string_length(length)])
     }
+}
 
-    fn delete<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<()> {
-        let base_value = storage.sload(base_slot)?;
-        let is_long = is_long_string(base_value);
+/// The converter function transforms raw bytes into the target type.
+/// Returns an error for long strings, which require storage access to reconstruct.
+#[inline]
+fn from_evm_words_bytes_like<T, F>(words: [U256; 1], into: F) -> Result<T>
+where
+    F: FnOnce(Vec<u8>) -> Result<T>,
+{
+    let slot_value = words[0];
+    let is_long = is_long_string(slot_value);
 
-        if is_long {
-            // Long string: need to clear data slots as well
-            let length = extract_string_length(base_value, true);
-            let slot_start = compute_string_data_slot(base_slot);
-            let chunks = calc_chunks(length);
-
-            // Clear all data slots
-            for i in 0..chunks {
-                let slot = slot_start + U256::from(i);
-                storage.sstore(slot, U256::ZERO)?;
-            }
-        }
-
-        // Clear the main slot
-        storage.sstore(base_slot, U256::ZERO)
-    }
-
-    fn to_evm_words(&self) -> Result<[U256; 1]> {
-        let bytes = self.as_bytes();
-        let length = bytes.len();
-
-        if length <= 31 {
-            Ok([encode_short_string(bytes)])
-        } else {
-            // Note: Actual string data is in keccak256-addressed slots (not included here)
-            Ok([encode_long_string_length(length)])
-        }
-    }
-
-    fn from_evm_words(words: [U256; 1]) -> Result<Self> {
-        let slot_value = words[0];
-        let is_long = is_long_string(slot_value);
-        let length = extract_string_length(slot_value, is_long);
-
-        if is_long {
-            // Long string: cannot reconstruct without storage access to keccak256-addressed data
-            Err(TempoPrecompileError::Fatal(
-                "Cannot reconstruct long string from single word. Use load() instead.".into(),
-            ))
-        } else {
-            // Short string: data is inline in the word
-            decode_short_string(slot_value, length)
-        }
+    if is_long {
+        // Long string: cannot reconstruct without storage access to keccak256-addressed data
+        Err(TempoPrecompileError::Fatal(
+            "Cannot reconstruct long string from single word. Use load() instead.".into(),
+        ))
+    } else {
+        // Short string: data is inline in the word
+        let length = extract_string_length(slot_value, false);
+        let bytes = slot_value.to_be_bytes::<32>();
+        into(bytes[..length].to_vec())
     }
 }
 
@@ -386,30 +477,19 @@ fn encode_long_string_length(byte_length: usize) -> U256 {
     U256::from(byte_length * 2 + 1)
 }
 
-/// Decode a short string from a U256 slot value.
-///
-/// Extracts the inline UTF-8 bytes and validates them.
-#[inline]
-fn decode_short_string(slot_value: U256, length: usize) -> Result<String> {
-    let bytes = slot_value.to_be_bytes::<32>();
-    let utf8_bytes = &bytes[..length];
-    String::from_utf8(utf8_bytes.to_vec())
-        .map_err(|e| TempoPrecompileError::Fatal(format!("Invalid UTF-8 in stored string: {e}")))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::{PrecompileStorageProvider, hashmap::HashMapStorageProvider};
     use proptest::prelude::*;
 
-    // Test helper that implements StorageOps
-    struct TestContract<'a, S> {
+    // Test helper that owns storage and implements StorageOps
+    struct TestContract {
         address: Address,
-        storage: &'a mut S,
+        storage: HashMapStorageProvider,
     }
 
-    impl<'a, S: PrecompileStorageProvider> StorageOps for TestContract<'a, S> {
+    impl StorageOps for TestContract {
         fn sstore(&mut self, slot: U256, value: U256) -> Result<()> {
             self.storage.sstore(self.address, slot, value)
         }
@@ -419,15 +499,17 @@ mod tests {
         }
     }
 
+    /// Helper to create a test contract with fresh storage.
+    fn setup_test_contract() -> TestContract {
+        TestContract {
+            address: Address::random(),
+            storage: HashMapStorageProvider::new(1),
+        }
+    }
+
     #[test]
     fn test_address_round_trip() {
-        let mut storage = HashMapStorageProvider::new(1);
-        let contract_addr = Address::random();
-        let mut contract = TestContract {
-            address: contract_addr,
-            storage: &mut storage,
-        };
-
+        let mut contract = setup_test_contract();
         let addr = Address::random();
         let slot = U256::from(1);
 
@@ -438,13 +520,7 @@ mod tests {
 
     #[test]
     fn test_bool_conversions() {
-        let mut storage = HashMapStorageProvider::new(1);
-        let addr = Address::random();
-        let mut contract = TestContract {
-            address: addr,
-            storage: &mut storage,
-        };
-
+        let mut contract = setup_test_contract();
         let slot = U256::from(3);
 
         // Test true
@@ -456,11 +532,11 @@ mod tests {
         assert!(!bool::load(&mut contract, slot).unwrap());
 
         // Test that any non-zero value is true
-        contract.storage.sstore(addr, slot, U256::from(42)).unwrap();
+        contract.sstore(slot, U256::from(42)).unwrap();
         assert!(bool::load(&mut contract, slot).unwrap());
     }
 
-    // -- STRING TESTS ---------------------------------------------------------
+    // -- STRING + BYTES TESTS -------------------------------------------------
 
     // Strategy for generating random U256 slot values that won't overflow
     fn arb_safe_slot() -> impl Strategy<Value = U256> {
@@ -497,17 +573,27 @@ mod tests {
         ]
     }
 
+    // Strategy for short byte arrays (0-31 bytes) - uses inline storage
+    fn arb_short_bytes() -> impl Strategy<Value = Bytes> {
+        prop::collection::vec(any::<u8>(), 0..=31).prop_map(|v| Bytes::from(v))
+    }
+
+    // Strategy for exactly 32-byte arrays - boundary between inline and heap storage
+    fn arb_32byte_bytes() -> impl Strategy<Value = Bytes> {
+        prop::collection::vec(any::<u8>(), 32..=32).prop_map(|v| Bytes::from(v))
+    }
+
+    // Strategy for long byte arrays (33-100 bytes) - uses heap storage
+    fn arb_long_bytes() -> impl Strategy<Value = Bytes> {
+        prop::collection::vec(any::<u8>(), 33..=100).prop_map(|v| Bytes::from(v))
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(500))]
 
         #[test]
         fn test_short_strings(s in arb_short_string(), base_slot in arb_safe_slot()) {
-            let mut storage = HashMapStorageProvider::new(1);
-            let addr = Address::random();
-            let mut contract = TestContract {
-                address: addr,
-                storage: &mut storage,
-            };
+            let mut contract = setup_test_contract();
 
             // Verify store → load roundtrip
             s.store(&mut contract, base_slot)?;
@@ -517,12 +603,7 @@ mod tests {
 
         #[test]
         fn test_32byte_strings(s in arb_32byte_string(), base_slot in arb_safe_slot()) {
-            let mut storage = HashMapStorageProvider::new(1);
-            let addr = Address::random();
-            let mut contract = TestContract {
-                address: addr,
-                storage: &mut storage,
-            };
+            let mut contract = setup_test_contract();
 
             // Verify 32-byte boundary string is stored correctly
             assert_eq!(s.len(), 32, "Generated string should be exactly 32 bytes");
@@ -535,17 +616,45 @@ mod tests {
 
         #[test]
         fn test_long_strings(s in arb_long_string(), base_slot in arb_safe_slot()) {
-            let mut storage = HashMapStorageProvider::new(1);
-            let addr = Address::random();
-            let mut contract = TestContract {
-                address: addr,
-                storage: &mut storage,
-            };
+            let mut contract = setup_test_contract();
 
             // Verify store → load roundtrip
             s.store(&mut contract, base_slot)?;
             let loaded = String::load(&mut contract, base_slot)?;
             assert_eq!(s, loaded, "Long string roundtrip failed for length: {}", s.len());
+        }
+
+        #[test]
+        fn test_short_bytes(b in arb_short_bytes(), base_slot in arb_safe_slot()) {
+            let mut contract = setup_test_contract();
+
+            // Verify store → load roundtrip
+            b.store(&mut contract, base_slot)?;
+            let loaded = Bytes::load(&mut contract, base_slot)?;
+            assert_eq!(b, loaded, "Short bytes roundtrip failed for length: {}", b.len());
+        }
+
+        #[test]
+        fn test_32byte_bytes(b in arb_32byte_bytes(), base_slot in arb_safe_slot()) {
+            let mut contract = setup_test_contract();
+
+            // Verify 32-byte boundary bytes is stored correctly
+            assert_eq!(b.len(), 32, "Generated bytes should be exactly 32 bytes");
+
+            // Verify store → load roundtrip
+            b.store(&mut contract, base_slot)?;
+            let loaded = Bytes::load(&mut contract, base_slot)?;
+            assert_eq!(b, loaded, "32-byte bytes roundtrip failed");
+        }
+
+        #[test]
+        fn test_long_bytes(b in arb_long_bytes(), base_slot in arb_safe_slot()) {
+            let mut contract = setup_test_contract();
+
+            // Verify store → load roundtrip
+            b.store(&mut contract, base_slot)?;
+            let loaded = Bytes::load(&mut contract, base_slot)?;
+            assert_eq!(b, loaded, "Long bytes roundtrip failed for length: {}", b.len());
         }
     }
 }
