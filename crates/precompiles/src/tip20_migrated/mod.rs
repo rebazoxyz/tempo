@@ -35,6 +35,7 @@ const TIP20_TOKEN_PREFIX: [u8; 12] = hex!("20C000000000000000000000");
 /// Same as TIP20_TOKEN_PREFIX but extended to 14 bytes for payment classification
 pub const TIP20_PAYMENT_PREFIX: [u8; 14] = hex!("20C0000000000000000000000000");
 
+/// Returns true if the address has the TIP20 token prefix
 pub fn is_tip20(token: Address) -> bool {
     token.as_slice().starts_with(&TIP20_TOKEN_PREFIX)
 }
@@ -48,8 +49,15 @@ pub fn token_id_to_address(token_id: u64) -> Address {
     Address::from(address_bytes)
 }
 
+/// Extracts the token ID from a TIP20 address
+pub fn address_to_token_id(address: Address) -> Option<u64> {
+    let bytes = address.as_slice()[12..20].try_into().ok()?;
+    Some(u64::from_be_bytes(bytes))
+}
+
+/// Extracts the token ID from a TIP20 address without validation
 pub fn address_to_token_id_unchecked(address: Address) -> u64 {
-    u64::from_be_bytes(address.as_slice()[12..20].try_into().unwrap())
+    address_to_token_id(address).unwrap()
 }
 
 #[contract(ITIP20, ITIP20Rewards, IRolesAuth)]
@@ -104,20 +112,24 @@ pub static BURN_BLOCKED_ROLE: LazyLock<B256> = LazyLock::new(|| keccak256(b"BURN
 pub use roles::DEFAULT_ADMIN_ROLE;
 
 impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20 for TIP20Token<'a, S> {
-    // Metadata functions
+    // -- METADATA FUNCTIONS -----------------------------------------------------------------------
+
     fn decimals(&mut self) -> Result<u8> {
         let currency = self.currency()?;
         Ok(TIP4217Registry::default()
             .get_currency_decimals(ITIP4217Registry::getCurrencyDecimalsCall { currency }))
     }
 
-    // Admin functions
+    // -- ADMIN FUNCTIONS --------------------------------------------------------------------------
+
+    /// Updates the transfer policy ID for this token
     fn change_transfer_policy_id(&mut self, msg_sender: Address, new_policy_id: u64) -> Result<()> {
         self.check_role(msg_sender, DEFAULT_ADMIN_ROLE)?;
         self.sstore_transfer_policy_id(new_policy_id)?;
         self.emit_transfer_policy_update(msg_sender, new_policy_id)
     }
 
+    /// Sets the maximum supply cap for the token
     fn set_supply_cap(&mut self, msg_sender: Address, new_supply_cap: U256) -> Result<()> {
         self.check_role(msg_sender, DEFAULT_ADMIN_ROLE)?;
         if new_supply_cap < self.total_supply()? {
@@ -128,16 +140,21 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20 for TIP20Token<'a, S> {
         self.emit_supply_cap_update(msg_sender, new_supply_cap)
     }
 
+    /// Pauses all token transfers
     fn pause(&mut self, msg_sender: Address) -> Result<()> {
         self.check_role(msg_sender, *PAUSE_ROLE)?;
         self.sstore_paused(true)?;
         self.emit_pause_state_update(msg_sender, true)
     }
+
+    /// Unpauses token transfers
     fn unpause(&mut self, msg_sender: Address) -> Result<()> {
         self.check_role(msg_sender, *PAUSE_ROLE)?;
         self.sstore_paused(false)?;
         self.emit_pause_state_update(msg_sender, false)
     }
+
+    /// Stages a new quote token for two-step update
     fn update_quote_token(&mut self, msg_sender: Address, new_quote_token: Address) -> Result<()> {
         self.check_role(msg_sender, DEFAULT_ADMIN_ROLE)?;
 
@@ -160,6 +177,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20 for TIP20Token<'a, S> {
         self.emit_update_quote_token(msg_sender, new_quote_token)
     }
 
+    /// Completes the quote token update after validation
     fn finalize_quote_token_update(&mut self, msg_sender: Address) -> Result<()> {
         self.check_role(msg_sender, DEFAULT_ADMIN_ROLE)?;
 
@@ -181,7 +199,8 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20 for TIP20Token<'a, S> {
         self.emit_quote_token_update_finalized(msg_sender, next_quote_token)
     }
 
-    // Token operations
+    // -- TOKEN OPERATIONS -------------------------------------------------------------------------
+
     /// Mints new tokens to specified address
     fn mint(&mut self, msg_sender: Address, to: Address, amount: U256) -> Result<()> {
         self.check_role(msg_sender, *ISSUER_ROLE)?;
@@ -264,13 +283,14 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20 for TIP20Token<'a, S> {
         self.emit_burn_blocked(from, amount)
     }
 
-    // Standard token functions
+    /// Approves spender to transfer tokens on behalf of sender
     fn approve(&mut self, msg_sender: Address, spender: Address, amount: U256) -> Result<bool> {
         self.sstore_allowances(msg_sender, spender, amount)?;
         self.emit_approval(msg_sender, spender, amount)?;
         Ok(true)
     }
 
+    /// Transfers tokens from sender to recipient
     fn transfer(&mut self, msg_sender: Address, to: Address, amount: U256) -> Result<bool> {
         trace!(%msg_sender, ?to, ?amount, "transferring TIP20");
         self.check_not_paused()?;
@@ -280,6 +300,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20 for TIP20Token<'a, S> {
         Ok(true)
     }
 
+    /// Transfers tokens using allowance from approved spender
     fn transfer_from(
         &mut self,
         msg_sender: Address,
@@ -290,7 +311,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20 for TIP20Token<'a, S> {
         self._transfer_from(msg_sender, from, to, amount)
     }
 
-    // TIP20 extension functions
+    /// Transfers tokens with an attached memo
     fn transfer_with_memo(
         &mut self,
         msg_sender: Address,
@@ -339,6 +360,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         Ok(true)
     }
 
+    /// Internal implementation of transfer_from with allowance checks
     fn _transfer_from(
         &mut self,
         msg_sender: Address,
@@ -368,8 +390,10 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     }
 }
 
-// Utility functions
+// -- UTILITY FUNCTIONS ----------------------------------------------------------------------------
+
 impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
+    /// Creates a new TIP20Token instance from a token ID
     pub fn new(token_id: u64, storage: &'a mut S) -> Self {
         let token_address = token_id_to_address(token_id);
         Self::_new(token_address, storage)
@@ -419,6 +443,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         self.roles_grant_default_admin(admin)
     }
 
+    /// Reverts if the contract is paused
     fn check_not_paused(&mut self) -> Result<()> {
         if self.paused()? {
             return Err(TIP20Error::contract_paused().into());
@@ -426,6 +451,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         Ok(())
     }
 
+    /// Reverts if recipient is a TIP20 token address
     fn check_not_token_address(&self, to: Address) -> Result<()> {
         // Don't allow sending to other precompiled tokens
         if is_tip20(to) {
@@ -463,6 +489,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         Ok(())
     }
 
+    /// Internal implementation of token transfer with balance updates
     fn _transfer(&mut self, from: Address, to: Address, amount: U256) -> Result<()> {
         // Accrue before balance changes
         let timestamp = self.storage.timestamp();

@@ -4,10 +4,13 @@ use crate::{error::Result, storage::PrecompileStorageProvider, tip20_migrated::R
 
 use super::{TIP20Token, TIP20Token_IRolesAuth};
 
+/// The default admin role identifier (zero bytes)
 pub const DEFAULT_ADMIN_ROLE: B256 = B256::ZERO;
+/// Role that cannot be granted to prevent security issues
 pub const UNGRANTABLE_ROLE: B256 = B256::new([0xff; 32]);
 
 impl<'a, S: PrecompileStorageProvider> TIP20Token_IRolesAuth for TIP20Token<'a, S> {
+    /// Grants a role to an account (requires admin)
     fn grant_role(&mut self, msg_sender: Address, role: B256, account: Address) -> Result<()> {
         let admin_role = self.get_role_admin_internal(role)?;
         self.check_role_internal(msg_sender, admin_role)?;
@@ -15,6 +18,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_IRolesAuth for TIP20Token<'a, 
         self.emit_role_membership_updated(role, account, msg_sender, true)
     }
 
+    /// Revokes a role from an account (requires admin)
     fn revoke_role(&mut self, msg_sender: Address, role: B256, account: Address) -> Result<()> {
         let admin_role = self.get_role_admin_internal(role)?;
         self.check_role_internal(msg_sender, admin_role)?;
@@ -22,12 +26,14 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_IRolesAuth for TIP20Token<'a, 
         self.emit_role_membership_updated(role, account, msg_sender, false)
     }
 
+    /// Allows caller to renounce their own role
     fn renounce_role(&mut self, msg_sender: Address, role: B256) -> Result<()> {
         self.check_role_internal(msg_sender, role)?;
         self.revoke_role_internal(msg_sender, role)?;
         self.emit_role_membership_updated(role, msg_sender, msg_sender, false)
     }
 
+    /// Sets the admin role for a given role
     fn set_role_admin(&mut self, msg_sender: Address, role: B256, admin_role: B256) -> Result<()> {
         let current_admin_role = self.get_role_admin_internal(role)?;
         self.check_role_internal(msg_sender, current_admin_role)?;
@@ -49,27 +55,33 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     }
 
     // Utility functions for checking roles without calldata
+    /// Reverts if account does not have the specified role
     pub fn check_role(&mut self, account: Address, role: B256) -> Result<()> {
         self.check_role_internal(account, role)
     }
 
+    /// Internal function to grant a role without permission checks
     pub fn grant_role_internal(&mut self, account: Address, role: B256) -> Result<()> {
         self.sstore_roles(account, role, true)
     }
 
+    /// Internal function to revoke a role without permission checks
     fn revoke_role_internal(&mut self, account: Address, role: B256) -> Result<()> {
         self.sstore_roles(account, role, false)
     }
 
+    /// Internal function to get the admin role for a given role
     fn get_role_admin_internal(&mut self, role: B256) -> Result<B256> {
         let admin = self.sload_role_admins(role)?;
         Ok(B256::from(admin)) // If sloads 0, will be equal to DEFAULT_ADMIN_ROLE
     }
 
+    /// Internal function to set the admin role without permission checks
     fn set_role_admin_internal(&mut self, role: B256, admin_role: B256) -> Result<()> {
         self.sstore_role_admins(role, admin_role)
     }
 
+    /// Internal function to check role membership without calldata
     fn check_role_internal(&mut self, account: Address, role: B256) -> Result<()> {
         if !self.sload_roles(account, role)? {
             return Err(RolesAuthError::unauthorized().into());
