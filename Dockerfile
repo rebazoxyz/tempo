@@ -17,6 +17,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY bin/ ./bin/
 COPY crates/ ./crates/
 COPY xtask/ ./xtask/
+COPY .git/ ./git/
 
 ARG RUST_BINARY
 ARG RUST_PROFILE
