@@ -1020,7 +1020,7 @@ fn calculate_aa_batch_intrinsic_gas<'a>(
     gas.initial_gas += 21_000;
 
     // 2. Signature verification gas
-    gas.initial_gas += aa_signature_verification_gas(signature);
+    gas.initial_gas += aa_signature_verification_gas(signature, spec.is_enabled_in(RevmSpecId::ISTANBUL));
 
     // 3. Per-call overhead: cold account access
     // if the `to` address has not appeared in the call batch before.
