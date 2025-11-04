@@ -346,3 +346,36 @@ pub fn storable_alloy_bytes(_input: TokenStream) -> TokenStream {
 pub fn gen_storable_tests(_input: TokenStream) -> TokenStream {
     storable_tests::gen_storable_tests().into()
 }
+
+/// Generate `Storable` implementations for fixed-size arrays of primitive types.
+///
+/// Generates implementations for arrays of sizes 1-32 for the following element types:
+/// - Rust integers: u8-u128, i8-i128
+/// - Alloy integers: U8-U256, I8-I256
+/// - Address
+/// - FixedBytes<20>, FixedBytes<32>
+///
+/// Each array gets:
+/// - `StorableType` impl with `BYTE_COUNT = SLOT_COUNT * 32`
+/// - `Storable<N>` impl where N is computed from element packing
+#[proc_macro]
+pub fn storable_arrays(_input: TokenStream) -> TokenStream {
+    storable_primitives::gen_storable_arrays().into()
+}
+
+/// Generate `Storable` implementations for nested arrays of small primitive types.
+///
+/// Generates implementations for nested arrays like `[[u8; 4]; 8]` where:
+/// - Inner arrays are small (2, 4, 8, 16 for u8; 2, 4, 8 for u16)
+/// - Total slot count ≤ 32
+///
+/// This allows for efficient packed storage of multi-dimensional data structures.
+///
+/// # Usage
+/// ```ignore
+/// storable_nested_arrays!();
+/// ```
+#[proc_macro]
+pub fn storable_nested_arrays(_input: TokenStream) -> TokenStream {
+    storable_primitives::gen_nested_arrays().into()
+}

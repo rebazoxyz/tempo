@@ -4,137 +4,8 @@ use tempo_precompiles_macros;
 
 use crate::{
     error::{Result, TempoPrecompileError},
-    storage::StorageOps,
+    storage::{StorageOps, types::*},
 };
-
-/// Helper trait to access byte count without requiring const generic parameter.
-///
-/// This trait exists to allow the derive macro to query the byte size of field types
-/// during layout computation, before the slot count is known.
-///
-/// Primitives may have `BYTE_COUNT < 32`.
-/// Non-primitives (arrays, Vec, structs) must satisfy `BYTE_COUNT = SLOT_COUNT * 32` as they are not packable.
-pub trait StorableType {
-    /// Number of bytes that the type occupies (even if partially-empty).
-    ///
-    /// For dynamic types, set to a full 32-byte slot.
-    const BYTE_COUNT: usize;
-}
-
-/// Trait for types that can be stored/loaded from EVM storage.
-///
-/// This trait provides a flexible abstraction for reading and writing Rust types
-/// to EVM storage. Types can occupy one or more consecutive storage slots, enabling
-/// support for both simple values (Address, U256, bool) and complex multi-slot types
-/// (structs, fixed arrays).
-///
-/// # Type Parameter
-///
-/// - `N`: The number of consecutive storage slots this type occupies.
-///   For single-word types (Address, U256, bool), this is `1`.
-///   For fixed-size arrays, this equals the number of elements.
-///   For user-defined structs, this a number between `1` and the number of fields, which depends on slot packing.
-///
-/// # Storage Layout
-///
-/// For a type with `N = 3` starting at `base_slot`:
-/// - Slot 0: `base_slot + 0`
-/// - Slot 1: `base_slot + 1`
-/// - Slot 2: `base_slot + 2`
-///
-/// # Safety
-///
-/// Implementations must ensure that:
-/// - Round-trip conversions preserve data: `load(store(x)) == Ok(x)`
-/// - `N` accurately reflects the number of slots used
-/// - `store` and `load` access exactly `N` consecutive slots
-/// - `to_evm_words` and `from_evm_words` produce/consume exactly `N` words
-pub trait Storable<const N: usize>: Sized + StorableType {
-    /// The number of consecutive storage slots this type occupies.
-    ///
-    /// Must be equal to `N`, and is provided as a convenient type-level access constant.
-    const SLOT_COUNT: usize;
-
-    /// Load this type from storage starting at the given base slot.
-    ///
-    /// Reads `N` consecutive slots starting from `base_slot`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Storage read fails
-    /// - Data cannot be decoded into this type
-    fn load<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<Self>;
-
-    /// Store this type to storage starting at the given base slot.
-    ///
-    /// Writes `N` consecutive slots starting from `base_slot`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the storage write fails.
-    fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256) -> Result<()>;
-
-    /// Delete this type from storage (set all slots to zero).
-    ///
-    /// Sets `N` consecutive slots to zero, starting from `base_slot`.
-    ///
-    /// The default implementation sets each slot to zero individually.
-    /// Types may override this for optimized bulk deletion.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the storage write fails.
-    fn delete<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<()> {
-        for offset in 0..N {
-            storage.sstore(base_slot + U256::from(offset), U256::ZERO)?;
-        }
-        Ok(())
-    }
-
-    /// Encode this type to an array of U256 words.
-    ///
-    /// Returns exactly `N` words, where each word represents one storage slot.
-    /// For single-slot types (`N = 1`), returns a single-element array.
-    /// For multi-slot types, each array element corresponds to one slot's data.
-    ///
-    /// # Packed Storage
-    ///
-    /// When multiple small fields are packed into a single slot, they are
-    /// positioned and combined into a single U256 word according to their
-    /// byte offsets. The derive macro handles this automatically.
-    fn to_evm_words(&self) -> Result<[U256; N]>;
-
-    /// Decode this type from an array of U256 words.
-    ///
-    /// Accepts exactly `N` words, where each word represents one storage slot.
-    /// Constructs the complete type from all provided words.
-    ///
-    /// # Packed Storage
-    ///
-    /// When multiple small fields are packed into a single slot, they are
-    /// extracted from the appropriate word using bit shifts and masks.
-    /// The derive macro handles this automatically.
-    fn from_evm_words(words: [U256; N]) -> Result<Self>;
-}
-
-/// Trait for types that can be used as storage mapping keys.
-///
-/// Keys are hashed using keccak256 along with the mapping's base slot
-/// to determine the final storage location. This trait provides the
-/// byte representation used in that hash.
-pub trait StorageKey {
-    fn as_storage_bytes(&self) -> impl AsRef<[u8]>;
-}
-
-// -- STORAGE KEY IMPLEMENTATIONS ---------------------------------------------
-
-impl StorageKey for Address {
-    #[inline]
-    fn as_storage_bytes(&self) -> impl AsRef<[u8]> {
-        self.as_slice()
-    }
-}
 
 // -- STORAGE TYPE IMPLEMENTATIONS ---------------------------------------------
 
@@ -142,9 +13,13 @@ impl StorageKey for Address {
 // - rust integers: (u)int8, (u)int16, (u)int32, (u)int64, (u)int128
 // - alloy integers: U8, I8, U16, I16, U32, I32, U64, I64, U128, I128, U256, I256
 // - alloy fixed bytes: FixedBytes<1>, FixedBytes<2>, ..., FixedBytes<32>
+// - fixed-size arrays: [T; N] for primitive types T and sizes 1-32
+// - nested arrays: [[T; M]; N] for small primitive types
 tempo_precompiles_macros::storable_rust_ints!();
 tempo_precompiles_macros::storable_alloy_ints!();
 tempo_precompiles_macros::storable_alloy_bytes!();
+tempo_precompiles_macros::storable_arrays!();
+tempo_precompiles_macros::storable_nested_arrays!();
 
 impl StorableType for bool {
     const BYTE_COUNT: usize = 1;
@@ -496,6 +371,15 @@ fn encode_long_string_length(byte_length: usize) -> U256 {
     U256::from(byte_length * 2 + 1)
 }
 
+// -- STORAGE KEY IMPLEMENTATIONS ---------------------------------------------
+
+impl StorageKey for Address {
+    #[inline]
+    fn as_storage_bytes(&self) -> impl AsRef<[u8]> {
+        self.as_slice()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -807,7 +691,6 @@ mod tests {
     }
 
     // -- PRIMITIVE SLOT CONTENT VALIDATION TESTS ----------------------------------
-    // These tests verify primitives store correctly at various byte offsets
 
     #[test]
     fn test_u8_at_various_offsets() {
@@ -1057,5 +940,308 @@ mod tests {
         // Verify loading returns zero
         let loaded = u64::load(&mut contract, base_slot).unwrap();
         assert_eq!(loaded, 0u64, "Loaded value should be 0 after delete");
+    }
+
+    // -- FIXED-SIZE ARRAY TESTS ------------------------------------------------
+
+    #[test]
+    fn test_array_u8_32_single_slot() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::ZERO;
+
+        // [u8; 32] should pack into exactly 1 slot
+        let data: [u8; 32] = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
+        ];
+
+        // Verify BYTE_COUNT and SLOT_COUNT
+        assert_eq!(<[u8; 32] as StorableType>::BYTE_COUNT, 32);
+        assert_eq!(<[u8; 32] as Storable<1>>::SLOT_COUNT, 1);
+
+        // Store and load
+        data.store(&mut contract, base_slot).unwrap();
+        let loaded: [u8; 32] = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "[u8; 32] roundtrip failed");
+
+        // Verify to_evm_words / from_evm_words
+        let words = data.to_evm_words().unwrap();
+        assert_eq!(words.len(), 1, "[u8; 32] should produce 1 word");
+        let recovered: [u8; 32] = Storable::from_evm_words(words).unwrap();
+        assert_eq!(recovered, data, "[u8; 32] EVM words roundtrip failed");
+
+        // Verify delete
+        <[u8; 32]>::delete(&mut contract, base_slot).unwrap();
+        let slot_value = contract.sload(base_slot).unwrap();
+        assert_eq!(slot_value, U256::ZERO, "Slot not cleared after delete");
+    }
+
+    #[test]
+    fn test_array_u64_5_multi_slot() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(100);
+
+        // [u64; 5] should require 2 slots (5 * 8 = 40 bytes > 32)
+        let data: [u64; 5] = [1, 2, 3, 4, 5];
+
+        // Verify slot count
+        assert_eq!(<[u64; 5] as Storable<2>>::SLOT_COUNT, 2);
+
+        // Store and load
+        data.store(&mut contract, base_slot).unwrap();
+        let loaded: [u64; 5] = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "[u64; 5] roundtrip failed");
+
+        // Verify both slots are used
+        let slot0 = contract.sload(base_slot).unwrap();
+        let slot1 = contract.sload(base_slot + U256::from(1)).unwrap();
+        assert_ne!(slot0, U256::ZERO, "Slot 0 should be non-zero");
+        assert_ne!(slot1, U256::ZERO, "Slot 1 should be non-zero");
+
+        // Verify delete clears both slots
+        <[u64; 5]>::delete(&mut contract, base_slot).unwrap();
+        let slot0_after = contract.sload(base_slot).unwrap();
+        let slot1_after = contract.sload(base_slot + U256::from(1)).unwrap();
+        assert_eq!(slot0_after, U256::ZERO, "Slot 0 not cleared");
+        assert_eq!(slot1_after, U256::ZERO, "Slot 1 not cleared");
+    }
+
+    #[test]
+    fn test_array_u16_packing() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(200);
+
+        // [u16; 16] should pack into exactly 1 slot (16 * 2 = 32 bytes)
+        let data: [u16; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
+        // Verify slot count
+        assert_eq!(<[u16; 16] as Storable<1>>::SLOT_COUNT, 1);
+
+        // Store and load
+        data.store(&mut contract, base_slot).unwrap();
+        let loaded: [u16; 16] = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "[u16; 16] roundtrip failed");
+    }
+
+    #[test]
+    fn test_array_u256_no_packing() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(300);
+
+        // [U256; 3] should use 3 slots (no packing for 32-byte types)
+        let data: [U256; 3] = [U256::from(12345), U256::from(67890), U256::from(111111)];
+
+        // Verify slot count
+        assert_eq!(<[U256; 3] as Storable<3>>::SLOT_COUNT, 3);
+
+        // Store and load
+        data.store(&mut contract, base_slot).unwrap();
+        let loaded: [U256; 3] = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "[U256; 3] roundtrip failed");
+
+        // Verify each element is in its own slot
+        for i in 0..3 {
+            let slot_value = contract.sload(base_slot + U256::from(i)).unwrap();
+            assert_eq!(slot_value, data[i], "Slot {} mismatch", i);
+        }
+    }
+
+    #[test]
+    fn test_array_address_no_packing() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(400);
+
+        // [Address; 3] should use 3 slots (20 bytes doesn't divide 32 evenly)
+        let data: [Address; 3] = [
+            Address::repeat_byte(0x11),
+            Address::repeat_byte(0x22),
+            Address::repeat_byte(0x33),
+        ];
+
+        // Verify slot count
+        assert_eq!(<[Address; 3] as Storable<3>>::SLOT_COUNT, 3);
+
+        // Store and load
+        data.store(&mut contract, base_slot).unwrap();
+        let loaded: [Address; 3] = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "[Address; 3] roundtrip failed");
+    }
+
+    #[test]
+    fn test_array_empty_single_element() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(500);
+
+        // [u8; 1] should use 1 slot
+        let data: [u8; 1] = [42];
+
+        // Verify slot count
+        assert_eq!(<[u8; 1] as Storable<1>>::SLOT_COUNT, 1);
+
+        // Store and load
+        data.store(&mut contract, base_slot).unwrap();
+        let loaded: [u8; 1] = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "[u8; 1] roundtrip failed");
+    }
+
+    #[test]
+    fn test_nested_array_u8_4x8() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(600);
+
+        // [[u8; 4]; 8] uses 8 slots (one per inner array)
+        // Each inner [u8; 4] gets a full 32-byte slot, even though it only uses 4 bytes
+        // This follows EVM's rule: nested arrays don't pack tightly across boundaries
+        let data: [[u8; 4]; 8] = [
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+            [9, 10, 11, 12],
+            [13, 14, 15, 16],
+            [17, 18, 19, 20],
+            [21, 22, 23, 24],
+            [25, 26, 27, 28],
+            [29, 30, 31, 32],
+        ];
+
+        // Verify SLOT_COUNT: 8 slots (one per inner array)
+        assert_eq!(<[[u8; 4]; 8] as StorableType>::BYTE_COUNT, 256); // 8 slots × 32 bytes
+        assert_eq!(<[[u8; 4]; 8] as Storable<8>>::SLOT_COUNT, 8);
+
+        // Store and load
+        data.store(&mut contract, base_slot).unwrap();
+        let loaded: [[u8; 4]; 8] = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "[[u8; 4]; 8] roundtrip failed");
+
+        // Verify to_evm_words / from_evm_words
+        let words = data.to_evm_words().unwrap();
+        assert_eq!(words.len(), 8, "[[u8; 4]; 8] should produce 8 words");
+        let recovered: [[u8; 4]; 8] = Storable::from_evm_words(words).unwrap();
+        assert_eq!(recovered, data, "[[u8; 4]; 8] EVM words roundtrip failed");
+
+        // Verify delete clears all 8 slots
+        <[[u8; 4]; 8]>::delete(&mut contract, base_slot).unwrap();
+        for i in 0..8 {
+            let slot_value = contract.sload(base_slot + U256::from(i)).unwrap();
+            assert_eq!(slot_value, U256::ZERO, "Slot {} not cleared after delete", i);
+        }
+    }
+
+    #[test]
+    fn test_nested_array_u16_2x8() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(700);
+
+        // [[u16; 2]; 8] uses 8 slots (one per inner array)
+        // Each inner [u16; 2] gets a full 32-byte slot, even though it only uses 4 bytes
+        // Compare: flat [u16; 16] would pack into 1 slot (16 × 2 = 32 bytes)
+        // But nested arrays don't pack across boundaries in EVM
+        let data: [[u16; 2]; 8] = [
+            [100, 101],
+            [200, 201],
+            [300, 301],
+            [400, 401],
+            [500, 501],
+            [600, 601],
+            [700, 701],
+            [800, 801],
+        ];
+
+        // Verify SLOT_COUNT: 8 slots (one per inner array)
+        assert_eq!(<[[u16; 2]; 8] as StorableType>::BYTE_COUNT, 256); // 8 slots × 32 bytes
+        assert_eq!(<[[u16; 2]; 8] as Storable<8>>::SLOT_COUNT, 8);
+
+        // Store and load
+        data.store(&mut contract, base_slot).unwrap();
+        let loaded: [[u16; 2]; 8] = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "[[u16; 2]; 8] roundtrip failed");
+
+        // Verify to_evm_words / from_evm_words
+        let words = data.to_evm_words().unwrap();
+        assert_eq!(words.len(), 8, "[[u16; 2]; 8] should produce 8 words");
+        let recovered: [[u16; 2]; 8] = Storable::from_evm_words(words).unwrap();
+        assert_eq!(recovered, data, "[[u16; 2]; 8] EVM words roundtrip failed");
+
+        // Verify delete clears all 8 slots
+        <[[u16; 2]; 8]>::delete(&mut contract, base_slot).unwrap();
+        for i in 0..8 {
+            let slot_value = contract.sload(base_slot + U256::from(i)).unwrap();
+            assert_eq!(slot_value, U256::ZERO, "Slot {} not cleared after delete", i);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(500))]
+
+        #[test]
+        fn test_array_u8_32(
+            data in prop::array::uniform32(any::<u8>()),
+            base_slot in arb_safe_slot()
+        ) {
+            let mut contract = setup_test_contract();
+
+            // Store and load
+            data.store(&mut contract, base_slot)?;
+            let loaded: [u8; 32] = Storable::load(&mut contract, base_slot)?;
+            prop_assert_eq!(&loaded, &data, "[u8; 32] roundtrip failed");
+
+            // EVM words roundtrip
+            let words = data.to_evm_words()?;
+            let recovered: [u8; 32] = Storable::from_evm_words(words)?;
+            prop_assert_eq!(&recovered, &data, "[u8; 32] EVM words roundtrip failed");
+
+            // Delete
+            <[u8; 32]>::delete(&mut contract, base_slot)?;
+            let slot_value = contract.sload(base_slot)?;
+            prop_assert_eq!(slot_value, U256::ZERO, "Slot not cleared after delete");
+        }
+
+        #[test]
+        fn test_array_u16_16(
+            data in prop::array::uniform16(any::<u16>()),
+            base_slot in arb_safe_slot()
+        ) {
+            let mut contract = setup_test_contract();
+
+            // Store and load
+            data.store(&mut contract, base_slot)?;
+            let loaded: [u16; 16] = Storable::load(&mut contract, base_slot)?;
+            prop_assert_eq!(&loaded, &data, "[u16; 16] roundtrip failed");
+
+            // EVM words roundtrip
+            let words = data.to_evm_words()?;
+            let recovered: [u16; 16] = Storable::from_evm_words(words)?;
+            prop_assert_eq!(&recovered, &data, "[u16; 16] EVM words roundtrip failed");
+        }
+
+        #[test]
+        fn test_array_u256_5(
+            data in prop::array::uniform5(any::<u64>()).prop_map(|arr| arr.map(U256::from)),
+            base_slot in arb_safe_slot()
+        ) {
+            let mut contract = setup_test_contract();
+
+            // Store and load
+            data.store(&mut contract, base_slot)?;
+            let loaded: [U256; 5] = Storable::load(&mut contract, base_slot)?;
+            prop_assert_eq!(&loaded, &data, "[U256; 5] roundtrip failed");
+
+            // Verify each element is in its own slot
+            for i in 0..5 {
+                let slot_value = contract.sload(base_slot + U256::from(i))?;
+                prop_assert_eq!(slot_value, data[i], "Slot {} mismatch", i);
+            }
+
+            // EVM words roundtrip
+            let words = data.to_evm_words()?;
+            let recovered: [U256; 5] = Storable::from_evm_words(words)?;
+            prop_assert_eq!(&recovered, &data, "[U256; 5] EVM words roundtrip failed");
+
+            // Delete
+            <[U256; 5]>::delete(&mut contract, base_slot)?;
+            for i in 0..5 {
+                let slot_value = contract.sload(base_slot + U256::from(i))?;
+                prop_assert_eq!(slot_value, U256::ZERO, "Slot {} not cleared", i);
+            }
+        }
     }
 }

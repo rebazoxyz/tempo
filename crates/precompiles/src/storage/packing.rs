@@ -5,10 +5,6 @@
 //!
 //! Packing only applies to primitive types where `BYTE_COUNT < 32`. Non-primitives
 //! (structs, fixed-size arrays, dynamic types) have `BYTE_COUNT = SLOT_COUNT * 32`.
-//!
-//! These utilities are used by both:
-//! - The `#[derive(Storable)]` macro for struct field packing
-//! - Array implementations for packing array elements
 
 use alloy::primitives::U256;
 
@@ -322,5 +318,191 @@ mod tests {
         // Use extract_field wrapper
         let extracted: Address = extract_field(slot, 0, 20).unwrap();
         assert_eq!(extracted, address);
+    }
+
+    use proptest::prelude::*;
+
+    /// Strategy for generating random Address values
+    fn arb_address() -> impl Strategy<Value = Address> {
+        any::<[u8; 20]>().prop_map(Address::from)
+    }
+
+    /// Strategy for generating random U256 values
+    fn arb_u256() -> impl Strategy<Value = U256> {
+        any::<[u64; 4]>().prop_map(U256::from_limbs)
+    }
+
+    /// Strategy for generating valid offsets for a given byte size
+    fn arb_offset(bytes: usize) -> impl Strategy<Value = usize> {
+        0..=(32 - bytes)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(500))]
+
+        #[test]
+        fn proptest_roundtrip_u8(value: u8, offset in arb_offset(1)) {
+            let slot = insert_packed_value(U256::ZERO, &value, offset, 1)?;
+            let extracted: u8 = extract_packed_value(slot, offset, 1)?;
+            prop_assert_eq!(extracted, value);
+        }
+
+        #[test]
+        fn proptest_roundtrip_u16(value: u16, offset in arb_offset(2)) {
+            let slot = insert_packed_value(U256::ZERO, &value, offset, 2)?;
+            let extracted: u16 = extract_packed_value(slot, offset, 2)?;
+            prop_assert_eq!(extracted, value);
+        }
+
+        #[test]
+        fn proptest_roundtrip_u32(value: u32, offset in arb_offset(4)) {
+            let slot = insert_packed_value(U256::ZERO, &value, offset, 4)?;
+            let extracted: u32 = extract_packed_value(slot, offset, 4)?;
+            prop_assert_eq!(extracted, value);
+        }
+
+        #[test]
+        fn proptest_roundtrip_u64(value: u64, offset in arb_offset(8)) {
+            let slot = insert_packed_value(U256::ZERO, &value, offset, 8)?;
+            let extracted: u64 = extract_packed_value(slot, offset, 8)?;
+            prop_assert_eq!(extracted, value);
+        }
+
+        #[test]
+        fn proptest_roundtrip_u128(value: u128, offset in arb_offset(16)) {
+            let slot = insert_packed_value(U256::ZERO, &value, offset, 16)?;
+            let extracted: u128 = extract_packed_value(slot, offset, 16)?;
+            prop_assert_eq!(extracted, value);
+        }
+
+        #[test]
+        fn proptest_roundtrip_address(addr in arb_address(), offset in arb_offset(20)) {
+            let slot = insert_packed_value(U256::ZERO, &addr, offset, 20)?;
+            let extracted: Address = extract_packed_value(slot, offset, 20)?;
+            prop_assert_eq!(extracted, addr);
+        }
+
+        #[test]
+        fn proptest_roundtrip_u256(value in arb_u256()) {
+            // U256 takes the full 32 bytes, so offset must be 0
+            let slot = insert_packed_value(U256::ZERO, &value, 0, 32)?;
+            let extracted: U256 = extract_packed_value(slot, 0, 32)?;
+            prop_assert_eq!(extracted, value);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(500))]
+
+        #[test]
+        fn proptest_multiple_values_no_interference(
+            v1: u8,
+            v2: u16,
+            v3: u32,
+        ) {
+            // Pack three values at non-overlapping offsets
+            // u8 at offset 0 (1 byte)
+            // u16 at offset 1 (2 bytes)
+            // u32 at offset 3 (4 bytes)
+            let mut slot = U256::ZERO;
+            slot = insert_packed_value(slot, &v1, 0, 1)?;
+            slot = insert_packed_value(slot, &v2, 1, 2)?;
+            slot = insert_packed_value(slot, &v3, 3, 4)?;
+
+            // Verify all values can be extracted correctly
+            let e1: u8 = extract_packed_value(slot, 0, 1)?;
+            let e2: u16 = extract_packed_value(slot, 1, 2)?;
+            let e3: u32 = extract_packed_value(slot, 3, 4)?;
+
+            prop_assert_eq!(e1, v1);
+            prop_assert_eq!(e2, v2);
+            prop_assert_eq!(e3, v3);
+        }
+
+        #[test]
+        fn proptest_overwrite_preserves_others(
+            v1: u8,
+            v2: u16,
+            v1_new: u8,
+        ) {
+            // Pack two values
+            let mut slot = U256::ZERO;
+            slot = insert_packed_value(slot, &v1, 0, 1)?;
+            slot = insert_packed_value(slot, &v2, 1, 2)?;
+
+            // Overwrite the first value
+            slot = insert_packed_value(slot, &v1_new, 0, 1)?;
+
+            // Verify the second value is unchanged
+            let e1: u8 = extract_packed_value(slot, 0, 1)?;
+            let e2: u16 = extract_packed_value(slot, 1, 2)?;
+
+            prop_assert_eq!(e1, v1_new);
+            prop_assert_eq!(e2, v2); // Should be unchanged
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(500))]
+
+        #[test]
+        fn proptest_element_slot_offset_consistency_u8(
+            idx in 0usize..1000,
+        ) {
+            // For u8 arrays (1 byte per element)
+            let slot = calc_element_slot(idx, 1);
+            let offset = calc_element_offset(idx, 1);
+
+            // Verify consistency: slot * 32 + offset should equal total bytes
+            prop_assert_eq!(slot * 32 + offset, idx * 1);
+
+            // Verify offset is in valid range
+            prop_assert!(offset < 32);
+        }
+
+        #[test]
+        fn proptest_element_slot_offset_consistency_u16(
+            idx in 0usize..1000,
+        ) {
+            // For u16 arrays (2 bytes per element)
+            let slot = calc_element_slot(idx, 2);
+            let offset = calc_element_offset(idx, 2);
+
+            prop_assert_eq!(slot * 32 + offset, idx * 2);
+            prop_assert!(offset < 32);
+        }
+
+        #[test]
+        fn proptest_element_slot_offset_consistency_address(
+            idx in 0usize..100,
+        ) {
+            // For address arrays (20 bytes per element)
+            let slot = calc_element_slot(idx, 20);
+            let offset = calc_element_offset(idx, 20);
+
+            prop_assert_eq!(slot * 32 + offset, idx * 20);
+            prop_assert!(offset < 32);
+        }
+
+        #[test]
+        fn proptest_packed_slot_count_sufficient(
+            n in 1usize..100,
+            elem_bytes in 1usize..=32,
+        ) {
+            let slot_count = calc_packed_slot_count(n, elem_bytes);
+            let total_bytes = n * elem_bytes;
+            let min_slots = (total_bytes + 31) / 32;
+
+            // Verify the calculated slot count is correct
+            prop_assert_eq!(slot_count, min_slots);
+
+            // Verify it's sufficient to hold all bytes
+            prop_assert!(slot_count * 32 >= total_bytes);
+
+            // Verify it's not over-allocated (no more than 31 wasted bytes)
+            if slot_count > 0 {
+                prop_assert!(slot_count * 32 - total_bytes < 32);
+            }
+        }
     }
 }

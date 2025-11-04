@@ -352,3 +352,400 @@ pub(crate) fn gen_storable_alloy_ints() -> TokenStream {
         #(#impls)*
     }
 }
+
+// -- ARRAY IMPLEMENTATIONS ----------------------------------------------------
+
+/// Configuration for generating array implementations
+#[derive(Debug, Clone)]
+struct ArrayConfig {
+    elem_type: TokenStream,
+    array_size: usize,
+    elem_byte_count: usize,
+    elem_is_packable: bool,
+}
+
+/// Determine if an element type can be packed (primitives only, and 32 % bytes == 0)
+fn is_packable(byte_count: usize) -> bool {
+    byte_count < 32 && 32 % byte_count == 0
+}
+
+/// Generate a complete `Storable` implementation for a fixed-size array
+fn gen_array_impl(config: &ArrayConfig) -> TokenStream {
+    let ArrayConfig {
+        elem_type,
+        array_size,
+        elem_byte_count,
+        elem_is_packable,
+    } = config;
+
+    // Generate a unique module name for this array type
+    let elem_type_str = elem_type
+        .to_string()
+        .replace("::", "_")
+        .replace(['<', '>', ' ', '[', ']', ';'], "_");
+    let mod_ident = quote::format_ident!("__array_{}_{}", elem_type_str, array_size);
+
+    // Calculate slot count at compile time
+    let slot_count = if *elem_is_packable {
+        // Packed: multiple elements per slot
+        (*array_size * elem_byte_count).div_ceil(32)
+    } else {
+        // Unpacked: each element uses full slots (assume 1 slot per element for primitives)
+        *array_size
+    };
+
+    let load_impl = if *elem_is_packable {
+        gen_packed_array_load(array_size, elem_byte_count)
+    } else {
+        gen_unpacked_array_load(array_size)
+    };
+
+    let store_impl = if *elem_is_packable {
+        gen_packed_array_store(array_size, elem_byte_count)
+    } else {
+        gen_unpacked_array_store(array_size)
+    };
+
+    let delete_impl = if *elem_is_packable {
+        gen_packed_array_delete(array_size, elem_byte_count)
+    } else {
+        gen_unpacked_array_delete(array_size)
+    };
+
+    let to_evm_words_impl = if *elem_is_packable {
+        gen_packed_array_to_evm_words(array_size, elem_byte_count)
+    } else {
+        gen_unpacked_array_to_evm_words(array_size)
+    };
+
+    let from_evm_words_impl = if *elem_is_packable {
+        gen_packed_array_from_evm_words(array_size, elem_byte_count)
+    } else {
+        gen_unpacked_array_from_evm_words(array_size)
+    };
+
+    quote! {
+        // Helper module with compile-time constants
+        mod #mod_ident {
+            use super::*;
+            pub const ELEM_BYTES: usize = <#elem_type as StorableType>::BYTE_COUNT;
+            pub const ELEM_SLOTS: usize = 1; // For single-slot primitives
+            pub const ARRAY_LEN: usize = #array_size;
+            pub const SLOT_COUNT: usize = #slot_count;
+        }
+
+        // Implement StorableType
+        impl StorableType for [#elem_type; #array_size] {
+            const BYTE_COUNT: usize = #mod_ident::SLOT_COUNT * 32;
+        }
+
+        // Implement Storable
+        impl Storable<{ #mod_ident::SLOT_COUNT }> for [#elem_type; #array_size] {
+            const SLOT_COUNT: usize = #mod_ident::SLOT_COUNT;
+
+            fn load<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<Self> {
+                use crate::storage::packing::{calc_element_slot, calc_element_offset, extract_packed_value};
+                #load_impl
+            }
+
+            fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256) -> Result<()> {
+                use crate::storage::packing::{calc_element_slot, calc_element_offset, insert_packed_value};
+                #store_impl
+            }
+
+            fn delete<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<()> {
+                #delete_impl
+            }
+
+            fn to_evm_words(&self) -> Result<[U256; { #mod_ident::SLOT_COUNT }]> {
+                use crate::storage::packing::{calc_element_slot, calc_element_offset, insert_packed_value};
+                #to_evm_words_impl
+            }
+
+            fn from_evm_words(words: [U256; { #mod_ident::SLOT_COUNT }]) -> Result<Self> {
+                use crate::storage::packing::{calc_element_slot, calc_element_offset, extract_packed_value};
+                #from_evm_words_impl
+            }
+        }
+
+        // Implement StorageKey for use as mapping keys
+        impl StorageKey for [#elem_type; #array_size] {
+            #[inline]
+            fn as_storage_bytes(&self) -> impl AsRef<[u8]> {
+                // Serialize to EVM words and concatenate into a Vec
+                let words = self.to_evm_words().expect("to_evm_words failed");
+                let mut bytes = Vec::with_capacity(#mod_ident::SLOT_COUNT * 32);
+                for word in words.iter() {
+                    bytes.extend_from_slice(&word.to_be_bytes::<32>());
+                }
+                bytes
+            }
+        }
+    }
+}
+
+/// Generate load implementation for packed arrays
+fn gen_packed_array_load(array_size: &usize, elem_byte_count: &usize) -> TokenStream {
+    quote! {
+        let mut result = [Default::default(); #array_size];
+        for i in 0..#array_size {
+            let slot_idx = calc_element_slot(i, #elem_byte_count);
+            let offset = calc_element_offset(i, #elem_byte_count);
+            let slot_addr = base_slot + U256::from(slot_idx);
+            let slot_value = storage.sload(slot_addr)?;
+            result[i] = extract_packed_value(slot_value, offset, #elem_byte_count)?;
+        }
+        Ok(result)
+    }
+}
+
+/// Generate store implementation for packed arrays
+fn gen_packed_array_store(array_size: &usize, elem_byte_count: &usize) -> TokenStream {
+    quote! {
+        // Determine how many slots we need
+        let slot_count = (#array_size * #elem_byte_count + 31) / 32;
+
+        // Build slots by packing elements
+        for slot_idx in 0..slot_count {
+            let slot_addr = base_slot + U256::from(slot_idx);
+            let mut slot_value = U256::ZERO;
+
+            // Pack all elements that belong to this slot
+            for i in 0..#array_size {
+                let elem_slot = calc_element_slot(i, #elem_byte_count);
+                if elem_slot == slot_idx {
+                    let offset = calc_element_offset(i, #elem_byte_count);
+                    slot_value = insert_packed_value(slot_value, &self[i], offset, #elem_byte_count)?;
+                }
+            }
+
+            storage.sstore(slot_addr, slot_value)?;
+        }
+        Ok(())
+    }
+}
+
+/// Generate delete implementation for packed arrays
+fn gen_packed_array_delete(array_size: &usize, elem_byte_count: &usize) -> TokenStream {
+    quote! {
+        let slot_count = (#array_size * #elem_byte_count + 31) / 32;
+        for slot_idx in 0..slot_count {
+            storage.sstore(base_slot + U256::from(slot_idx), U256::ZERO)?;
+        }
+        Ok(())
+    }
+}
+
+/// Generate load implementation for unpacked arrays
+fn gen_unpacked_array_load(array_size: &usize) -> TokenStream {
+    quote! {
+        let mut result = [Default::default(); #array_size];
+        for i in 0..#array_size {
+            let elem_slot = base_slot + U256::from(i);
+            result[i] = Storable::<1>::load(storage, elem_slot)?;
+        }
+        Ok(result)
+    }
+}
+
+/// Generate store implementation for unpacked arrays
+fn gen_unpacked_array_store(_array_size: &usize) -> TokenStream {
+    quote! {
+        for (i, elem) in self.iter().enumerate() {
+            let elem_slot = base_slot + U256::from(i);
+            elem.store(storage, elem_slot)?;
+        }
+        Ok(())
+    }
+}
+
+/// Generate delete implementation for unpacked arrays
+fn gen_unpacked_array_delete(array_size: &usize) -> TokenStream {
+    quote! {
+        // For unpacked single-slot elements, just zero out each slot
+        for i in 0..#array_size {
+            storage.sstore(base_slot + U256::from(i), U256::ZERO)?;
+        }
+        Ok(())
+    }
+}
+
+/// Generate to_evm_words implementation for packed arrays
+fn gen_packed_array_to_evm_words(array_size: &usize, elem_byte_count: &usize) -> TokenStream {
+    let slot_count = (*array_size * elem_byte_count).div_ceil(32);
+    quote! {
+        let mut result = [U256::ZERO; #slot_count];
+        for (i, elem) in self.iter().enumerate() {
+            let slot_idx = calc_element_slot(i, #elem_byte_count);
+            let offset = calc_element_offset(i, #elem_byte_count);
+            result[slot_idx] = insert_packed_value(result[slot_idx], elem, offset, #elem_byte_count)?;
+        }
+        Ok(result)
+    }
+}
+
+/// Generate from_evm_words implementation for packed arrays
+fn gen_packed_array_from_evm_words(array_size: &usize, elem_byte_count: &usize) -> TokenStream {
+    quote! {
+        let mut result = [Default::default(); #array_size];
+        for i in 0..#array_size {
+            let slot_idx = calc_element_slot(i, #elem_byte_count);
+            let offset = calc_element_offset(i, #elem_byte_count);
+            result[i] = extract_packed_value(words[slot_idx], offset, #elem_byte_count)?;
+        }
+        Ok(result)
+    }
+}
+
+/// Generate to_evm_words implementation for unpacked arrays
+fn gen_unpacked_array_to_evm_words(array_size: &usize) -> TokenStream {
+    quote! {
+        let mut result = [U256::ZERO; #array_size];
+        for (i, elem) in self.iter().enumerate() {
+            let elem_words = elem.to_evm_words()?;
+            result[i] = elem_words[0];
+        }
+        Ok(result)
+    }
+}
+
+/// Generate from_evm_words implementation for unpacked arrays
+fn gen_unpacked_array_from_evm_words(array_size: &usize) -> TokenStream {
+    quote! {
+        let mut result = [Default::default(); #array_size];
+        for i in 0..#array_size {
+            result[i] = Storable::<1>::from_evm_words([words[i]])?;
+        }
+        Ok(result)
+    }
+}
+
+/// Generate array implementations for a specific element type
+fn gen_arrays_for_type(
+    elem_type: TokenStream,
+    elem_byte_count: usize,
+    sizes: &[usize],
+) -> Vec<TokenStream> {
+    let elem_is_packable = is_packable(elem_byte_count);
+
+    sizes
+        .iter()
+        .map(|&size| {
+            let config = ArrayConfig {
+                elem_type: elem_type.clone(),
+                array_size: size,
+                elem_byte_count,
+                elem_is_packable,
+            };
+            gen_array_impl(&config)
+        })
+        .collect()
+}
+
+/// Generate `Storable` implementations for fixed-size arrays of primitive types
+pub(crate) fn gen_storable_arrays() -> TokenStream {
+    let mut all_impls = Vec::new();
+    let sizes: Vec<usize> = (1..=32).collect();
+
+    // Rust unsigned integers
+    for &bit_size in RUST_INT_SIZES {
+        let type_ident = quote::format_ident!("u{}", bit_size);
+        let byte_count = bit_size / 8;
+        all_impls.extend(gen_arrays_for_type(
+            quote! { #type_ident },
+            byte_count,
+            &sizes,
+        ));
+    }
+
+    // Rust signed integers
+    for &bit_size in RUST_INT_SIZES {
+        let type_ident = quote::format_ident!("i{}", bit_size);
+        let byte_count = bit_size / 8;
+        all_impls.extend(gen_arrays_for_type(
+            quote! { #type_ident },
+            byte_count,
+            &sizes,
+        ));
+    }
+
+    // Alloy unsigned integers
+    for &bit_size in ALLOY_INT_SIZES {
+        let type_ident = quote::format_ident!("U{}", bit_size);
+        let byte_count = bit_size / 8;
+        all_impls.extend(gen_arrays_for_type(
+            quote! { ::alloy::primitives::#type_ident },
+            byte_count,
+            &sizes,
+        ));
+    }
+
+    // Alloy signed integers
+    for &bit_size in ALLOY_INT_SIZES {
+        let type_ident = quote::format_ident!("I{}", bit_size);
+        let byte_count = bit_size / 8;
+        all_impls.extend(gen_arrays_for_type(
+            quote! { ::alloy::primitives::#type_ident },
+            byte_count,
+            &sizes,
+        ));
+    }
+
+    // Address (20 bytes, not packable since 32 % 20 != 0)
+    all_impls.extend(gen_arrays_for_type(
+        quote! { ::alloy::primitives::Address },
+        20,
+        &sizes,
+    ));
+
+    // Common FixedBytes types
+    for &byte_size in &[20, 32] {
+        all_impls.extend(gen_arrays_for_type(
+            quote! { ::alloy::primitives::FixedBytes<#byte_size> },
+            byte_size,
+            &sizes,
+        ));
+    }
+
+    quote! {
+        #(#all_impls)*
+    }
+}
+
+/// Generate nested array implementations for common small cases
+pub(crate) fn gen_nested_arrays() -> TokenStream {
+    let mut all_impls = Vec::new();
+
+    // Nested u8 arrays: [[u8; INNER]; OUTER]
+    // Only generate where total slots <= 32
+    for inner in &[2usize, 4, 8, 16] {
+        let inner_slots = inner.div_ceil(32); // u8 packs, so this is ceil(inner/32)
+        let max_outer = 32 / inner_slots.max(1);
+
+        for outer in 1..=max_outer.min(32) {
+            all_impls.extend(gen_arrays_for_type(
+                quote! { [u8; #inner] },
+                inner_slots * 32, // BYTE_COUNT for [u8; inner]
+                &[outer],
+            ));
+        }
+    }
+
+    // Nested u16 arrays
+    for inner in &[2usize, 4, 8] {
+        let inner_slots = (inner * 2).div_ceil(32);
+        let max_outer = 32 / inner_slots.max(1);
+
+        for outer in 1..=max_outer.min(16) {
+            all_impls.extend(gen_arrays_for_type(
+                quote! { [u16; #inner] },
+                inner_slots * 32,
+                &[outer],
+            ));
+        }
+    }
+
+    quote! {
+        #(#all_impls)*
+    }
+}
