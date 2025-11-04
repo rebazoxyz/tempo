@@ -15,7 +15,7 @@ use alloy::primitives::{Address, U256};
 
 /// Storage slots for Account Keychain precompile data
 pub mod slots {
-    use crate::storage::slots::abi_encode_with_signature;
+    use crate::storage::slots::{double_mapping_slot, mapping_slot};
     use alloy::primitives::{Address, U256};
 
     /// Base slot for keys mapping: keys\[account\]\[keyId\]
@@ -29,35 +29,22 @@ pub mod slots {
 
     /// Compute storage slot for keys\[account\]\[keyId\]
     pub fn key_slot(account: &Address, key_id: &Address) -> U256 {
-        // First hash: keccak256(abi.encode(account, KEYS_BASE))
-        let inner_data = abi_encode_with_signature(account, KEYS_BASE.to_be_bytes::<32>());
-        let inner_hash = alloy::primitives::keccak256(&inner_data);
-
-        // Second hash: keccak256(abi.encode(keyId, inner_hash))
-        let outer_data = abi_encode_with_signature(key_id, inner_hash.0);
-        U256::from_be_bytes(alloy::primitives::keccak256(&outer_data).0)
+        double_mapping_slot(account, key_id, KEYS_BASE)
     }
 
     /// Compute storage slot for spendingLimits\[account\]\[keyId\]\[token\]
+    /// This is a triple mapping: mapping(address => mapping(address => mapping(address => uint256)))
+    /// We compose double_mapping_slot and mapping_slot to handle three levels
     pub fn spending_limit_slot(account: &Address, key_id: &Address, token: &Address) -> U256 {
-        // First hash: keccak256(abi.encode(account, SPENDING_LIMITS_BASE))
-        let inner1_data =
-            abi_encode_with_signature(account, SPENDING_LIMITS_BASE.to_be_bytes::<32>());
-        let inner1_hash = alloy::primitives::keccak256(&inner1_data);
-
-        // Second hash: keccak256(abi.encode(keyId, inner1_hash))
-        let inner2_data = abi_encode_with_signature(key_id, inner1_hash.0);
-        let inner2_hash = alloy::primitives::keccak256(&inner2_data);
-
-        // Third hash: keccak256(abi.encode(token, inner2_hash))
-        let outer_data = abi_encode_with_signature(token, inner2_hash.0);
-        U256::from_be_bytes(alloy::primitives::keccak256(&outer_data).0)
+        // First two levels: account -> keyId
+        let intermediate = double_mapping_slot(account, key_id, SPENDING_LIMITS_BASE);
+        // Third level: token, using intermediate as base slot
+        mapping_slot(token, intermediate)
     }
 
     /// Compute storage slot for transactionKey\[account\]
     pub fn transaction_key_slot(account: &Address) -> U256 {
-        let data = abi_encode_with_signature(account, TRANSACTION_KEY.to_be_bytes::<32>());
-        U256::from_be_bytes(alloy::primitives::keccak256(&data).0)
+        mapping_slot(account, TRANSACTION_KEY)
     }
 }
 

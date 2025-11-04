@@ -12,21 +12,6 @@ pub const fn pad_to_32(x: &[u8]) -> [u8; 32] {
     buf
 }
 
-/// ABI encode two values following Solidity's abi.encode() rules
-/// This is used for computing storage slots for nested mappings
-#[inline]
-pub fn abi_encode_with_signature<T: AsRef<[u8]>, U: Into<[u8; 32]>>(
-    value1: T,
-    value2: U,
-) -> Vec<u8> {
-    let mut encoded = Vec::with_capacity(64);
-    // Pad first value to 32 bytes
-    encoded.extend_from_slice(&pad_to_32(value1.as_ref()));
-    // Second value is already 32 bytes
-    encoded.extend_from_slice(&value2.into());
-    encoded
-}
-
 /// Compute storage slot for a mapping
 #[inline]
 pub fn mapping_slot<T: AsRef<[u8]>>(key: T, mapping_slot: U256) -> U256 {
