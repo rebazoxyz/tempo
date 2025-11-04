@@ -161,9 +161,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20Rewards for TIP20Token<'
 
         self.sstore_reward_recipient_of(msg_sender, recipient)?;
         if recipient == Address::ZERO {
-            let opted_in_supply = self
-                .sload_opted_in_supply()?
-                .sub_checked(holder_balance)?;
+            let opted_in_supply = self.sload_opted_in_supply()?.sub_checked(holder_balance)?;
             self.sstore_opted_in_supply(opted_in_supply)?;
         } else {
             let delegated = self.sload_delegated_balance(recipient)?;
@@ -175,9 +173,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20Rewards for TIP20Token<'
             self.sstore_delegated_balance(recipient, new_delegated)?;
 
             if current_recipient.is_zero() {
-                let opted_in = self
-                    .sload_opted_in_supply()?
-                    .add_checked(holder_balance)?;
+                let opted_in = self.sload_opted_in_supply()?.add_checked(holder_balance)?;
                 self.sstore_opted_in_supply(opted_in)?;
             }
 
@@ -249,9 +245,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token_ITIP20Rewards for TIP20Token<'
                     .sub_checked(remaining)?;
                 self.sstore_balances(contract_address, contract_balance)?;
 
-                let funder_balance = self
-                    .sload_balances(stream.funder)?
-                    .add_checked(remaining)?;
+                let funder_balance = self.sload_balances(stream.funder)?.add_checked(remaining)?;
                 self.sstore_balances(stream.funder, funder_balance)?;
 
                 self.emit_transfer(self.address, stream.funder, remaining)?;
@@ -401,7 +395,9 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
         self.accrue(U256::from(end_time))?;
 
-        let total_rps = self.sload_total_reward_per_second()?.sub_checked(rate_decrease)?;
+        let total_rps = self
+            .sload_total_reward_per_second()?
+            .sub_checked(rate_decrease)?;
         self.sstore_total_reward_per_second(total_rps)?;
 
         self.sstore_scheduled_rate_decrease(end_time, U256::ZERO)?;
