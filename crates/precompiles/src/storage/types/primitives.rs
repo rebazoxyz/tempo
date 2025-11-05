@@ -1122,7 +1122,12 @@ mod tests {
         <[[u8; 4]; 8]>::delete(&mut contract, base_slot).unwrap();
         for i in 0..8 {
             let slot_value = contract.sload(base_slot + U256::from(i)).unwrap();
-            assert_eq!(slot_value, U256::ZERO, "Slot {} not cleared after delete", i);
+            assert_eq!(
+                slot_value,
+                U256::ZERO,
+                "Slot {} not cleared after delete",
+                i
+            );
         }
     }
 
@@ -1165,7 +1170,12 @@ mod tests {
         <[[u16; 2]; 8]>::delete(&mut contract, base_slot).unwrap();
         for i in 0..8 {
             let slot_value = contract.sload(base_slot + U256::from(i)).unwrap();
-            assert_eq!(slot_value, U256::ZERO, "Slot {} not cleared after delete", i);
+            assert_eq!(
+                slot_value,
+                U256::ZERO,
+                "Slot {} not cleared after delete",
+                i
+            );
         }
     }
 

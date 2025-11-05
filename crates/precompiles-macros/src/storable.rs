@@ -4,7 +4,13 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, Ident, Type};
 
-use crate::utils::{is_array_type, is_custom_struct, is_dynamic_type, normalize_to_snake_case};
+use crate::{
+    storable_primitives::gen_struct_arrays,
+    utils::{
+        extract_storable_array_sizes, is_array_type, is_custom_struct, is_dynamic_type,
+        normalize_to_snake_case,
+    },
+};
 
 /// Implements the `Storable` derive macro for a struct with slot packing.
 ///
@@ -15,6 +21,9 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
     // Extract struct name and generics
     let strukt = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    // Extract array sizes from #[storable_arrays(...)] attribute
+    let array_sizes = extract_storable_array_sizes(&input.attrs)?;
 
     // Parse struct fields
     let fields = match &input.data {
@@ -130,7 +139,22 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
             }
     };
 
-    Ok(expanded)
+    // Generate array implementations if requested
+    let array_impls = if let Some(sizes) = array_sizes {
+        // Generate the struct type path for array generation
+        let struct_type = quote! { #strukt #ty_generics };
+        gen_struct_arrays(struct_type, &sizes)
+    } else {
+        quote! {}
+    };
+
+    // Combine struct implementation with array implementations
+    let combined = quote! {
+        #expanded
+        #array_impls
+    };
+
+    Ok(combined)
 }
 
 /// Generate a compile-time module that calculates the packing layout.

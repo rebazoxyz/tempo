@@ -749,3 +749,213 @@ pub(crate) fn gen_nested_arrays() -> TokenStream {
         #(#all_impls)*
     }
 }
+
+// -- STRUCT ARRAY IMPLEMENTATIONS ---------------------------------------------
+
+/// Generate array implementations for user-defined structs (multi-slot types).
+///
+/// Unlike primitive arrays, struct arrays:
+/// - Always use unpacked layout (structs span multiple slots)
+/// - Each element occupies `<T>::SLOT_COUNT` consecutive slots
+/// - Slot addressing uses multiplication: `base_slot + (i * <T>::SLOT_COUNT)`
+///
+/// # Parameters
+///
+/// - `struct_type`: The type path of the struct (e.g., `quote! { MyStruct }`)
+/// - `array_sizes`: Vector of array sizes to generate (e.g., `[1, 2, 4, 8]`)
+///
+/// # Returns
+///
+/// A `TokenStream` containing all the generated array implementations.
+pub(crate) fn gen_struct_arrays(struct_type: TokenStream, array_sizes: &[usize]) -> TokenStream {
+    let impls: Vec<_> = array_sizes
+        .iter()
+        .map(|&size| gen_struct_array_impl(&struct_type, size))
+        .collect();
+
+    quote! {
+        #(#impls)*
+    }
+}
+
+/// Generate a single array implementation for a user-defined struct.
+fn gen_struct_array_impl(struct_type: &TokenStream, array_size: usize) -> TokenStream {
+    // Generate unique module name for this array type
+    let struct_type_str = struct_type
+        .to_string()
+        .replace("::", "_")
+        .replace(['<', '>', ' ', '[', ']', ';'], "_");
+    let mod_ident = quote::format_ident!("__array_{}_{}", struct_type_str, array_size);
+
+    // Generate implementation methods
+    let load_impl = gen_struct_array_load(struct_type, array_size);
+    let store_impl = gen_struct_array_store(struct_type, array_size);
+    let delete_impl = gen_struct_array_delete(struct_type, array_size);
+    let to_evm_words_impl = gen_struct_array_to_evm_words(struct_type, array_size);
+    let from_evm_words_impl = gen_struct_array_from_evm_words(struct_type, array_size);
+
+    quote! {
+        // Helper module with compile-time constants
+        mod #mod_ident {
+            use super::*;
+            pub const ELEM_SLOTS: usize = <#struct_type>::SLOT_COUNT;
+            pub const ARRAY_LEN: usize = #array_size;
+            pub const SLOT_COUNT: usize = ARRAY_LEN * ELEM_SLOTS;
+        }
+
+        // Implement StorableType
+        impl crate::storage::StorableType for [#struct_type; #array_size] {
+            const BYTE_COUNT: usize = #mod_ident::SLOT_COUNT * 32;
+        }
+
+        // Implement Storable
+        impl crate::storage::Storable<{ #mod_ident::SLOT_COUNT }> for [#struct_type; #array_size] {
+            const SLOT_COUNT: usize = #mod_ident::SLOT_COUNT;
+
+            fn load<S: crate::storage::StorageOps>(
+                storage: &mut S,
+                base_slot: ::alloy::primitives::U256
+            ) -> crate::error::Result<Self> {
+                #load_impl
+            }
+
+            fn store<S: crate::storage::StorageOps>(
+                &self,
+                storage: &mut S,
+                base_slot: ::alloy::primitives::U256
+            ) -> crate::error::Result<()> {
+                #store_impl
+            }
+
+            fn delete<S: crate::storage::StorageOps>(
+                storage: &mut S,
+                base_slot: ::alloy::primitives::U256
+            ) -> crate::error::Result<()> {
+                #delete_impl
+            }
+
+            fn to_evm_words(&self) -> crate::error::Result<[::alloy::primitives::U256; { #mod_ident::SLOT_COUNT }]> {
+                #to_evm_words_impl
+            }
+
+            fn from_evm_words(
+                words: [::alloy::primitives::U256; { #mod_ident::SLOT_COUNT }]
+            ) -> crate::error::Result<Self> {
+                #from_evm_words_impl
+            }
+        }
+
+        // Implement StorageKey for use as mapping keys
+        impl crate::storage::StorageKey for [#struct_type; #array_size] {
+            #[inline]
+            fn as_storage_bytes(&self) -> impl AsRef<[u8]> {
+                // Serialize to EVM words and concatenate into a Vec
+                let words = self.to_evm_words().expect("to_evm_words failed");
+                let mut bytes = Vec::with_capacity(#mod_ident::SLOT_COUNT * 32);
+                for word in words.iter() {
+                    bytes.extend_from_slice(&word.to_be_bytes::<32>());
+                }
+                bytes
+            }
+        }
+    }
+}
+
+/// Generate load implementation for struct arrays.
+///
+/// Each element occupies `<T>::SLOT_COUNT` consecutive slots.
+fn gen_struct_array_load(struct_type: &TokenStream, array_size: usize) -> TokenStream {
+    quote! {
+        let mut result = [Default::default(); #array_size];
+        for i in 0..#array_size {
+            // Calculate slot for this element: base_slot + (i * element_slot_count)
+            let elem_slot = base_slot.checked_add(
+                ::alloy::primitives::U256::from(i).checked_mul(
+                    ::alloy::primitives::U256::from(<#struct_type>::SLOT_COUNT)
+                ).ok_or(crate::error::TempoError::SlotOverflow)?
+            ).ok_or(crate::error::TempoError::SlotOverflow)?;
+
+            result[i] = <#struct_type as crate::storage::Storable<{<#struct_type>::SLOT_COUNT}>>::load(storage, elem_slot)?;
+        }
+        Ok(result)
+    }
+}
+
+/// Generate store implementation for struct arrays.
+fn gen_struct_array_store(struct_type: &TokenStream, _array_size: usize) -> TokenStream {
+    quote! {
+        for (i, elem) in self.iter().enumerate() {
+            // Calculate slot for this element: base_slot + (i * element_slot_count)
+            let elem_slot = base_slot.checked_add(
+                ::alloy::primitives::U256::from(i).checked_mul(
+                    ::alloy::primitives::U256::from(<#struct_type>::SLOT_COUNT)
+                ).ok_or(crate::error::TempoError::SlotOverflow)?
+            ).ok_or(crate::error::TempoError::SlotOverflow)?;
+
+            <#struct_type as crate::storage::Storable<{<#struct_type>::SLOT_COUNT}>>::store(elem, storage, elem_slot)?;
+        }
+        Ok(())
+    }
+}
+
+/// Generate delete implementation for struct arrays.
+///
+/// Calls `delete()` on each element to ensure proper cleanup of nested structures.
+fn gen_struct_array_delete(struct_type: &TokenStream, array_size: usize) -> TokenStream {
+    quote! {
+        for i in 0..#array_size {
+            // Calculate slot for this element: base_slot + (i * element_slot_count)
+            let elem_slot = base_slot.checked_add(
+                ::alloy::primitives::U256::from(i).checked_mul(
+                    ::alloy::primitives::U256::from(<#struct_type>::SLOT_COUNT)
+                ).ok_or(crate::error::TempoError::SlotOverflow)?
+            ).ok_or(crate::error::TempoError::SlotOverflow)?;
+
+            <#struct_type as crate::storage::Storable<{<#struct_type>::SLOT_COUNT}>>::delete(storage, elem_slot)?;
+        }
+        Ok(())
+    }
+}
+
+/// Generate to_evm_words implementation for struct arrays.
+///
+/// Copies N-word chunks from each element into the result array.
+fn gen_struct_array_to_evm_words(struct_type: &TokenStream, array_size: usize) -> TokenStream {
+    quote! {
+        let mut result = [::alloy::primitives::U256::ZERO; #array_size * <#struct_type>::SLOT_COUNT];
+
+        for (i, elem) in self.iter().enumerate() {
+            let elem_words = <#struct_type as crate::storage::Storable<{<#struct_type>::SLOT_COUNT}>>::to_evm_words(elem)?;
+            let start_idx = i * <#struct_type>::SLOT_COUNT;
+
+            // Copy all words from this element
+            for (j, word) in elem_words.iter().enumerate() {
+                result[start_idx + j] = *word;
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+/// Generate from_evm_words implementation for struct arrays.
+///
+/// Extracts N-word chunks and converts each to a struct element.
+fn gen_struct_array_from_evm_words(struct_type: &TokenStream, array_size: usize) -> TokenStream {
+    quote! {
+        let mut result = [Default::default(); #array_size];
+
+        for i in 0..#array_size {
+            let start_idx = i * <#struct_type>::SLOT_COUNT;
+
+            // Extract words for this element using std::array::from_fn
+            let elem_words = ::std::array::from_fn::<_, {<#struct_type>::SLOT_COUNT}, _>(|j| {
+                words[start_idx + j]
+            });
+
+            result[i] = <#struct_type as crate::storage::Storable<{<#struct_type>::SLOT_COUNT}>>::from_evm_words(elem_words)?;
+        }
+
+        Ok(result)
+    }
+}

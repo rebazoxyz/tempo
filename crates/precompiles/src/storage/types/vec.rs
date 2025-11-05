@@ -248,12 +248,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::{PrecompileStorageProvider, StorageOps, hashmap::HashMapStorageProvider};
     use alloy::primitives::Address;
     use proptest::prelude::*;
-    use crate::storage::{
-        PrecompileStorageProvider, StorageOps,
-        hashmap::HashMapStorageProvider,
-    };
+    use tempo_precompiles_macros::Storable;
 
     // -- TEST HELPERS -------------------------------------------------------------
 
@@ -281,6 +279,26 @@ mod tests {
         }
     }
 
+    /// Helper to extract and verify a packed value from a specific slot at a given offset.
+    fn verify_packed_element<T>(
+        contract: &mut TestContract,
+        slot_addr: U256,
+        expected: T,
+        offset: usize,
+        byte_count: usize,
+        elem_name: &str,
+    ) where
+        T: Storable<1> + StorableType + PartialEq + std::fmt::Debug,
+    {
+        let slot_value = contract.sload(slot_addr).unwrap();
+        let actual = extract_packed_value::<T>(slot_value, offset, byte_count).unwrap();
+        assert_eq!(
+            actual, expected,
+            "{} at offset {} in slot {:?} mismatch",
+            elem_name, offset, slot_addr
+        );
+    }
+
     // Strategy for generating random U256 slot values that won't overflow
     fn arb_safe_slot() -> impl Strategy<Value = U256> {
         any::<[u64; 4]>().prop_map(|limbs| {
@@ -289,48 +307,11 @@ mod tests {
         })
     }
 
-    // Helper: Generate a multi-slot struct for testing
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    // Helper: Generate a single-slot struct for testing
+    #[derive(Debug, Clone, PartialEq, Eq, Storable)]
     struct TestStruct {
-        a: U256,
-        b: U256,
-    }
-
-    impl StorableType for TestStruct {
-        const BYTE_COUNT: usize = 64; // 2 slots
-    }
-
-    impl Storable<1> for TestStruct {
-        const SLOT_COUNT: usize = 1;
-
-        fn load<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<Self> {
-            let a = storage.sload(base_slot)?;
-            let b = storage.sload(base_slot + U256::from(1))?;
-            Ok(TestStruct { a, b })
-        }
-
-        fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256) -> Result<()> {
-            storage.sstore(base_slot, self.a)?;
-            storage.sstore(base_slot + U256::from(1), self.b)?;
-            Ok(())
-        }
-
-        fn delete<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<()> {
-            storage.sstore(base_slot, U256::ZERO)?;
-            storage.sstore(base_slot + U256::from(1), U256::ZERO)?;
-            Ok(())
-        }
-
-        fn to_evm_words(&self) -> Result<[U256; 1]> {
-            Ok([self.a])
-        }
-
-        fn from_evm_words(words: [U256; 1]) -> Result<Self> {
-            Ok(TestStruct {
-                a: words[0],
-                b: U256::ZERO,
-            })
-        }
+        a: u128, // 16 bytes (slot 0)
+        b: u128, // 16 bytes (slot 0)
     }
 
     #[test]
@@ -425,7 +406,12 @@ mod tests {
 
         for i in 0..slot_count {
             let slot_value = contract.sload(data_start + U256::from(i)).unwrap();
-            assert_eq!(slot_value, U256::ZERO, "Data slot {} not cleared after delete", i);
+            assert_eq!(
+                slot_value,
+                U256::ZERO,
+                "Data slot {} not cleared after delete",
+                i
+            );
         }
     }
 
@@ -439,7 +425,10 @@ mod tests {
         data.store(&mut contract, base_slot).unwrap();
 
         let loaded: Vec<u8> = Storable::load(&mut contract, base_slot).unwrap();
-        assert_eq!(loaded, data, "Vec with exactly 32 u8 elements failed roundtrip");
+        assert_eq!(
+            loaded, data,
+            "Vec with exactly 32 u8 elements failed roundtrip"
+        );
     }
 
     #[test]
@@ -452,7 +441,10 @@ mod tests {
         data.store(&mut contract, base_slot).unwrap();
 
         let loaded: Vec<u8> = Storable::load(&mut contract, base_slot).unwrap();
-        assert_eq!(loaded, data, "Vec with 33 u8 elements (2 slots) failed roundtrip");
+        assert_eq!(
+            loaded, data,
+            "Vec with 33 u8 elements (2 slots) failed roundtrip"
+        );
     }
 
     #[test]
@@ -466,6 +458,449 @@ mod tests {
 
         let loaded: Vec<Vec<u8>> = Storable::load(&mut contract, base_slot).unwrap();
         assert_eq!(loaded, data, "Nested Vec<Vec<u8>> roundtrip failed");
+    }
+
+    #[test]
+    fn test_vec_struct_roundtrip() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(900);
+
+        // Create Vec<TestStruct> with single-slot structs
+        let data = vec![
+            TestStruct { a: 12345, b: 11111 },
+            TestStruct { a: 67890, b: 22222 },
+            TestStruct { a: 11111, b: 33333 },
+        ];
+        data.store(&mut contract, base_slot).unwrap();
+
+        let loaded: Vec<TestStruct> = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data, "Vec<TestStruct> roundtrip failed");
+    }
+
+    #[test]
+    fn test_vec_struct_delete() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(1000);
+
+        // Store single-slot structs
+        let data = vec![TestStruct { a: 999, b: 10 }, TestStruct { a: 888, b: 20 }];
+        data.store(&mut contract, base_slot).unwrap();
+
+        // Verify stored
+        let loaded: Vec<TestStruct> = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(
+            loaded, data,
+            "Vec<TestStruct> not stored correctly before delete"
+        );
+
+        // Delete
+        Vec::<TestStruct>::delete(&mut contract, base_slot).unwrap();
+
+        // Verify empty
+        let loaded_after: Vec<TestStruct> = Storable::load(&mut contract, base_slot).unwrap();
+        assert!(
+            loaded_after.is_empty(),
+            "Vec<TestStruct> not empty after delete"
+        );
+
+        // Verify all data slots are cleared
+        // TestStruct is 32 bytes (1 slot), so each element uses one slot
+        let data_start = calc_data_slot(base_slot);
+        for elem_idx in 0..data.len() {
+            let elem_slot = data_start + U256::from(elem_idx);
+            let slot_value = contract.sload(elem_slot).unwrap();
+            assert_eq!(
+                slot_value,
+                U256::ZERO,
+                "Struct slot {} not cleared after delete",
+                elem_idx
+            );
+        }
+    }
+
+    // -- SLOT-LEVEL VALIDATION TESTS ----------------------------------------------
+
+    #[test]
+    fn test_vec_u8_explicit_slot_packing() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(2000);
+
+        // Store exactly 5 u8 elements (should fit in 1 slot with 27 unused bytes)
+        let data = vec![10u8, 20, 30, 40, 50];
+        data.store(&mut contract, base_slot).unwrap();
+
+        // Verify length stored in base slot
+        let length_value = contract.sload(base_slot).unwrap();
+        assert_eq!(length_value, U256::from(5), "Length not stored correctly");
+
+        // Verify each element is at the correct offset in data slot 0
+        let data_start = calc_data_slot(base_slot);
+        let byte_count = u8::BYTE_COUNT; // 1 byte per u8
+
+        verify_packed_element(&mut contract, data_start, 10u8, 0, byte_count, "elem[0]");
+        verify_packed_element(&mut contract, data_start, 20u8, 1, byte_count, "elem[1]");
+        verify_packed_element(&mut contract, data_start, 30u8, 2, byte_count, "elem[2]");
+        verify_packed_element(&mut contract, data_start, 40u8, 3, byte_count, "elem[3]");
+        verify_packed_element(&mut contract, data_start, 50u8, 4, byte_count, "elem[4]");
+
+        // Verify unused bytes in the slot are zero
+        let slot_value = contract.sload(data_start).unwrap();
+        let slot_bytes = slot_value.to_be_bytes::<32>();
+        for i in 5..32 {
+            assert_eq!(
+                slot_bytes[i], 0,
+                "Unused byte at offset {} should be zero",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_vec_u16_slot_boundary() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(2100);
+
+        // Test 1: Exactly 16 u16 elements (fills exactly 1 slot: 16 * 2 bytes = 32 bytes)
+        let data_exact: Vec<u16> = (0..16).map(|i| i * 100).collect();
+        data_exact.store(&mut contract, base_slot).unwrap();
+
+        let data_start = calc_data_slot(base_slot);
+        let byte_count = u16::BYTE_COUNT; // 2 bytes per u16
+
+        // Verify all 16 elements are in slot 0
+        for (i, &expected) in data_exact.iter().enumerate() {
+            verify_packed_element(
+                &mut contract,
+                data_start,
+                expected,
+                i * byte_count,
+                byte_count,
+                &format!("elem[{}]", i),
+            );
+        }
+
+        // Test 2: 17 u16 elements (requires 2 slots)
+        let data_overflow: Vec<u16> = (0..17).map(|i| i * 100).collect();
+        data_overflow.store(&mut contract, base_slot).unwrap();
+
+        // Verify first 16 are in slot 0
+        for i in 0..16 {
+            verify_packed_element(
+                &mut contract,
+                data_start,
+                (i * 100) as u16,
+                i * byte_count,
+                byte_count,
+                &format!("slot0_elem[{}]", i),
+            );
+        }
+
+        // Verify 17th element is in slot 1 at offset 0
+        let slot1_addr = data_start + U256::from(1);
+        verify_packed_element(
+            &mut contract,
+            slot1_addr,
+            1600u16,
+            0,
+            byte_count,
+            "slot1_elem[0]",
+        );
+
+        // Verify remaining bytes in slot 1 are zero (30 unused bytes)
+        let slot1_value = contract.sload(slot1_addr).unwrap();
+        let slot1_bytes = slot1_value.to_be_bytes::<32>();
+        for i in 2..32 {
+            assert_eq!(
+                slot1_bytes[i], 0,
+                "Unused byte at offset {} in slot 1 should be zero",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_vec_u8_partial_slot_fill() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(2200);
+
+        // Store 35 u8 elements:
+        // - Slot 0: 32 elements (full)
+        // - Slot 1: 3 elements + 29 zeros
+        let data: Vec<u8> = (0..35).map(|i| (i + 1) as u8).collect();
+        data.store(&mut contract, base_slot).unwrap();
+
+        let data_start = calc_data_slot(base_slot);
+        let byte_count = u8::BYTE_COUNT;
+
+        // Verify slot 0 is completely filled (32 elements)
+        let slot0_value = contract.sload(data_start).unwrap();
+        let slot0_bytes = slot0_value.to_be_bytes::<32>();
+        for i in 0..32 {
+            assert_eq!(
+                slot0_bytes[i],
+                (i + 1) as u8,
+                "Element {} in slot 0 incorrect",
+                i
+            );
+        }
+
+        // Verify slot 1 has exactly 3 elements
+        let slot1_addr = data_start + U256::from(1);
+        verify_packed_element(
+            &mut contract,
+            slot1_addr,
+            33u8,
+            0,
+            byte_count,
+            "slot1_elem[0]",
+        );
+        verify_packed_element(
+            &mut contract,
+            slot1_addr,
+            34u8,
+            1,
+            byte_count,
+            "slot1_elem[1]",
+        );
+        verify_packed_element(
+            &mut contract,
+            slot1_addr,
+            35u8,
+            2,
+            byte_count,
+            "slot1_elem[2]",
+        );
+
+        // Verify remaining 29 bytes in slot 1 are zero
+        let slot1_value = contract.sload(slot1_addr).unwrap();
+        let slot1_bytes = slot1_value.to_be_bytes::<32>();
+        for i in 3..32 {
+            assert_eq!(
+                slot1_bytes[i], 0,
+                "Unused byte at offset {} in slot 1 should be zero",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_vec_u256_individual_slots() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(2300);
+
+        // Store 3 U256 values (each should occupy its own slot)
+        let data = vec![
+            U256::from(0x1111111111111111u64),
+            U256::from(0x2222222222222222u64),
+            U256::from(0x3333333333333333u64),
+        ];
+        data.store(&mut contract, base_slot).unwrap();
+
+        let data_start = calc_data_slot(base_slot);
+
+        // Verify each U256 occupies its own sequential slot
+        for (i, &expected) in data.iter().enumerate() {
+            let slot_addr = data_start + U256::from(i);
+            let stored_value = contract.sload(slot_addr).unwrap();
+            assert_eq!(
+                stored_value, expected,
+                "U256 element {} at slot {:?} incorrect",
+                i, slot_addr
+            );
+        }
+
+        // Verify there's no data in slot 3 (should be empty)
+        let slot3_addr = data_start + U256::from(3);
+        let slot3_value = contract.sload(slot3_addr).unwrap();
+        assert_eq!(slot3_value, U256::ZERO, "Slot 3 should be empty");
+    }
+
+    #[test]
+    fn test_vec_address_unpacked_slots() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(2400);
+
+        // Store 3 addresses (each 20 bytes, but 32 % 20 != 0, so unpacked)
+        let data = vec![
+            Address::repeat_byte(0xAA),
+            Address::repeat_byte(0xBB),
+            Address::repeat_byte(0xCC),
+        ];
+        data.store(&mut contract, base_slot).unwrap();
+
+        let data_start = calc_data_slot(base_slot);
+
+        // Verify each address occupies its own slot (unpacked)
+        for (i, &expected) in data.iter().enumerate() {
+            let slot_addr = data_start + U256::from(i);
+            let stored_value = contract.sload(slot_addr).unwrap();
+
+            // Address should be right-aligned in the U256 slot (leftmost 12 bytes are zero)
+            let expected_u256 = U256::from_be_slice(expected.as_slice());
+            assert_eq!(
+                stored_value, expected_u256,
+                "Address element {} at slot {:?} incorrect",
+                i, slot_addr
+            );
+
+            // Verify leftmost 12 bytes are zero
+            let slot_bytes = stored_value.to_be_bytes::<32>();
+            for j in 0..12 {
+                assert_eq!(
+                    slot_bytes[j], 0,
+                    "Padding byte {} should be zero for address at slot {}",
+                    j, i
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_vec_struct_slot_allocation() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(2500);
+
+        // Store Vec<TestStruct> with 3 single-slot structs
+        let data = vec![
+            TestStruct { a: 100, b: 1 },
+            TestStruct { a: 200, b: 2 },
+            TestStruct { a: 300, b: 3 },
+        ];
+        data.store(&mut contract, base_slot).unwrap();
+
+        let data_start = calc_data_slot(base_slot);
+
+        // Each TestStruct uses one slot (32 bytes: two u128 values)
+        // Verify each struct is stored at sequential slots
+        for (i, expected_struct) in data.iter().enumerate() {
+            let struct_slot = data_start + U256::from(i);
+            let loaded_struct = TestStruct::load(&mut contract, struct_slot).unwrap();
+            assert_eq!(
+                loaded_struct, *expected_struct,
+                "TestStruct at slot {} incorrect",
+                i
+            );
+        }
+
+        // Verify slot allocation is correct (no gaps)
+        let slot0 = data_start;
+        let slot1 = data_start + U256::from(1);
+        let slot2 = data_start + U256::from(2);
+        let slot3 = data_start + U256::from(3);
+
+        // First 3 slots should be non-zero (contain structs)
+        assert_ne!(
+            contract.sload(slot0).unwrap(),
+            U256::ZERO,
+            "Slot 0 should contain data"
+        );
+        assert_ne!(
+            contract.sload(slot1).unwrap(),
+            U256::ZERO,
+            "Slot 1 should contain data"
+        );
+        assert_ne!(
+            contract.sload(slot2).unwrap(),
+            U256::ZERO,
+            "Slot 2 should contain data"
+        );
+
+        // Slot 3 should be empty
+        assert_eq!(
+            contract.sload(slot3).unwrap(),
+            U256::ZERO,
+            "Slot 3 should be empty"
+        );
+    }
+
+    #[test]
+    fn test_vec_length_slot_isolation() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(2600);
+
+        // Store a vec
+        let data = vec![100u8, 200, 250];
+        data.store(&mut contract, base_slot).unwrap();
+
+        // Verify base slot contains length
+        let length_value = contract.sload(base_slot).unwrap();
+        assert_eq!(length_value, U256::from(3), "Length slot incorrect");
+
+        // Verify data starts at keccak256(base_slot), not base_slot + 1
+        let data_start = calc_data_slot(base_slot);
+        assert_ne!(
+            data_start,
+            base_slot + U256::from(1),
+            "Data should not start immediately after base slot"
+        );
+
+        // Verify data is at the calculated data_start location
+        let data_slot_value = contract.sload(data_start).unwrap();
+        assert_ne!(
+            data_slot_value,
+            U256::ZERO,
+            "Data slot should contain packed elements"
+        );
+
+        // Verify we can extract all elements from the data slot
+        verify_packed_element(&mut contract, data_start, 100u8, 0, 1, "elem[0]");
+        verify_packed_element(&mut contract, data_start, 200u8, 1, 1, "elem[1]");
+        verify_packed_element(&mut contract, data_start, 250u8, 2, 1, "elem[2]");
+    }
+
+    #[test]
+    fn test_vec_overwrite_cleanup() {
+        let mut contract = setup_test_contract();
+        let base_slot = U256::from(2700);
+
+        // Store a vec with 5 u8 elements (requires 1 slot)
+        let data_long = vec![1u8, 2, 3, 4, 5];
+        data_long.store(&mut contract, base_slot).unwrap();
+
+        let data_start = calc_data_slot(base_slot);
+
+        // Verify initial storage
+        let slot0_before = contract.sload(data_start).unwrap();
+        assert_ne!(slot0_before, U256::ZERO, "Initial data should be stored");
+
+        // Overwrite with a shorter vec (3 elements)
+        let data_short = vec![10u8, 20, 30];
+        data_short.store(&mut contract, base_slot).unwrap();
+
+        // Verify length updated
+        let length_value = contract.sload(base_slot).unwrap();
+        assert_eq!(length_value, U256::from(3), "Length should be updated");
+
+        // Verify new data is correct
+        verify_packed_element(&mut contract, data_start, 10u8, 0, 1, "new_elem[0]");
+        verify_packed_element(&mut contract, data_start, 20u8, 1, 1, "new_elem[1]");
+        verify_packed_element(&mut contract, data_start, 30u8, 2, 1, "new_elem[2]");
+
+        let loaded: Vec<u8> = Storable::load(&mut contract, base_slot).unwrap();
+        assert_eq!(loaded, data_short, "Loaded vec should match short version");
+        assert_eq!(loaded.len(), 3, "Length should be 3");
+
+        // If we want full cleanup, we should delete first, then store
+        Vec::<u8>::delete(&mut contract, base_slot).unwrap();
+        data_short.store(&mut contract, base_slot).unwrap();
+
+        // Now verify old bytes are actually cleared
+        let slot0_after_delete = contract.sload(data_start).unwrap();
+        let slot_bytes = slot0_after_delete.to_be_bytes::<32>();
+
+        // First 3 bytes should have new data
+        assert_eq!(slot_bytes[0], 10);
+        assert_eq!(slot_bytes[1], 20);
+        assert_eq!(slot_bytes[2], 30);
+
+        // Bytes 3-31 should be zero
+        for i in 3..32 {
+            assert_eq!(
+                slot_bytes[i], 0,
+                "Byte {} should be zero after delete+store",
+                i
+            );
+        }
     }
 
     // -- PROPTEST STRATEGIES ------------------------------------------------------
@@ -499,6 +934,26 @@ mod tests {
                           (vec in prop::collection::vec(any::<[u8; 20]>(), 0..=max_len))
                           -> Vec<Address> {
             vec.into_iter().map(Address::from).collect()
+        }
+    }
+
+    prop_compose! {
+        fn arb_test_struct()
+                          (a in any::<u64>(),
+                           b in any::<u64>())
+                          -> TestStruct {
+            TestStruct {
+                a: a as u128,
+                b: b as u128,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn arb_test_struct_vec(max_len: usize)
+                              (vec in prop::collection::vec(arb_test_struct(), 0..=max_len))
+                              -> Vec<TestStruct> {
+            vec
         }
     }
 
@@ -588,7 +1043,6 @@ mod tests {
             prop_assert!(after_delete.is_empty(), "Vec not empty after delete");
 
             // Verify data slots are cleared (if length > 0)
-            // U256 elements are not packed, each uses one full slot
             if data_len > 0 {
                 let data_start = calc_data_slot(base_slot);
 
@@ -661,6 +1115,37 @@ mod tests {
                     prop_assert_eq!(slot_value, U256::ZERO, "Data slot {} not cleared", i);
                 }
             }
+        }
+
+        #[test]
+        fn proptest_vec_struct_roundtrip(data in arb_test_struct_vec(50), base_slot in arb_safe_slot()) {
+            let mut contract = setup_test_contract();
+            let data_len = data.len();
+
+            // Store → Load roundtrip
+            data.store(&mut contract, base_slot)?;
+            let loaded: Vec<TestStruct> = Storable::load(&mut contract, base_slot)?;
+            prop_assert_eq!(&loaded, &data, "Vec<TestStruct> roundtrip failed");
+
+            // Delete + verify cleanup
+            Vec::<TestStruct>::delete(&mut contract, base_slot)?;
+            let after_delete: Vec<TestStruct> = Storable::load(&mut contract, base_slot)?;
+            prop_assert!(after_delete.is_empty(), "Vec not empty after delete");
+
+            // Verify data slots are cleared (if length > 0)
+            if data_len > 0 {
+                let data_start = calc_data_slot(base_slot);
+
+                for i in 0..data_len {
+                    let slot_value = contract.sload(data_start + U256::from(i))?;
+                    prop_assert_eq!(slot_value, U256::ZERO, "Data slot {} not cleared", i);
+                }
+            }
+
+            // EVM words roundtrip (should error)
+            let words = data.to_evm_words()?;
+            let result = Vec::<TestStruct>::from_evm_words(words);
+            prop_assert!(result.is_err(), "Vec should not be reconstructable from base slot alone");
         }
     }
 }

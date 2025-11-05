@@ -167,6 +167,88 @@ pub(crate) fn extract_attributes(attrs: &[Attribute]) -> syn::Result<ExtractedAt
     Ok((slot_attr, base_slot_attr, slot_count_attr, map_attr))
 }
 
+/// Extracts array sizes from the `#[storable_arrays(...)]` attribute.
+///
+/// Parses attributes like `#[storable_arrays(1, 2, 4, 8)]` and returns a vector
+/// of the specified sizes. Returns `None` if the attribute is not present.
+///
+/// # Format
+///
+/// The attribute should be a comma-separated list of positive integer literals:
+/// ```ignore
+/// #[storable_arrays(1, 2, 4, 8, 16, 32)]
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The attribute is present but has invalid syntax
+/// - Any size is 0 or exceeds 256
+/// - Duplicate array sizes are specified
+pub(crate) fn extract_storable_array_sizes(attrs: &[Attribute]) -> syn::Result<Option<Vec<usize>>> {
+    for attr in attrs {
+        if attr.path().is_ident("storable_arrays") {
+            // Parse the attribute arguments as a comma-separated list
+            let parsed = attr.parse_args_with(
+                syn::punctuated::Punctuated::<Lit, syn::Token![,]>::parse_terminated,
+            )?;
+
+            let mut sizes = Vec::new();
+            for lit in parsed {
+                if let Lit::Int(int) = lit {
+                    let size = int
+                        .base10_parse::<usize>()
+                        .map_err(|_| {
+                            syn::Error::new_spanned(
+                                &int,
+                                "Invalid array size: must be a positive integer",
+                            )
+                        })?;
+
+                    if size == 0 {
+                        return Err(syn::Error::new_spanned(
+                            &int,
+                            "Array size must be greater than 0",
+                        ));
+                    }
+
+                    if size > 256 {
+                        return Err(syn::Error::new_spanned(
+                            &int,
+                            "Array size must not exceed 256",
+                        ));
+                    }
+
+                    if sizes.contains(&size) {
+                        return Err(syn::Error::new_spanned(
+                            &int,
+                            format!("Duplicate array size: {}", size),
+                        ));
+                    }
+
+                    sizes.push(size);
+                } else {
+                    return Err(syn::Error::new_spanned(
+                        lit,
+                        "Array sizes must be integer literals",
+                    ));
+                }
+            }
+
+            if sizes.is_empty() {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "storable_arrays attribute requires at least one size",
+                ));
+            }
+
+            return Ok(Some(sizes));
+        }
+    }
+
+    Ok(None)
+}
+
 /// Extracts the type parameters from Mapping<K, V>.
 ///
 /// Returns Some((key_type, value_type)) if the type is a Mapping, None otherwise.

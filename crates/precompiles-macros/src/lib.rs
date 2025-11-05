@@ -264,7 +264,7 @@ fn gen_contract_storage(
 ///     pub amount_total: U256,           // offset 4
 /// }
 /// ```
-#[proc_macro_derive(Storable)]
+#[proc_macro_derive(Storable, attributes(storable_arrays))]
 pub fn derive_storage_block(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
