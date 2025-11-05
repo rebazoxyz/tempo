@@ -117,8 +117,6 @@ struct FieldInfo {
     ty: Type,
     slot: Option<U256>,
     base_slot: Option<U256>,
-    // TODO(rusowsky): delete
-    slot_count: Option<usize>,
     map: Option<String>,
     /// Lazily computed from `map` and `name`
     effective_name: OnceCell<String>,
@@ -194,7 +192,6 @@ fn parse_fields(input: DeriveInput) -> syn::Result<Vec<FieldInfo>> {
                 ty: field.ty,
                 slot,
                 base_slot,
-                slot_count,
                 map,
                 effective_name: OnceCell::new(),
             })
