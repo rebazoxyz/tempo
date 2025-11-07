@@ -417,7 +417,7 @@ mod tests {
     fn test_double_mapping_account_role() {
         let account = address!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
         let role: B256 = U256::from(1).into();
-        let base_slot = U256::from(1).into();
+        let base_slot = U256::from(1);
 
         let slot = double_mapping_slot(account, role, base_slot);
 

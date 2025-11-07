@@ -1,6 +1,6 @@
 use crate::{
     FieldInfo, FieldKind,
-    utils::{extract_mapping_types, is_array_type, is_custom_struct, is_dynamic_type, is_vec_type},
+    utils::{extract_mapping_types, is_array_type, is_custom_struct, is_dynamic_type},
 };
 use alloy::primitives::U256;
 use quote::{format_ident, quote};
@@ -69,7 +69,7 @@ pub(crate) fn allocate_slots(fields: &[FieldInfo]) -> syn::Result<Vec<AllocatedF
             let base_slot = if idx == 0 || !is_primitive {
                 // First field or non-primitive: start new slot
                 let slot = last_auto_slot;
-                last_auto_slot = last_auto_slot + U256::from(1);
+                last_auto_slot += U256::from(1);
                 slot
             } else {
                 // Subsequent primitive: check if previous field was also primitive
@@ -87,7 +87,7 @@ pub(crate) fn allocate_slots(fields: &[FieldInfo]) -> syn::Result<Vec<AllocatedF
                 // Otherwise, start new slot
                 else {
                     let slot = last_auto_slot;
-                    last_auto_slot = last_auto_slot + U256::from(1);
+                    last_auto_slot += U256::from(1);
                     slot
                 }
             };
@@ -504,7 +504,7 @@ fn gen_packing_constants_for_slots_module(
             SlotAssignment::Manual(manual_slot) => {
                 // Manual slot assignment (from #[slot(N)] or #[base_slot(N)])
                 // These fields always have offset 0 (no packing with manual slots)
-                let hex_value = format!("{}_U256", manual_slot);
+                let hex_value = format!("{manual_slot}_U256");
                 let slot_lit = syn::LitInt::new(&hex_value, proc_macro2::Span::call_site());
                 let slot_expr = quote! {
                     ::alloy::primitives::uint!(#slot_lit)
@@ -554,7 +554,7 @@ fn gen_packing_constants_for_slots_module(
                             // Previous field is an array, compute slot count from BYTE_COUNT
                             let slot_expr = quote! {
                                 #prev_slot.saturating_add(
-                                    ::alloy::primitives::U256::from_limbs([((#prev_bytes + 31) / 32) as u64, 0u64, 0u64, 0u64])
+                                    ::alloy::primitives::U256::from_limbs([#prev_bytes.div_ceil(32) as u64, 0u64, 0u64, 0u64])
                                 )
                             };
                             (slot_expr, quote! { 0 })

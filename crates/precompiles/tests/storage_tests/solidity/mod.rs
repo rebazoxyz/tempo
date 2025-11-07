@@ -43,7 +43,7 @@ fn test_basic_types_layout() {
 
     // Compare against expected layout from Solidity
     let solc_layout = load_solc_layout(&testdata("basic_types.sol"), false)
-        .unwrap_or_else(|e| panic!("Failed to load expected layout: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to load expected layout: {e}"));
 
     if let Err(errors) = compare_layouts(&solc_layout, &rust_layout) {
         panic!("Layout mismatch:\n{}", errors.join("\n"));
@@ -62,7 +62,7 @@ fn test_mixed_slots_layout() {
 
     // Compare against expected layout from Solidity
     let solc_layout = load_solc_layout(&testdata("mixed_slots.sol"), false)
-        .unwrap_or_else(|e| panic!("Failed to load expected layout: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to load expected layout: {e}"));
 
     if let Err(errors) = compare_layouts(&solc_layout, &rust_layout) {
         panic!("Layout mismatch:\n{}", errors.join("\n"));
@@ -82,7 +82,7 @@ fn test_arrays_layout() {
 
     // Compare against expected layout from Solidity
     let solc_layout = load_solc_layout(&testdata("arrays.sol"), false)
-        .unwrap_or_else(|e| panic!("Failed to load expected layout: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to load expected layout: {e}"));
 
     if let Err(errors) = compare_layouts(&solc_layout, &rust_layout) {
         panic!("Layout mismatch:\n{}", errors.join("\n"));
@@ -102,7 +102,7 @@ fn test_mappings_layout() {
 
     // Compare against expected layout from Solidity
     let solc_layout = load_solc_layout(&testdata("mappings.sol"), false)
-        .unwrap_or_else(|e| panic!("Failed to load expected layout: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to load expected layout: {e}"));
 
     if let Err(errors) = compare_layouts(&solc_layout, &rust_layout) {
         panic!("Layout mismatch:\n{}", errors.join("\n"));
@@ -122,7 +122,7 @@ fn test_structs_layout() {
     }
 
     let solc_layout = load_solc_layout(&testdata("structs.sol"), false)
-        .unwrap_or_else(|e| panic!("Failed to load expected layout: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to load expected layout: {e}"));
 
     // Verify top-level fields
     let rust_layout = layout_fields!(field_a, block_data, field_b);
@@ -155,7 +155,7 @@ fn test_double_mappings_layout() {
 
     // Compare against expected layout from Solidity
     let solc_layout = load_solc_layout(&testdata("double_mappings.sol"), false)
-        .unwrap_or_else(|e| panic!("Failed to load expected layout: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to load expected layout: {e}"));
 
     if let Err(errors) = compare_layouts(&solc_layout, &rust_fields) {
         panic!("Layout mismatch:\n{}", errors.join("\n"));

@@ -175,7 +175,7 @@ mod tests {
             // Verify store → load roundtrip
             b.store(&mut contract, base_slot)?;
             let loaded = bool::load(&mut contract, base_slot)?;
-            assert_eq!(b, loaded, "Bool roundtrip failed for value: {}", b);
+            assert_eq!(b, loaded, "Bool roundtrip failed for value: {b}");
 
             // Verify delete works
             bool::delete(&mut contract, base_slot)?;
@@ -604,9 +604,9 @@ mod tests {
         assert_eq!(loaded, data, "[U256; 3] roundtrip failed");
 
         // Verify each element is in its own slot
-        for i in 0..3 {
+        for (i, expected_value) in data.iter().enumerate() {
             let slot_value = contract.sload(base_slot + U256::from(i)).unwrap();
-            assert_eq!(slot_value, data[i], "Slot {} mismatch", i);
+            assert_eq!(slot_value, *expected_value, "Slot {i} mismatch");
         }
     }
 
@@ -686,12 +686,7 @@ mod tests {
         <[[u8; 4]; 8]>::delete(&mut contract, base_slot).unwrap();
         for i in 0..8 {
             let slot_value = contract.sload(base_slot + U256::from(i)).unwrap();
-            assert_eq!(
-                slot_value,
-                U256::ZERO,
-                "Slot {} not cleared after delete",
-                i
-            );
+            assert_eq!(slot_value, U256::ZERO, "Slot {i} not cleared after delete");
         }
     }
 
@@ -734,12 +729,7 @@ mod tests {
         <[[u16; 2]; 8]>::delete(&mut contract, base_slot).unwrap();
         for i in 0..8 {
             let slot_value = contract.sload(base_slot + U256::from(i)).unwrap();
-            assert_eq!(
-                slot_value,
-                U256::ZERO,
-                "Slot {} not cleared after delete",
-                i
-            );
+            assert_eq!(slot_value, U256::ZERO, "Slot {i} not cleared after delete");
         }
     }
 
@@ -800,9 +790,9 @@ mod tests {
             prop_assert_eq!(&loaded, &data, "[U256; 5] roundtrip failed");
 
             // Verify each element is in its own slot
-            for i in 0..5 {
+            for (i, expected_value) in data.iter().enumerate() {
                 let slot_value = contract.sload(base_slot + U256::from(i))?;
-                prop_assert_eq!(slot_value, data[i], "Slot {} mismatch", i);
+                prop_assert_eq!(slot_value, *expected_value, "Slot {} mismatch", i);
             }
 
             // EVM words roundtrip

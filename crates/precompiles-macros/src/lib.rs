@@ -268,9 +268,9 @@ pub fn storable_alloy_ints(_input: TokenStream) -> TokenStream {
     storable_primitives::gen_storable_alloy_ints().into()
 }
 
-/// Generate `StorableType` and `Storable<1>` implementations for alloy FixedBytes types.
+/// Generate `StorableType` and `Storable<1>` implementations for alloy `FixedBytes<N>` types.
 ///
-/// Generates implementations for all fixed-size byte arrays from FixedBytes<1> to FixedBytes<32>.
+/// Generates implementations for all fixed-size byte arrays from `N = 1..32`
 /// All sizes fit within a single storage slot.
 ///
 /// Each type gets:
@@ -292,7 +292,7 @@ pub fn storable_alloy_bytes(_input: TokenStream) -> TokenStream {
 ///
 /// This macro generates:
 /// - Arbitrary function generators for all Rust and Alloy integer types
-/// - Arbitrary function generators for all FixedBytes<N> sizes (1..=32)
+/// - Arbitrary function generators for all `FixedBytes<N>` sizes `N = 1..32`
 /// - Property test invocations using the existing test body macros
 #[proc_macro]
 pub fn gen_storable_tests(_input: TokenStream) -> TokenStream {
@@ -387,9 +387,9 @@ pub fn gen_test_fields_struct(input: TokenStream) -> TokenStream {
         .enumerate()
         .map(|(i, ident)| {
             let field_name = ident.to_string();
-            let slot_ident = Ident::new(&format!("FIELD_{}_SLOT", i), ident.span());
-            let offset_ident = Ident::new(&format!("FIELD_{}_OFFSET", i), ident.span());
-            let bytes_ident = Ident::new(&format!("FIELD_{}_BYTES", i), ident.span());
+            let slot_ident = Ident::new(&format!("FIELD_{i}_SLOT"), ident.span());
+            let offset_ident = Ident::new(&format!("FIELD_{i}_OFFSET"), ident.span());
+            let bytes_ident = Ident::new(&format!("FIELD_{i}_BYTES"), ident.span());
 
             quote! {
                 RustStorageField::new(#field_name, #base_slot + alloy_primitives::U256::from(#slot_ident), #offset_ident, #bytes_ident)

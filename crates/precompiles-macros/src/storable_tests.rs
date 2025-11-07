@@ -49,12 +49,12 @@ pub(crate) fn gen_storable_tests() -> TokenStream {
     }
 }
 
-/// Generate arbitrary functions for Rust unsigned integers (not needed - use any::<T>())
+/// Generate arbitrary functions for Rust unsigned integers
 fn gen_rust_unsigned_arbitrary() -> TokenStream {
     quote! {}
 }
 
-/// Generate arbitrary functions for Rust signed integers (not needed - use any::<T>())
+/// Generate arbitrary functions for Rust signed integers
 fn gen_rust_signed_arbitrary() -> TokenStream {
     quote! {}
 }

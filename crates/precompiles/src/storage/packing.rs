@@ -108,7 +108,7 @@ pub const fn calc_element_offset(idx: usize, elem_bytes: usize) -> usize {
 /// Calculate the total number of slots needed for an array.
 #[inline]
 pub const fn calc_packed_slot_count(n: usize, elem_bytes: usize) -> usize {
-    (n * elem_bytes + 31) / 32
+    (n * elem_bytes).div_ceil(32)
 }
 
 /// Extract a field value from a storage slot for testing purposes.
@@ -142,14 +142,13 @@ pub fn gen_slot_from(values: &[&str]) -> U256 {
         // Parse hex string to bytes
         assert!(
             hex_str.len() % 2 == 0,
-            "Hex string '{}' has odd length",
-            value
+            "Hex string '{value}' has odd length"
         );
 
         for i in (0..hex_str.len()).step_by(2) {
             let byte_str = &hex_str[i..i + 2];
             let byte = u8::from_str_radix(byte_str, 16)
-                .unwrap_or_else(|e| panic!("Invalid hex in '{}': {}", value, e));
+                .unwrap_or_else(|e| panic!("Invalid hex in '{value}': {e}"));
             bytes.push(byte);
         }
     }
@@ -317,7 +316,7 @@ mod tests {
             slot, expected,
             "Single bool [true] should match Solidity layout"
         );
-        assert_eq!(extract_packed_value::<bool>(slot, 0, 1).unwrap(), true);
+        assert!(extract_packed_value::<bool>(slot, 0, 1).unwrap());
 
         // two bools
         let expected = gen_slot_from(&[
@@ -329,8 +328,8 @@ mod tests {
         slot = insert_packed_value(slot, &true, 0, 1).unwrap();
         slot = insert_packed_value(slot, &true, 1, 1).unwrap();
         assert_eq!(slot, expected, "[true, true] should match Solidity layout");
-        assert_eq!(extract_packed_value::<bool>(slot, 0, 1).unwrap(), true);
-        assert_eq!(extract_packed_value::<bool>(slot, 1, 1).unwrap(), true);
+        assert!(extract_packed_value::<bool>(slot, 0, 1).unwrap());
+        assert!(extract_packed_value::<bool>(slot, 1, 1).unwrap());
     }
 
     #[test]
@@ -631,7 +630,7 @@ mod tests {
             slot, expected,
             "[bool, address, u8] should match Solidity layout"
         );
-        assert_eq!(extract_packed_value::<bool>(slot, 0, 1).unwrap(), true);
+        assert!(extract_packed_value::<bool>(slot, 0, 1).unwrap());
         assert_eq!(extract_packed_value::<Address>(slot, 1, 20).unwrap(), addr);
         assert_eq!(extract_packed_value::<u8>(slot, 21, 1).unwrap(), number);
     }
@@ -883,7 +882,7 @@ mod tests {
             let offset = calc_element_offset(idx, 1);
 
             // Verify consistency: slot * 32 + offset should equal total bytes
-            prop_assert_eq!(slot * 32 + offset, idx * 1);
+            prop_assert_eq!(slot * 32 + offset, idx);
 
             // Verify offset is in valid range
             prop_assert!(offset < 32);
@@ -920,7 +919,7 @@ mod tests {
         ) {
             let slot_count = calc_packed_slot_count(n, elem_bytes);
             let total_bytes = n * elem_bytes;
-            let min_slots = (total_bytes + 31) / 32;
+            let min_slots = total_bytes.div_ceil(32);
 
             // Verify the calculated slot count is correct
             prop_assert_eq!(slot_count, min_slots);

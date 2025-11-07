@@ -100,6 +100,7 @@ proptest! {
 
     /// Property test for mapping isolation with random keys
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn proptest_mapping(
         addr1 in arb_address(),
         addr2 in arb_address(),
@@ -146,7 +147,7 @@ proptest! {
                 field3: 0,
             };
             prop_assert_eq!(layout.sload_block_mapping(100u64)?, default_block);
-            prop_assert_eq!(layout.sload_block_mapping(200u64)?, block2);
+            prop_assert_eq!(layout.sload_block_mapping(200u64)?, block2.clone());
         }
     }
 }

@@ -47,7 +47,7 @@ where
         let length = length_value.to::<usize>();
 
         if length == 0 {
-            return Ok(Vec::new());
+            return Ok(Self::new());
         }
 
         let data_start = calc_data_slot(base_slot);
@@ -295,8 +295,7 @@ mod tests {
         let actual = extract_packed_value::<T>(slot_value, offset, byte_count).unwrap();
         assert_eq!(
             actual, expected,
-            "{} at offset {} in slot {:?} mismatch",
-            elem_name, offset, slot_addr
+            "{elem_name} at offset {offset} in slot {slot_addr:?} mismatch"
         );
     }
 
@@ -455,7 +454,7 @@ mod tests {
                 expected,
                 i * byte_count,
                 byte_count,
-                &format!("elem[{}]", i),
+                &format!("elem[{i}]"),
             );
         }
 
@@ -608,8 +607,7 @@ mod tests {
             let stored_value = contract.sload(slot_addr).unwrap();
             assert_eq!(
                 stored_value, expected,
-                "U256 element {} at slot {:?} incorrect",
-                i, slot_addr
+                "U256 element {i} at slot {slot_addr:?} incorrect"
             );
         }
 
@@ -667,8 +665,7 @@ mod tests {
             let expected_u256 = U256::from_be_slice(expected_addr.as_slice());
             assert_eq!(
                 stored_value, expected_u256,
-                "Address element {} should match",
-                i
+                "Address element {i} should match"
             );
         }
     }
@@ -737,8 +734,7 @@ mod tests {
             let loaded_struct = TestStruct::load(&mut contract, struct_slot).unwrap();
             assert_eq!(
                 loaded_struct, *expected_struct,
-                "TestStruct at slot {} should match",
-                i
+                "TestStruct at slot {i} should match"
             );
         }
     }

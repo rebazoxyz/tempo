@@ -356,17 +356,17 @@ mod tests {
 
     // Strategy for short byte arrays (0-31 bytes) - uses inline storage
     fn arb_short_bytes() -> impl Strategy<Value = Bytes> {
-        prop::collection::vec(any::<u8>(), 0..=31).prop_map(|v| Bytes::from(v))
+        prop::collection::vec(any::<u8>(), 0..=31).prop_map(Bytes::from)
     }
 
     // Strategy for exactly 32-byte arrays - boundary between inline and heap storage
     fn arb_32byte_bytes() -> impl Strategy<Value = Bytes> {
-        prop::collection::vec(any::<u8>(), 32..=32).prop_map(|v| Bytes::from(v))
+        prop::collection::vec(any::<u8>(), 32..=32).prop_map(Bytes::from)
     }
 
     // Strategy for long byte arrays (33-100 bytes) - uses heap storage
     fn arb_long_bytes() -> impl Strategy<Value = Bytes> {
-        prop::collection::vec(any::<u8>(), 33..=100).prop_map(|v| Bytes::from(v))
+        prop::collection::vec(any::<u8>(), 33..=100).prop_map(Bytes::from)
     }
 
     // -- STORAGE TESTS --------------------------------------------------------
@@ -381,7 +381,7 @@ mod tests {
             // Verify store → load roundtrip
             s.store(&mut contract, base_slot)?;
             let loaded = String::load(&mut contract, base_slot)?;
-            assert_eq!(s, loaded, "Short string roundtrip failed for: {:?}", s);
+            assert_eq!(s, loaded, "Short string roundtrip failed for: {s:?}");
 
             // Verify delete works
             String::delete(&mut contract, base_slot)?;
@@ -440,7 +440,7 @@ mod tests {
             for i in 0..chunks {
                 let slot = data_slot_start + U256::from(i);
                 let value = contract.sload(slot)?;
-                assert_eq!(value, U256::ZERO, "Data slot {} not cleared after delete", i);
+                assert_eq!(value, U256::ZERO, "Data slot {i} not cleared after delete");
             }
 
             // Verify that strings >= 32 bytes cannot be reconstructed from single word
@@ -523,7 +523,7 @@ mod tests {
             for i in 0..chunks {
                 let slot = data_slot_start + U256::from(i);
                 let value = contract.sload(slot)?;
-                assert_eq!(value, U256::ZERO, "Data slot {} not cleared after delete", i);
+                assert_eq!(value, U256::ZERO, "Data slot {i} not cleared after delete");
             }
 
             // Verify that bytes >= 32 bytes cannot be reconstructed from single word

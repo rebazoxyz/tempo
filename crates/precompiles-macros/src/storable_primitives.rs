@@ -316,7 +316,7 @@ fn gen_alloy_integers() -> Vec<TokenStream> {
     impls
 }
 
-/// Generate `StorableType` and `Storable<1>` implementations for FixedBytes<N> types.
+/// Generate `StorableType` and `Storable<1>` implementations for `FixedBytes<N>` types.
 fn gen_fixed_bytes(sizes: &[usize]) -> Vec<TokenStream> {
     let mut impls = Vec::with_capacity(sizes.len());
 
@@ -503,7 +503,7 @@ fn gen_packed_array_load(array_size: &usize, elem_byte_count: &usize) -> TokenSt
 fn gen_packed_array_store(array_size: &usize, elem_byte_count: &usize) -> TokenStream {
     quote! {
         // Determine how many slots we need
-        let slot_count = (#array_size * #elem_byte_count + 31) / 32;
+        let slot_count = (#array_size * #elem_byte_count).div_ceil(32);
 
         // Build slots by packing elements
         for slot_idx in 0..slot_count {
@@ -528,7 +528,7 @@ fn gen_packed_array_store(array_size: &usize, elem_byte_count: &usize) -> TokenS
 /// Generate delete implementation for packed arrays
 fn gen_packed_array_delete(array_size: &usize, elem_byte_count: &usize) -> TokenStream {
     quote! {
-        let slot_count = (#array_size * #elem_byte_count + 31) / 32;
+        let slot_count = (#array_size * #elem_byte_count).div_ceil(32);
         for slot_idx in 0..slot_count {
             storage.sstore(base_slot + U256::from(slot_idx), U256::ZERO)?;
         }

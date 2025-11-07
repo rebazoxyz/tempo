@@ -169,7 +169,7 @@ pub(crate) fn extract_storable_array_sizes(attrs: &[Attribute]) -> syn::Result<O
                     if sizes.contains(&size) {
                         return Err(syn::Error::new_spanned(
                             &int,
-                            format!("Duplicate array size: {}", size),
+                            format!("Duplicate array size: {size}"),
                         ));
                     }
 
@@ -296,26 +296,6 @@ pub(crate) fn is_array_type(ty: &Type) -> bool {
     matches!(ty, Type::Array(_))
 }
 
-/// Checks if a type is a `Vec<T>` type.
-///
-/// Vec types, like arrays and other dynamic types, force slot boundaries:
-/// - Start at offset 0 of a new slot
-/// - Force the next field to start at a new slot
-/// - Cannot be packed with other fields
-///
-/// This ensures Vec maintains Solidity-compatible dynamic array storage layout.
-pub(crate) fn is_vec_type(ty: &Type) -> bool {
-    let Type::Path(type_path) = ty else {
-        return false;
-    };
-
-    let Some(segment) = type_path.path.segments.last() else {
-        return false;
-    };
-
-    segment.ident == "Vec"
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,37 +342,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_unit_type() {
-        let unit: Type = parse_quote!(());
-        assert!(is_unit(&unit));
-
-        let non_unit: Type = parse_quote!(bool);
-        assert!(!is_unit(&non_unit));
-    }
-
-    #[test]
-    fn test_try_extract_type_ident() {
-        // Simple path
-        let ty: Type = parse_quote!(ITIP20);
-        let ident = try_extract_type_ident(&ty).unwrap();
-        assert_eq!(ident.to_string(), "ITIP20");
-
-        // Qualified path
-        let ty: Type = parse_quote!(crate::ITIP20);
-        let ident = try_extract_type_ident(&ty).unwrap();
-        assert_eq!(ident.to_string(), "ITIP20");
-
-        // Nested path
-        let ty: Type = parse_quote!(foo::bar::Baz);
-        let ident = try_extract_type_ident(&ty).unwrap();
-        assert_eq!(ident.to_string(), "Baz");
-
-        // Non-path type should return error
-        let ty: Type = parse_quote!(&str);
-        assert!(try_extract_type_ident(&ty).is_err());
-    }
-
-    #[test]
     fn test_is_custom_struct() {
         // Rust primitives
         assert!(!is_custom_struct(&parse_quote!(bool)));
@@ -429,22 +378,5 @@ mod tests {
         assert!(!is_dynamic_type(&parse_quote!(U256)));
         assert!(!is_dynamic_type(&parse_quote!(Address)));
         assert!(!is_dynamic_type(&parse_quote!(MyCustomStruct)));
-    }
-
-    #[test]
-    fn test_is_vec_type() {
-        // Vec types
-        assert!(is_vec_type(&parse_quote!(Vec<u8>)));
-        assert!(is_vec_type(&parse_quote!(Vec<U256>)));
-        assert!(is_vec_type(&parse_quote!(Vec<Address>)));
-        assert!(is_vec_type(&parse_quote!(Vec<Vec<u8>>)));
-
-        // Non-Vec types
-        assert!(!is_vec_type(&parse_quote!(String)));
-        assert!(!is_vec_type(&parse_quote!(Bytes)));
-        assert!(!is_vec_type(&parse_quote!(bool)));
-        assert!(!is_vec_type(&parse_quote!(u8)));
-        assert!(!is_vec_type(&parse_quote!([u8; 10])));
-        assert!(!is_vec_type(&parse_quote!(MyCustomStruct)));
     }
 }

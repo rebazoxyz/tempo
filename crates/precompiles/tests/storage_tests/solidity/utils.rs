@@ -80,7 +80,7 @@ pub(super) fn load_solc_layout(sol_file: &Path, save_json: bool) -> Result<Stora
         .arg("storage-layout")
         .arg(sol_file)
         .output()
-        .map_err(|e| format!("Failed to run solc: {}", e))?;
+        .map_err(|e| format!("Failed to run solc: {e}"))?;
 
     if !output.status.success() {
         return Err(format!(
@@ -91,15 +91,15 @@ pub(super) fn load_solc_layout(sol_file: &Path, save_json: bool) -> Result<Stora
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let solc_output: SolcOutput =
-        serde_json::from_str(&stdout).map_err(|e| format!("Failed to parse solc output: {}", e))?;
+        serde_json::from_str(&stdout).map_err(|e| format!("Failed to parse solc output: {e}"))?;
 
     // Optionally save the JSON output (for debugging)
     if save_json {
         let json_path = sol_file.with_extension("layout.json");
         let json_content = serde_json::to_string_pretty(&solc_output)
-            .map_err(|e| format!("Failed to serialize layout: {}", e))?;
+            .map_err(|e| format!("Failed to serialize layout: {e}"))?;
         std::fs::write(&json_path, json_content)
-            .map_err(|e| format!("Failed to write JSON file: {}", e))?;
+            .map_err(|e| format!("Failed to write JSON file: {e}"))?;
     }
 
     // Extract the first contract's storage layout
@@ -136,7 +136,7 @@ impl RustStorageField {
 /// Helper to convert Solidity slot string to U256.
 pub(super) fn parse_slot(slot_str: &str) -> Result<U256, String> {
     U256::from_str_radix(slot_str, 10)
-        .map_err(|e| format!("Failed to parse slot '{}': {}", slot_str, e))
+        .map_err(|e| format!("Failed to parse slot '{slot_str}': {e}"))
 }
 
 /// Compares two storage layouts and returns detailed differences.
@@ -178,15 +178,14 @@ pub(super) fn compare_layouts(
                 }
 
                 // Compare bytes
-                if let Some(type_def) = solc_layout.types.get(&solc_var.ty) {
-                    if let Ok(solc_bytes) = type_def.number_of_bytes.parse::<usize>() {
-                        if solc_bytes != rust_field.bytes {
-                            errors.push(format!(
-                                "Field '{}': Solidity bytes {} != Rust bytes {}",
-                                rust_field.name, solc_bytes, rust_field.bytes
-                            ));
-                        }
-                    }
+                if let Some(type_def) = solc_layout.types.get(&solc_var.ty)
+                    && let Ok(solc_bytes) = type_def.number_of_bytes.parse::<usize>()
+                    && solc_bytes != rust_field.bytes
+                {
+                    errors.push(format!(
+                        "Field '{}': Solidity bytes {} != Rust bytes {}",
+                        rust_field.name, solc_bytes, rust_field.bytes
+                    ));
                 }
             }
             None => {
@@ -199,11 +198,10 @@ pub(super) fn compare_layouts(
     }
 
     // Check for Solidity fields missing in Rust
-    for (solc_field_name, _) in &solc_fields {
-        if !rust_fields.iter().any(|rf| &rf.name == solc_field_name) {
+    for solc_field_name in solc_fields.keys() {
+        if !rust_fields.iter().any(|rf| rf.name == solc_field_name) {
             errors.push(format!(
-                "Field '{}' exists in Solidity but not in Rust layout",
-                solc_field_name
+                "Field '{solc_field_name}' exists in Solidity but not in Rust layout"
             ));
         }
     }
@@ -289,15 +287,14 @@ pub(super) fn compare_struct_members(
                 }
 
                 // Compare bytes
-                if let Some(member_type_def) = solc_layout.types.get(&solc_member.ty) {
-                    if let Ok(solc_bytes) = member_type_def.number_of_bytes.parse::<usize>() {
-                        if solc_bytes != rust_member.bytes {
-                            errors.push(format!(
-                                "Struct member '{}.{}': Solidity bytes {} != Rust bytes {}",
-                                struct_field_name, rust_member.name, solc_bytes, rust_member.bytes
-                            ));
-                        }
-                    }
+                if let Some(member_type_def) = solc_layout.types.get(&solc_member.ty)
+                    && let Ok(solc_bytes) = member_type_def.number_of_bytes.parse::<usize>()
+                    && solc_bytes != rust_member.bytes
+                {
+                    errors.push(format!(
+                        "Struct member '{}.{}': Solidity bytes {} != Rust bytes {}",
+                        struct_field_name, rust_member.name, solc_bytes, rust_member.bytes
+                    ));
                 }
             }
             None => {
@@ -310,14 +307,13 @@ pub(super) fn compare_struct_members(
     }
 
     // Check for Solidity members missing in Rust
-    for (solc_member_name, _) in &solc_member_info {
+    for solc_member_name in solc_member_info.keys() {
         if !rust_member_slots
             .iter()
-            .any(|rm| &rm.name == solc_member_name)
+            .any(|rm| rm.name == solc_member_name)
         {
             errors.push(format!(
-                "Struct member '{}.{}' exists in Solidity but not in Rust",
-                struct_field_name, solc_member_name
+                "Struct member '{struct_field_name}.{solc_member_name}' exists in Solidity but not in Rust"
             ));
         }
     }

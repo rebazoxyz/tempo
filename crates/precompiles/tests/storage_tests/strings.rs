@@ -42,6 +42,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(500))]
 
     #[test]
+    #[allow(clippy::redundant_clone)]
     fn proptest_one_string(
         str1 in arb_string(),
         str2 in arb_string()
@@ -69,7 +70,7 @@ proptest! {
             prop_assert_eq!(layout.sload_one_string()?, String::new());
 
             // Other field should be unaffected (isolation)
-            prop_assert_eq!(layout.sload_another_string()?, str2);
+            prop_assert_eq!(layout.sload_another_string()?, str2.clone());
         }
     }
 }

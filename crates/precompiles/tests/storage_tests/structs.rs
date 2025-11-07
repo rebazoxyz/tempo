@@ -39,11 +39,26 @@ fn test_struct_storage() {
     }
 
     // Verify actual slot assignments
-    assert_eq!(s.storage.sload(s.address, U256::from(0)), Ok(U256::from(100))); // field_a
-    assert_eq!(s.storage.sload(s.address, U256::from(10)), Ok(U256::from(1000))); // block.field1
-    assert_eq!(s.storage.sload(s.address, U256::from(11)), Ok(U256::from(2000))); // block.field2
-    assert_eq!(s.storage.sload(s.address, U256::from(12)), Ok(U256::from(3000))); // block.field3
-    assert_eq!(s.storage.sload(s.address, U256::from(1)), Ok(U256::from(200))); // field_b
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(0)),
+        Ok(U256::from(100))
+    ); // field_a
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(10)),
+        Ok(U256::from(1000))
+    ); // block.field1
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(11)),
+        Ok(U256::from(2000))
+    ); // block.field2
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(12)),
+        Ok(U256::from(3000))
+    ); // block.field3
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(1)),
+        Ok(U256::from(200))
+    ); // field_b
 
     // Verify slots module
     assert_eq!(slots::FIELD_A, U256::from(0));
@@ -150,11 +165,26 @@ fn test_delete_struct_field_in_contract() {
     }
 
     // Verify storage slots before delete
-    assert_eq!(s.storage.sload(s.address, U256::from(0)), Ok(U256::from(100))); // field_a
-    assert_eq!(s.storage.sload(s.address, U256::from(10)), Ok(U256::from(1000))); // block.field1
-    assert_eq!(s.storage.sload(s.address, U256::from(11)), Ok(U256::from(2000))); // block.field2
-    assert_eq!(s.storage.sload(s.address, U256::from(12)), Ok(U256::from(3000))); // block.field3
-    assert_eq!(s.storage.sload(s.address, U256::from(1)), Ok(U256::from(200))); // field_b
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(0)),
+        Ok(U256::from(100))
+    ); // field_a
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(10)),
+        Ok(U256::from(1000))
+    ); // block.field1
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(11)),
+        Ok(U256::from(2000))
+    ); // block.field2
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(12)),
+        Ok(U256::from(3000))
+    ); // block.field3
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(1)),
+        Ok(U256::from(200))
+    ); // field_b
 
     // Delete the block field using the generated delete method
     {
@@ -168,8 +198,14 @@ fn test_delete_struct_field_in_contract() {
     assert_eq!(s.storage.sload(s.address, U256::from(12)), Ok(U256::ZERO));
 
     // Verify other fields are untouched
-    assert_eq!(s.storage.sload(s.address, U256::from(0)), Ok(U256::from(100))); // field_a
-    assert_eq!(s.storage.sload(s.address, U256::from(1)), Ok(U256::from(200))); // field_b
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(0)),
+        Ok(U256::from(100))
+    ); // field_a
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(1)),
+        Ok(U256::from(200))
+    ); // field_b
 
     // Verify loading the block returns default values
     {
@@ -227,7 +263,10 @@ fn test_user_profile_struct_in_contract() {
                 .unwrap()
         )
     );
-    assert_eq!(s.storage.sload(s.address, U256::from(21)), Ok(U256::from(999_999))); // profile.balance
+    assert_eq!(
+        s.storage.sload(s.address, U256::from(21)),
+        Ok(U256::from(999_999))
+    ); // profile.balance
 
     // Verify slots module
     assert_eq!(slots::COUNTER, U256::from(0));

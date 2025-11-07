@@ -219,9 +219,9 @@ fn gen_packing_module(fields: &[(&Ident, &Type)], mod_ident: &Ident) -> TokenStr
                 }
             } else if prev_is_array {
                 // Previous field was an array - advance by array's SLOT_COUNT and reset offset
-                // Arrays satisfy BYTE_COUNT = SLOT_COUNT * 32, so (BYTE_COUNT + 31) / 32 recovers SLOT_COUNT
+                // Arrays satisfy BYTE_COUNT = SLOT_COUNT * 32, so div_ceil recovers SLOT_COUNT
                 quote! {
-                    const PREV_SLOT: usize = #prev_slot + ((#prev_bytes + 31) / 32);
+                    const PREV_SLOT: usize = #prev_slot + #prev_bytes.div_ceil(32);
                     const PREV_OFFSET: usize = 0;
                 }
             } else {
@@ -547,7 +547,7 @@ fn gen_from_evm_words_impl(fields: &[(&Ident, &Type)], packing: &Ident) -> Token
                     // Extract slice and convert to fixed-size array using std::array::from_fn
                     // The slot count is computed from the array's BYTE_COUNT
                     let start = #packing::#slot_const;
-                    let array_slot_count = (#packing::#bytes_const + 31) / 32;
+                    let array_slot_count = #packing::#bytes_const.div_ceil(32);
                     let array_words = ::std::array::from_fn(|i| {
                         if i < array_slot_count {
                             words[start + i]
