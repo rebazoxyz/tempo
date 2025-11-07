@@ -251,7 +251,6 @@ mod tests {
         packing::gen_slot_from,
     };
     use alloy::primitives::Address;
-    use alloy_signer::k256::elliptic_curve::consts::U25;
     use proptest::prelude::*;
     use tempo_precompiles_macros::Storable;
 

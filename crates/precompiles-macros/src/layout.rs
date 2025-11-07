@@ -1,6 +1,6 @@
 use crate::{
     FieldInfo, FieldKind,
-    utils::{extract_mapping_types, is_array_type, is_custom_struct, is_dynamic_type},
+    utils::{extract_mapping_types, is_array_type, is_custom_struct, is_dynamic_type, is_vec_type},
 };
 use alloy::primitives::U256;
 use quote::{format_ident, quote};
@@ -20,7 +20,7 @@ pub(crate) struct AllocatedField<'a> {
 }
 
 impl<'a> AllocatedField<'a> {
-    /// Returns the SlotId type name for this field
+    /// Returns the `SlotId` type name for this field
     fn slot_id_name(&self) -> String {
         format!("Field{}Slot", self.field_index)
     }
@@ -62,7 +62,7 @@ pub(crate) fn allocate_slots(fields: &[FieldInfo]) -> syn::Result<Vec<AllocatedF
             slot
         } else {
             // Auto-assignment with packing support
-            let is_primitive = is_primitive_field(&kind);
+            let is_primitive = kind.is_direct();
 
             // For primitives: try to reuse previous primitive's base slot (packing candidates)
             // For non-primitives: always start new slot
@@ -80,7 +80,7 @@ pub(crate) fn allocate_slots(fields: &[FieldInfo]) -> syn::Result<Vec<AllocatedF
                     base_slot,
                     is_primitive: true,
                 } = &prev.assigned_slot
-                    && is_primitive_field(&prev.kind)
+                    && prev.kind.is_direct()
                 {
                     *base_slot
                 }
@@ -127,17 +127,12 @@ fn classify_field(ty: &Type) -> syn::Result<FieldKind<'_>> {
         }
     }
 
-    // If not a mapping, check if it's a multi-slot `Storable` type (custom struct or array)
+    // If not a mapping, check if it's a multi-slot field type (structs and fixed-size arrays)
     if is_custom_struct(ty) || is_array_type(ty) {
         Ok(FieldKind::StorageBlock(ty))
     } else {
         Ok(FieldKind::Direct)
     }
-}
-
-/// Check if a field kind represents a primitive type that can participate in slot packing
-fn is_primitive_field(kind: &FieldKind<'_>) -> bool {
-    matches!(kind, FieldKind::Direct)
 }
 
 /// Generate the transformed struct with generic parameters and runtime fields
@@ -317,7 +312,6 @@ pub(crate) fn gen_getters_and_setters(
             key2: key2_ty,
             value: value_ty,
         } => {
-            let dummy_slot = quote! { SlotDummy };
             quote! {
                 impl<'a, S: crate::storage::PrecompileStorageProvider> #struct_name<'a, S> {
                     #[inline]
@@ -326,7 +320,7 @@ pub(crate) fn gen_getters_and_setters(
                         key1: #key1_ty,
                         key2: #key2_ty,
                     ) -> crate::error::Result<#value_ty> {
-                        crate::storage::Mapping::<#key1_ty, crate::storage::Mapping<#key2_ty, #value_ty, #dummy_slot>, #slot_id>::read_nested(
+                        crate::storage::Mapping::<#key1_ty, crate::storage::Mapping<#key2_ty, #value_ty, crate::storage::DummySlot>, #slot_id>::read_nested(
                             self,
                             key1,
                             key2,
@@ -339,7 +333,7 @@ pub(crate) fn gen_getters_and_setters(
                         key1: #key1_ty,
                         key2: #key2_ty,
                     ) -> crate::error::Result<()> {
-                        crate::storage::Mapping::<#key1_ty, crate::storage::Mapping<#key2_ty, #value_ty, #dummy_slot>, #slot_id>::delete_nested(
+                        crate::storage::Mapping::<#key1_ty, crate::storage::Mapping<#key2_ty, #value_ty, crate::storage::DummySlot>, #slot_id>::delete_nested(
                             self,
                             key1,
                             key2,
@@ -353,7 +347,7 @@ pub(crate) fn gen_getters_and_setters(
                         key2: #key2_ty,
                         value: #value_ty,
                     ) -> crate::error::Result<()> {
-                        crate::storage::Mapping::<#key1_ty, crate::storage::Mapping<#key2_ty, #value_ty, #dummy_slot>, #slot_id>::write_nested(
+                        crate::storage::Mapping::<#key1_ty, crate::storage::Mapping<#key2_ty, #value_ty, crate::storage::DummySlot>, #slot_id>::write_nested(
                             self,
                             key1,
                             key2,
@@ -406,12 +400,9 @@ fn field_name_to_const_name(name: &Ident) -> String {
 pub(crate) fn gen_slots_module_with_types(
     allocated_fields: &[AllocatedField<'_>],
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
-    // Generate packing constants that will go INSIDE the slots module
+    // Generate packing constants and `SlotId` types
     let packing_constants = gen_packing_constants_for_slots_module(allocated_fields);
-
-    // Generate SlotId types (they'll reference the packing constants in the same module)
     let slot_id_types = gen_slot_id_types_inline(allocated_fields);
-
     let slot_constants: Vec<_> = allocated_fields
         .iter()
         .map(|allocated| {
@@ -468,7 +459,6 @@ pub(crate) fn gen_slots_module_with_types(
 
     let reexports = quote! {
         #(#slot_reexports)*
-        pub use slots::SlotDummy;
     };
 
     (reexports, slots_module)
@@ -496,15 +486,9 @@ fn gen_packing_constants_for_slots_module(
 
         // Mappings and dynamic types always take a full slot (32 bytes) for their base
         let byte_count_expr = match &allocated.kind {
-            FieldKind::Mapping { .. } | FieldKind::NestedMapping { .. } => {
-                quote! { 32 }
-            }
-            _ if is_dynamic_type(field_ty) => {
-                quote! { 32 }
-            }
-            _ => {
-                quote! { <#field_ty as crate::storage::StorableType>::BYTE_COUNT }
-            }
+            FieldKind::Mapping { .. } | FieldKind::NestedMapping { .. } => quote! { 32 },
+            _ if is_dynamic_type(field_ty) => quote! { 32 },
+            _ => quote! { <#field_ty as crate::storage::StorableType>::BYTE_COUNT },
         };
 
         constants.extend(quote! {
@@ -585,13 +569,13 @@ fn gen_packing_constants_for_slots_module(
                                 let slot_expr = quote! {
                                     {
                                         if #prev_offset + #prev_bytes >= 32 {
-                                            // Previous field filled or exceeded slot boundary: move extra slot
+                                            // Previous field filled or exceeded slot boundary
                                             #prev_slot.saturating_add(::alloy::primitives::U256::from_limbs([1, 0, 0, 0]))
                                         } else if #prev_offset == 0 {
-                                            // Previous field started at offset 0 and didn't fill slot: stay in same slot
+                                            // Previous field started at offset 0 and didn't fill slot
                                             #prev_slot
                                         } else {
-                                            // Previous field was packed (offset > 0) - advance to next slot
+                                            // Previous field was packed (offset > 0)
                                             #prev_slot.saturating_add(::alloy::primitives::U256::from_limbs([1, 0, 0, 0]))
                                         }
                                     }
@@ -668,16 +652,6 @@ fn gen_slot_id_types_inline(allocated_fields: &[AllocatedField<'_>]) -> proc_mac
         let collision_checks = generate_collision_checks(idx, allocated, allocated_fields);
         generated.extend(collision_checks);
     }
-
-    // Generate dummy SlotId for nested mapping inner values (never accessed)
-    generated.extend(quote! {
-        ///Dummy slot ID for nested mapping inner types (never accessed at runtime)
-        pub struct SlotDummy;
-
-        impl crate::storage::SlotId for SlotDummy {
-            const SLOT: ::alloy::primitives::U256 = ::alloy::primitives::U256::ZERO;
-        }
-    });
 
     generated
 }

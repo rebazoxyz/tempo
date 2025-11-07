@@ -9,8 +9,6 @@ use crate::{
     storage::{StorageOps, types::*},
 };
 
-// -- STORAGE TYPE IMPLEMENTATIONS ---------------------------------------------
-
 // rust integers: (u)int8, (u)int16, (u)int32, (u)int64, (u)int128
 tempo_precompiles_macros::storable_rust_ints!();
 // alloy integers: U8, I8, U16, I16, U32, I32, U64, I64, U128, I128, U256, I256
@@ -21,6 +19,8 @@ tempo_precompiles_macros::storable_alloy_bytes!();
 tempo_precompiles_macros::storable_arrays!();
 // nested arrays: [[T; M]; N] for small primitive types
 tempo_precompiles_macros::storable_nested_arrays!();
+
+// -- MANUAL STORAGE TRAIT IMPLEMENTATIONS -------------------------------------
 
 impl StorableType for bool {
     const BYTE_COUNT: usize = 1;
@@ -80,8 +80,6 @@ impl Storable<1> for Address {
         Ok(words[0].into_address())
     }
 }
-
-// -- STORAGE KEY IMPLEMENTATIONS ---------------------------------------------
 
 impl StorageKey for Address {
     #[inline]

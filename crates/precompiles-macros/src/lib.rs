@@ -16,7 +16,6 @@ mod utils;
 use alloy::primitives::U256;
 use proc_macro::TokenStream;
 use quote::quote;
-use std::cell::OnceCell;
 use syn::parse::{ParseStream, Parser};
 use syn::punctuated::Punctuated;
 use syn::{Data, DeriveInput, Expr, Fields, Ident, Token, Type, Visibility, parse_macro_input};
@@ -25,47 +24,19 @@ use crate::utils::extract_attributes;
 
 const RESERVED: &[&str] = &["address", "storage", "msg_sender"];
 
-/// Parsed macro attributes for the contract macro.
-struct ContractAttrs {
-    interface_idents: Vec<Ident>,
-}
-
-impl syn::parse::Parse for ContractAttrs {
-    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
-        if input.is_empty() {
-            return Ok(Self {
-                interface_idents: Vec::new(),
-            });
-        }
-
-        let mut interface_idents = Vec::new();
-        interface_idents.push(input.parse::<Ident>()?);
-
-        // Parse comma-separated interface identifiers
-        while input.peek(syn::Token![,]) {
-            input.parse::<syn::Token![,]>()?;
-            if !input.is_empty() {
-                interface_idents.push(input.parse::<Ident>()?);
-            }
-        }
-
-        Ok(Self { interface_idents })
-    }
-}
-
-/// Transforms a storage schema struct into a contract with accessible storage.
+/// Transforms a struct that represents a storage layout into a contract with helper methods to
+/// easily interact with the EVM storage.
+/// Its packing and encoding schemes aim to be an exact representation of the storage model used by Solidity.
 ///
 /// # Input: Storage Layout
 ///
 /// ```ignore
-/// #[contract(ITIP20)]
+/// #[contract]
 /// pub struct TIP20Token {
 ///     pub name: String,
 ///     pub symbol: String,
-///     #[slot(3)]
 ///     total_supply: U256,
 ///     #[slot(10)]
-///     #[map = "balanceOf"]
 ///     pub balances: Mapping<Address, U256>,
 ///     #[slot(11)]
 ///     pub allowances: Mapping<Address, Mapping<Address, U256>>,
@@ -78,7 +49,6 @@ impl syn::parse::Parse for ContractAttrs {
 /// 1. Transformed struct with generic parameters and runtime fields
 /// 2. Constructor: `_new(address, storage)`
 /// 3. Type-safe (private) getter and setter methods
-/// 4. (If interface specified) Trait with default getter impls, to easily interact with the contract.
 ///
 /// # Requirements
 ///
@@ -86,30 +56,22 @@ impl syn::parse::Parse for ContractAttrs {
 /// - Unique field names, excluding the reserved ones: `address`, `storage`, `msg_sender`.
 /// - All field types must implement `Storable`, and mapping keys must implement `StorageKey`.
 #[proc_macro_attribute]
-pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn contract(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
-    let attrs = parse_macro_input!(attr as ContractAttrs);
 
-    match gen_contract_output(input, attrs) {
+    match gen_contract_output(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
 /// Main code generation function with optional call trait generation
-fn gen_contract_output(
-    input: DeriveInput,
-    _attrs: ContractAttrs,
-) -> syn::Result<proc_macro2::TokenStream> {
+fn gen_contract_output(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let (ident, vis) = (input.ident.clone(), input.vis.clone());
     let fields = parse_fields(input)?;
 
     let storage_output = gen_contract_storage(&ident, &vis, &fields)?;
-
-    // Combine outputs
-    Ok(quote! {
-        #storage_output
-    })
+    Ok(quote! { #storage_output })
 }
 
 /// Information extracted from a field in the storage schema
@@ -119,19 +81,6 @@ struct FieldInfo {
     ty: Type,
     slot: Option<U256>,
     base_slot: Option<U256>,
-    map: Option<String>,
-    /// Lazily computed from `map` and `name`
-    effective_name: OnceCell<String>,
-}
-
-impl FieldInfo {
-    /// Computed lazily on first access from either the `map` attribute or field name.
-    pub(crate) fn name(&self) -> &str {
-        self.effective_name.get_or_init(|| match self.map.as_ref() {
-            Some(name) => name.to_owned(),
-            None => self.name.to_string(),
-        })
-    }
 }
 
 /// Classification of a field based on its type
@@ -157,6 +106,9 @@ impl FieldKind<'_> {
             self,
             FieldKind::Mapping { .. } | FieldKind::NestedMapping { .. }
         )
+    }
+    pub(crate) fn is_direct(&self) -> bool {
+        matches!(self, FieldKind::Direct)
     }
 }
 
@@ -197,14 +149,12 @@ fn parse_fields(input: DeriveInput) -> syn::Result<Vec<FieldInfo>> {
                 ));
             }
 
-            let (slot, base_slot, _slot_count, map) = extract_attributes(&field.attrs)?;
+            let (slot, base_slot) = extract_attributes(&field.attrs)?;
             Ok(FieldInfo {
                 name: name.to_owned(),
                 ty: field.ty,
                 slot,
                 base_slot,
-                map,
-                effective_name: OnceCell::new(),
             })
         })
         .collect()
@@ -244,7 +194,9 @@ fn gen_contract_storage(
 /// Derives the `Storable` trait for structs with named fields.
 ///
 /// This macro generates implementations for loading and storing multi-slot
-/// storage structures in EVM storage.
+/// struct layout in EVM storage.
+/// Its packing and encoding schemes aim to be an exact representation of
+/// the storage model used by Solidity.
 ///
 /// # Requirements
 ///
@@ -267,11 +219,11 @@ fn gen_contract_storage(
 ///
 /// #[derive(Storable)]
 /// pub struct RewardStream {
-///     pub funder: Address,              // offset 0
-///     pub start_time: u64,              // offset 1
-///     pub end_time: u64,                // offset 2
-///     pub rate_per_second_scaled: U256, // offset 3
-///     pub amount_total: U256,           // offset 4
+///     pub funder: Address,              // rel slot: 0 (20 bytes)
+///     pub start_time: u64,              // rel slot: 0 (8 bytes)
+///     pub end_time: u64,                // rel slot: 1 (8 bytes)
+///     pub rate_per_second_scaled: U256, // rel slot: 2 (32 bytes)
+///     pub amount_total: U256,           // rel slot: 3 (32 bytes)
 /// }
 /// ```
 #[proc_macro_derive(Storable, attributes(storable_arrays))]
@@ -284,7 +236,7 @@ pub fn derive_storage_block(input: TokenStream) -> TokenStream {
     }
 }
 
-// -- STORAGE IMPLEMENTATIONS --------------------------------------------------------------
+// -- STORAGE PRIMITIVES TRAIT IMPLEMENTATIONS -------------------------------------------
 
 /// Generate `StorableType` and `Storable<1>` implementations for all standard integer types.
 ///
@@ -296,11 +248,6 @@ pub fn derive_storage_block(input: TokenStream) -> TokenStream {
 /// - `Storable<1>` impl with `load()`, `store()`, `to_evm_words()`, `from_evm_words()` methods
 /// - `StorageKey` impl for use as mapping keys
 /// - Auto-generated tests that verify round-trip conversions with random values
-///
-/// # Usage
-/// ```ignore
-/// storable_rust_ints!();
-/// ```
 #[proc_macro]
 pub fn storable_rust_ints(_input: TokenStream) -> TokenStream {
     storable_primitives::gen_storable_rust_ints().into()
@@ -316,11 +263,6 @@ pub fn storable_rust_ints(_input: TokenStream) -> TokenStream {
 /// - `Storable<1>` impl with `load()`, `store()`, `to_evm_words()`, `from_evm_words()` methods
 /// - `StorageKey` impl for use as mapping keys
 /// - Auto-generated tests that verify round-trip conversions using alloy's `.random()` method
-///
-/// # Usage
-/// ```ignore
-/// storable_alloy_ints!();
-/// ```
 #[proc_macro]
 pub fn storable_alloy_ints(_input: TokenStream) -> TokenStream {
     storable_primitives::gen_storable_alloy_ints().into()
@@ -378,17 +320,12 @@ pub fn storable_arrays(_input: TokenStream) -> TokenStream {
 /// Generates implementations for nested arrays like `[[u8; 4]; 8]` where:
 /// - Inner arrays are small (2, 4, 8, 16 for u8; 2, 4, 8 for u16)
 /// - Total slot count ≤ 32
-///
-/// This allows for efficient packed storage of multi-dimensional data structures.
-///
-/// # Usage
-/// ```ignore
-/// storable_nested_arrays!();
-/// ```
 #[proc_macro]
 pub fn storable_nested_arrays(_input: TokenStream) -> TokenStream {
     storable_primitives::gen_nested_arrays().into()
 }
+
+// -- TEST HELPERS -------------------------------------------------------------
 
 /// Test helper macro for validating slots
 #[proc_macro]
@@ -402,7 +339,7 @@ pub fn gen_test_fields_layout(input: TokenStream) -> TokenStream {
         Err(err) => return err.to_compile_error().into(),
     };
 
-    // Generate new() calls for each identifier
+    // Generate storage fields
     let field_calls: Vec<_> = idents
         .into_iter()
         .map(|ident| {
@@ -431,7 +368,7 @@ pub fn gen_test_fields_layout(input: TokenStream) -> TokenStream {
 pub fn gen_test_fields_struct(input: TokenStream) -> TokenStream {
     let input = proc_macro2::TokenStream::from(input);
 
-    // Parse: base_slot_expr, field1, field2, ...
+    // Parse comma-separated identifiers
     let parser = |input: ParseStream<'_>| {
         let base_slot: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
@@ -444,7 +381,7 @@ pub fn gen_test_fields_struct(input: TokenStream) -> TokenStream {
         Err(err) => return err.to_compile_error().into(),
     };
 
-    // Generate field() calls for each identifier with numeric constant names
+    // Generate storage fields
     let field_calls: Vec<_> = idents
         .into_iter()
         .enumerate()

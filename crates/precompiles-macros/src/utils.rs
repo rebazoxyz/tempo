@@ -3,13 +3,13 @@
 use alloy::primitives::{U256, keccak256};
 use syn::{Attribute, Lit, Type};
 
-/// Return type for [`extract_attributes`]: (slot, base_slot, slot_count, map)
-type ExtractedAttributes = (Option<U256>, Option<U256>, Option<usize>, Option<String>);
+/// Return type for [`extract_attributes`]: (slot, base_slot)
+type ExtractedAttributes = (Option<U256>, Option<U256>);
 
 /// Parses a slot value from a literal.
 ///
 /// Supports:
-/// - Integer literals: decimal (e.g., `42`) or hexadecimal (e.g., `0x2a`)
+/// - Integer literals: decimal (`42`) or hexadecimal (`0x2a`)
 /// - String literals: computes keccak256 hash of the string
 fn parse_slot_value(value: &Lit) -> syn::Result<U256> {
     match value {
@@ -61,14 +61,12 @@ pub(crate) fn normalize_to_snake_case(s: &str) -> String {
     result
 }
 
-/// Extracts `#[slot(N)]`, `#[base_slot(N)]`, `#[slot_count(N)]`, and `#[map = "..."]` attributes from a field's attributes.
+/// Extracts `#[slot(N)]`, `#[base_slot(N)]` attributes from a field's attributes.
 ///
 /// This function iterates through the attributes a single time to find all
 /// relevant values. It returns a tuple containing:
 /// - The slot number (if present)
 /// - The base_slot number (if present)
-/// - The slot_count (if present, for `Storable` types)
-/// - The map string value (if present, normalized to snake_case)
 ///
 /// # Errors
 ///
@@ -78,8 +76,6 @@ pub(crate) fn normalize_to_snake_case(s: &str) -> String {
 pub(crate) fn extract_attributes(attrs: &[Attribute]) -> syn::Result<ExtractedAttributes> {
     let mut slot_attr: Option<U256> = None;
     let mut base_slot_attr: Option<U256> = None;
-    let mut slot_count_attr: Option<usize> = None;
-    let mut map_attr: Option<String> = None;
 
     for attr in attrs {
         // Extract `#[slot(N)]` attribute
@@ -115,56 +111,9 @@ pub(crate) fn extract_attributes(attrs: &[Attribute]) -> syn::Result<ExtractedAt
             let value: Lit = attr.parse_args()?;
             base_slot_attr = Some(parse_slot_value(&value)?);
         }
-        // Extract `#[slot_count(N)]` attribute
-        else if attr.path().is_ident("slot_count") {
-            if slot_count_attr.is_some() {
-                return Err(syn::Error::new_spanned(
-                    attr,
-                    "duplicate `slot_count` attribute",
-                ));
-            }
-
-            let value: Lit = attr.parse_args()?;
-            if let Lit::Int(int) = value {
-                let count = int
-                    .base10_parse::<usize>()
-                    .map_err(|_| syn::Error::new_spanned(int, "invalid `slot_count`"))?;
-                slot_count_attr = Some(count);
-            } else {
-                return Err(syn::Error::new_spanned(
-                    value,
-                    "`slot_count` attribute must be an integer literal",
-                ));
-            }
-        }
-        // Extract `#[map = "..."]` attribute
-        else if attr.path().is_ident("map") {
-            if map_attr.is_some() {
-                return Err(syn::Error::new_spanned(attr, "duplicate `map` attribute"));
-            }
-
-            let meta: syn::Meta = attr.meta.clone();
-            if let syn::Meta::NameValue(meta_name_value) = meta {
-                if let syn::Expr::Lit(expr_lit) = meta_name_value.value {
-                    if let Lit::Str(lit_str) = expr_lit.lit {
-                        map_attr = Some(normalize_to_snake_case(&lit_str.value()));
-                    } else {
-                        return Err(syn::Error::new_spanned(
-                            expr_lit,
-                            "map attribute must be a string literal",
-                        ));
-                    }
-                }
-            } else {
-                return Err(syn::Error::new_spanned(
-                    attr,
-                    "map attribute must use the form: #[map = \"value\"]",
-                ));
-            }
-        }
     }
 
-    Ok((slot_attr, base_slot_attr, slot_count_attr, map_attr))
+    Ok((slot_attr, base_slot_attr))
 }
 
 /// Extracts array sizes from the `#[storable_arrays(...)]` attribute.
@@ -196,14 +145,12 @@ pub(crate) fn extract_storable_array_sizes(attrs: &[Attribute]) -> syn::Result<O
             let mut sizes = Vec::new();
             for lit in parsed {
                 if let Lit::Int(int) = lit {
-                    let size = int
-                        .base10_parse::<usize>()
-                        .map_err(|_| {
-                            syn::Error::new_spanned(
-                                &int,
-                                "Invalid array size: must be a positive integer",
-                            )
-                        })?;
+                    let size = int.base10_parse::<usize>().map_err(|_| {
+                        syn::Error::new_spanned(
+                            &int,
+                            "Invalid array size: must be a positive integer",
+                        )
+                    })?;
 
                     if size == 0 {
                         return Err(syn::Error::new_spanned(
@@ -283,11 +230,6 @@ pub(crate) fn extract_mapping_types(ty: &Type) -> Option<(&Type, &Type)> {
         }
     }
     None
-}
-
-/// Checks if a type is the unit type `()`.
-pub(crate) fn is_unit(ty: &Type) -> bool {
-    matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty())
 }
 
 /// Guesses if a type is a custom struct by checking known storage types.
@@ -372,23 +314,6 @@ pub(crate) fn is_vec_type(ty: &Type) -> bool {
     };
 
     segment.ident == "Vec"
-}
-
-/// Extracts the identifier (last segment) from a type path.
-///
-/// For example, given `Foo::Bar::Baz`, this returns `Ok(Baz)`.
-/// Given a simple type like `MyType`, this returns `Ok(MyType)`.
-pub(crate) fn try_extract_type_ident(ty: &Type) -> syn::Result<syn::Ident> {
-    if let Type::Path(type_path) = ty
-        && let Some(segment) = type_path.path.segments.last()
-    {
-        return Ok(segment.ident.clone());
-    }
-
-    Err(syn::Error::new_spanned(
-        ty,
-        "Interface type must be a simple path or qualified path",
-    ))
 }
 
 #[cfg(test)]

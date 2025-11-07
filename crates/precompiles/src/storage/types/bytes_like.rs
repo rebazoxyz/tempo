@@ -244,13 +244,6 @@ fn is_long_string(slot_value: U256) -> bool {
 }
 
 /// Extract the string length from a storage slot value.
-///
-/// # Arguments
-/// * `slot_value` - The value stored in the main slot
-/// * `is_long` - Whether this is a long string (from `is_long_string()`)
-///
-/// # Returns
-/// The length of the string in bytes
 #[inline]
 fn calc_string_length(slot_value: U256, is_long: bool) -> usize {
     if is_long {
@@ -332,11 +325,6 @@ mod tests {
             // Ensure we don't overflow by limiting to a reasonable range
             U256::from_limbs(limbs) % (U256::MAX - U256::from(10000))
         })
-    }
-
-    // Strategy for generating arbitrary addresses
-    fn arb_address() -> impl Strategy<Value = Address> {
-        any::<[u8; 20]>().prop_map(Address::from)
     }
 
     // Strategy for short strings (0-31 bytes) - uses inline storage
