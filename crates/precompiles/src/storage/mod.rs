@@ -2,6 +2,9 @@ pub mod evm;
 pub mod hashmap;
 pub mod slots;
 
+// Re-export extension traits for convenience
+pub use types::vec::{VecMappingExt, VecSlotExt};
+
 use alloy::primitives::{Address, LogData, U256};
 use revm::state::{AccountInfo, Bytecode};
 
