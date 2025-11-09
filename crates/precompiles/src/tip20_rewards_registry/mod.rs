@@ -4,7 +4,7 @@ pub mod dispatch;
 use crate::{
     TIP20_REWARDS_REGISTRY_ADDRESS,
     error::{Result, TempoPrecompileError},
-    storage::{ContractStorage, Mapping, PrecompileStorageProvider, VecMappingExt},
+    storage::{Mapping, PrecompileStorageProvider, VecMappingExt},
     tip20::{TIP20Token, address_to_token_id_unchecked},
 };
 use alloy::{
