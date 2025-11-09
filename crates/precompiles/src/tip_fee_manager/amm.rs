@@ -625,7 +625,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
             .map_err(|_| TIPFeeAMMError::invalid_amount())?;
 
         self.sstore_pools(pool_id, pool)?;
-        self.set_pending_fee_swap_in(pool_id, 0)?;
+        self.clear_pending_fee_swap_in(pool_id)?;
 
         self.storage.emit_event(
             self.address,

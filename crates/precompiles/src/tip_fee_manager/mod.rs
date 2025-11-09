@@ -1,7 +1,7 @@
 pub mod amm;
 pub mod dispatch;
 
-use alloy::primitives::B256;
+use alloy::{dyn_abi::abi::token, primitives::B256};
 use tempo_contracts::precompiles::TIP_FEE_MANAGER_ADDRESS;
 pub use tempo_contracts::precompiles::{
     FeeManagerError, FeeManagerEvent, IFeeManager, ITIPFeeAMM, TIPFeeAMMError, TIPFeeAMMEvent,
@@ -21,7 +21,7 @@ use revm::state::Bytecode;
 use tempo_precompiles_macros::contract;
 
 /// Helper type to easily interact with the `tokens_with_fees` array
-type TokensWithFees = Slot<Vec<Address>, Field4Slot>;
+type TokensWithFees = Slot<Vec<Address>, Field3Slot>;
 
 #[contract]
 pub struct TipFeeManager {
