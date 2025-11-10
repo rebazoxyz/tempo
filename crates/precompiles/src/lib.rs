@@ -40,10 +40,7 @@ use alloy::{
     sol_types::{SolCall, SolError},
 };
 use alloy_evm::precompiles::{DynPrecompile, PrecompilesMap};
-use revm::{
-    context::Block,
-    precompile::{PrecompileId, PrecompileOutput, PrecompileResult},
-};
+use revm::precompile::{PrecompileId, PrecompileOutput, PrecompileResult};
 
 pub use tempo_contracts::precompiles::{
     DEFAULT_FEE_TOKEN, LINKING_USD_ADDRESS, NONCE_PRECOMPILE_ADDRESS, STABLECOIN_EXCHANGE_ADDRESS,

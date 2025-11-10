@@ -59,7 +59,11 @@ impl<'a, S: PrecompileStorageProvider> Precompile for TipFeeManager<'a, S> {
                 mutate_void::<IFeeManager::setValidatorTokenCall>(
                     calldata,
                     msg_sender,
+<<<<<<< HEAD
                     |s, call| self.set_validator_token(s, call),
+=======
+                    |s, call| self.set_validator_token(s, call, self.storage.beneficiary()),
+>>>>>>> 6387242 (chore(precompiles): move beneficiary to `PrecompileStorageProvider` (#827))
                 )
             }
             IFeeManager::setUserTokenCall::SELECTOR => {
@@ -69,7 +73,11 @@ impl<'a, S: PrecompileStorageProvider> Precompile for TipFeeManager<'a, S> {
             }
             IFeeManager::executeBlockCall::SELECTOR => {
                 mutate_void::<IFeeManager::executeBlockCall>(calldata, msg_sender, |s, _call| {
+<<<<<<< HEAD
                     self.execute_block(s)
+=======
+                    self.execute_block(s, self.storage.beneficiary())
+>>>>>>> 6387242 (chore(precompiles): move beneficiary to `PrecompileStorageProvider` (#827))
                 })
             }
             ITIPFeeAMM::mintCall::SELECTOR => {

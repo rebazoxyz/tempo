@@ -783,6 +783,10 @@ mod tests {
         };
         let calldata = set_cap_call.abi_encode();
         let result = token.call(&Bytes::from(calldata), admin).unwrap();
+<<<<<<< HEAD
+=======
+
+>>>>>>> 6387242 (chore(precompiles): move beneficiary to `PrecompileStorageProvider` (#827))
         // HashMapStorageProvider does not have gas accounting, so we expect 0
         assert_eq!(result.gas_used, 0);
 
