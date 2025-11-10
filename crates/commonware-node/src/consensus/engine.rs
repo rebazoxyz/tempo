@@ -115,7 +115,11 @@ where
             },
         );
 
-        let epoch_length = self.execution_node.chain_spec().info.epoch_length;
+        let Some(epoch_length) = self.execution_node.chain_spec().info.epoch_length else {
+            return Err(eyre::eyre!(
+                "epochLength not set in genesis / chainspec; cannot continue without it"
+            ));
+        };
 
         info!(epoch_length, "determined epoch length from genesis info");
 

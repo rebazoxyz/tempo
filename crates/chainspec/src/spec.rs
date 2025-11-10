@@ -26,8 +26,9 @@ pub struct TempoGenesisInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adagio_time: Option<u64>,
 
-    /// The length of measures in heights.
-    pub epoch_length: u64,
+    /// The length of a Tempo epoch as measured in blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub epoch_length: Option<u64>,
 }
 
 impl TempoGenesisInfo {
@@ -260,6 +261,46 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn epoch_length_is_inserted_from_extra_fields_into_chainspec() {
+        // Create a genesis with Tempo genesis info extra fields in config
+        // (non-standard fields automatically go into extra_fields)
+        let genesis_json = json!({
+            "config": {
+                "chainId": 1337,
+                "homesteadBlock": 0,
+                "eip150Block": 0,
+                "eip155Block": 0,
+                "eip158Block": 0,
+                "byzantiumBlock": 0,
+                "constantinopleBlock": 0,
+                "petersburgBlock": 0,
+                "istanbulBlock": 0,
+                "berlinBlock": 0,
+                "londonBlock": 0,
+                "mergeNetsplitBlock": 0,
+                "terminalTotalDifficulty": 0,
+                "terminalTotalDifficultyPassed": true,
+                "shanghaiTime": 0,
+                "cancunTime": 0,
+                "adagioTime": 1000,
+                "epochLength": 604_800
+            },
+            "alloc": {}
+        });
+
+        let genesis: alloy_genesis::Genesis =
+            serde_json::from_value(genesis_json).expect("genesis should be valid");
+
+        let chainspec = super::TempoChainSpec::from_genesis(genesis);
+
+        assert_eq!(
+            Some(604_800),
+            chainspec.info.epoch_length,
+            "configured epoch length should be deserialized and available",
+        );
+    }
+
+    #[test]
     fn can_load_testnet() {
         let _ = super::TempoChainSpecParser::parse("testnet")
             .expect("the testnet chainspec must always be well formed");
@@ -312,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_parse_tempo_hardforks_from_genesis_extra_fields() {
-        // Create a genesis with Tempo hardfork timestamps as extra fields in config
+        // Create a genesis with Tempo genesis info extra fields in config
         // (non-standard fields automatically go into extra_fields)
         let genesis_json = json!({
             "config": {

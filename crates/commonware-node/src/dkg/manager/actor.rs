@@ -165,10 +165,15 @@ where
             epoch_state
         } else {
             let spec = config.execution_node.chain_spec();
-            let outcome = PublicOutcome::decode(spec.genesis().extra_data.as_ref()).wrap_err(
-                "failed decoding the genesis.extra_data field as an initial \
-                    DKG outcome; this field must be set and it must be decodable",
-            )?;
+            let outcome =
+                PublicOutcome::decode(spec.genesis().extra_data.as_ref()).wrap_err_with(|| {
+                    format!(
+                        "failed decoding the genesis.extra_data field as an \
+                        initial DKG outcome; this field must be set and it \
+                        must be decodable; bytes = {}",
+                        spec.genesis().extra_data.len(),
+                    )
+                })?;
 
             ensure!(
                 outcome.epoch == 0,
