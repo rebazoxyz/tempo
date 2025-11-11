@@ -432,14 +432,13 @@ mod dex {
 
         await_receipts(&mut receipts, &tx_count).await?;
 
-        for signer in signers.into_iter() {
+        for signer in signers.iter() {
             let account_provider = ProviderBuilder::new()
-                .wallet(signer)
+                .wallet(signer.clone())
                 .connect_http(url.clone());
             let base1 = ITIP20::new(*base1.address(), account_provider.clone());
             let base2 = ITIP20::new(*base2.address(), account_provider.clone());
             let quote = ITIP20::new(*quote.address(), account_provider.clone());
-            let exchange = IStablecoinExchange::new(STABLECOIN_EXCHANGE_ADDRESS, account_provider);
 
             receipts.extend([
                 base1
@@ -460,6 +459,18 @@ mod dex {
                     .gas(300_000)
                     .send()
                     .await?,
+            ]);
+        }
+
+        await_receipts(&mut receipts, &tx_count).await?;
+
+        for signer in signers.into_iter() {
+            let account_provider = ProviderBuilder::new()
+                .wallet(signer)
+                .connect_http(url.clone());
+            let exchange = IStablecoinExchange::new(STABLECOIN_EXCHANGE_ADDRESS, account_provider);
+
+            receipts.extend([
                 exchange
                     .place(*base1.address(), first_order_amount, true, 0)
                     .send()
