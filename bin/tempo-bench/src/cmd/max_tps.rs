@@ -341,7 +341,7 @@ async fn generate_transactions(
 
 mod dex {
     use super::*;
-    use tempo_contracts::precompiles::TIP20Error;
+    use tempo_contracts::precompiles::{IStablecoinExchange, TIP20Error};
 
     type DexProvider = FillProvider<
         JoinFill<
@@ -366,23 +366,24 @@ mod dex {
     )> {
         println!("Sending DEX setup transactions...");
 
-        let tx_count = ProgressBar::new(6 + signers.len() as u64 * 6);
+        let tx_count = ProgressBar::new(9 + 6 * signers.len() as u64);
         tx_count.tick();
 
         // Setup HTTP provider with a test wallet
         let wallet = MnemonicBuilder::from_phrase(mnemonic).build()?;
         let caller = wallet.address();
         let provider = ProviderBuilder::new()
-            .wallet(wallet)
+            .wallet(wallet.clone())
             .connect_http(url.clone());
 
         let base1 = setup_test_token(provider.clone(), caller, &tx_count).await?;
         let base2 = setup_test_token(provider.clone(), caller, &tx_count).await?;
+
         let quote = ITIP20Instance::new(token_id_to_address(0), provider.clone());
-        let exchange = tempo_contracts::precompiles::IStablecoinExchange::new(
-            STABLECOIN_EXCHANGE_ADDRESS,
-            provider.clone(),
-        );
+
+        let exchange = IStablecoinExchange::new(STABLECOIN_EXCHANGE_ADDRESS, provider.clone());
+
+        let mint_amount = U256::from(1000000000000000u128);
 
         await_receipts(
             &mut vec![
@@ -395,30 +396,58 @@ mod dex {
 
         let mut receipts = Vec::new();
 
-        for wallet in signers {
-            // Setup HTTP provider with a test wallet
-            let caller = wallet.address();
-            let mint_amount = U256::from(100000000000000000000000000u128);
-
-            receipts.extend(vec![
+        for signer in signers.iter() {
+            receipts.extend([
                 base1
-                    .mint(caller, mint_amount)
+                    .mint(signer.address(), mint_amount)
                     .gas_price(TEMPO_BASE_FEE as u128)
                     .gas(300_000)
                     .send()
                     .await?,
                 base2
-                    .mint(caller, mint_amount)
+                    .mint(signer.address(), mint_amount)
                     .gas_price(TEMPO_BASE_FEE as u128)
                     .gas(300_000)
                     .send()
                     .await?,
                 quote
-                    .mint(caller, mint_amount)
+                    .mint(signer.address(), mint_amount)
                     .gas_price(TEMPO_BASE_FEE as u128)
                     .gas(300_000)
                     .send()
                     .await?,
+                base1
+                    .approve(STABLECOIN_EXCHANGE_ADDRESS, U256::MAX)
+                    .gas_price(TEMPO_BASE_FEE as u128)
+                    .gas(300_000)
+                    .send()
+                    .await?,
+                base2
+                    .approve(STABLECOIN_EXCHANGE_ADDRESS, U256::MAX)
+                    .gas_price(TEMPO_BASE_FEE as u128)
+                    .gas(300_000)
+                    .send()
+                    .await?,
+                quote
+                    .approve(STABLECOIN_EXCHANGE_ADDRESS, U256::MAX)
+                    .gas_price(TEMPO_BASE_FEE as u128)
+                    .gas(300_000)
+                    .send()
+                    .await?,
+            ]);
+        }
+
+        await_receipts(&mut receipts, &tx_count).await?;
+
+        for signer in signers.into_iter() {
+            let account_provider = ProviderBuilder::new()
+                .wallet(signer)
+                .connect_http(url.clone());
+            let base1 = ITIP20::new(*base1.address(), account_provider.clone());
+            let base2 = ITIP20::new(*base2.address(), account_provider.clone());
+            let quote = ITIP20::new(*quote.address(), account_provider);
+
+            receipts.extend([
                 base1
                     .approve(STABLECOIN_EXCHANGE_ADDRESS, U256::MAX)
                     .gas_price(TEMPO_BASE_FEE as u128)
