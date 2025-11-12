@@ -502,6 +502,10 @@ struct BenchmarkMetadata {
     build_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mode: Option<String>,
+    max_concurrent_requests: usize,
+    tip20_weight: f64,
+    place_order_weight: f64,
+    swap_weight: f64,
 }
 
 #[derive(Serialize)]
@@ -571,6 +575,10 @@ pub async fn generate_report(
         node_commit_sha: args.node_commit_sha.clone(),
         build_profile: args.build_profile.clone(),
         mode: args.benchmark_mode.clone(),
+        max_concurrent_requests: args.max_concurrent_requests,
+        tip20_weight: args.tip20_weight,
+        place_order_weight: args.place_order_weight,
+        swap_weight: args.swap_weight,
     };
 
     let report = BenchmarkReport {
