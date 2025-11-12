@@ -22,7 +22,7 @@ use clap::Parser;
 use commonware_codec::{DecodeExt, Encode as _, RangeCfg, Read as CodecRead, ReadExt as _};
 use commonware_cryptography::{
     bls12381::{
-        dkg::ops::construct_public,
+        dkg::ops::{construct_public, recover_public},
         primitives::{poly::Public, variant::MinSig},
     },
     ed25519::PublicKey,
@@ -166,16 +166,19 @@ struct EpochData {
     public_outcome: Option<PublicOutcome>,
     boundary_height: u64,
     boundary_extra_data: Option<Vec<u8>>,
+    /// The public polynomial from the previous epoch (needed for recover_public)
+    previous_public: Option<Public<MinSig>>,
 }
 
 impl EpochData {
-    fn new(epoch: u64, epoch_length: u64) -> Self {
+    fn new(epoch: u64, epoch_length: u64, previous_public: Option<Public<MinSig>>) -> Self {
         Self {
             epoch,
             intermediate_outcomes: BTreeMap::new(),
             public_outcome: None,
             boundary_height: (epoch + 1) * epoch_length - 1,
             boundary_extra_data: None,
+            previous_public,
         }
     }
 }
@@ -245,6 +248,7 @@ fn main() -> Result<()> {
 
     // Collect outcomes by epoch
     let mut epochs: BTreeMap<u64, EpochData> = BTreeMap::new();
+    let mut last_public: Option<Public<MinSig>> = None;
 
     for height in start_height..=end_height {
         let header_opt = static_file_provider
@@ -256,7 +260,7 @@ fn main() -> Result<()> {
             let epoch = height / epoch_length;
             let epoch_data = epochs
                 .entry(epoch)
-                .or_insert_with(|| EpochData::new(epoch, epoch_length));
+                .or_insert_with(|| EpochData::new(epoch, epoch_length, last_public.clone()));
 
             if height == epoch_data.boundary_height {
                 epoch_data.boundary_extra_data = None; // Mark that boundary block doesn't exist
@@ -273,22 +277,24 @@ fn main() -> Result<()> {
         let epoch = height / epoch_length;
         let epoch_data = epochs
             .entry(epoch)
-            .or_insert_with(|| EpochData::new(epoch, epoch_length));
+            .or_insert_with(|| EpochData::new(epoch, epoch_length, last_public.clone()));
 
-        // Check if this is a boundary block
+        // Check if this is a boundary block OR block 0 (genesis)
         let is_boundary = height == epoch_data.boundary_height;
+        let is_genesis = height == 0;
 
-        if is_boundary {
+        if is_boundary || is_genesis {
             // Store the boundary block's extra_data for debugging
             epoch_data.boundary_extra_data = Some(extra_data.to_vec());
 
             // Try to decode PublicOutcome
             match PublicOutcome::decode(extra_data.as_ref()) {
                 Ok(outcome) => {
-                    if args.verbose {
+                    if args.verbose || is_genesis {
+                        let block_type = if is_genesis { "Genesis block" } else { "Boundary block" };
                         println!(
-                            "✅ Block {}: Found PublicOutcome for epoch {}",
-                            height, outcome.epoch
+                            "✅ {} {}: Found PublicOutcome for epoch {}",
+                            block_type, height, outcome.epoch
                         );
                         println!("   Participants: {}", outcome.participants.len());
                     }
@@ -299,13 +305,16 @@ fn main() -> Result<()> {
                             height, outcome.epoch, epoch
                         );
                     }
+                    // Update last_public for the next epoch
+                    last_public = Some(outcome.public.clone());
                     epoch_data.public_outcome = Some(outcome);
                 }
                 Err(e) => {
-                    if args.verbose {
+                    if args.verbose || is_genesis {
+                        let block_type = if is_genesis { "Genesis block" } else { "Block" };
                         println!(
-                            "⚠️  Block {}: Failed to decode PublicOutcome: {}",
-                            height, e
+                            "⚠️  {} {}: Failed to decode PublicOutcome: {}",
+                            block_type, height, e
                         );
                     }
                 }
@@ -394,27 +403,41 @@ fn main() -> Result<()> {
                     .collect();
                 sorted_commitments.sort_by_key(|(idx, _)| *idx);
 
-                // Take first `required_dealers` commitments
-                let commitments: Vec<_> = sorted_commitments
-                    .into_iter()
-                    .take(required_dealers)
-                    .map(|(_, commitment)| commitment.clone())
-                    .collect();
-
-                if commitments.len() < required_dealers {
+                if sorted_commitments.len() < required_dealers {
                     println!(
                         "  ❌ ERROR: Could only match {} dealers from IntermediateOutcomes",
-                        commitments.len()
+                        sorted_commitments.len()
                     );
                 } else {
                     // Compute the expected public polynomial
-                    // Since this is resharing (we have a previous public polynomial in epoch 0),
-                    // we would use recover_public. However, for epoch 0, we'd use construct_public.
-                    // For simplicity, we'll try construct_public for now (works for new ceremonies)
-                    match construct_public::<MinSig>(
-                        commitments.iter(),
-                        (player_threshold as usize).try_into().unwrap(),
-                    ) {
+                    // Use recover_public if we have a previous polynomial (resharing),
+                    // otherwise use construct_public (initial ceremony)
+                    let computed_result = if let Some(ref previous) = data.previous_public {
+                        // Resharing: recover from previous polynomial + commitments
+                        let mut commitments_map = std::collections::BTreeMap::new();
+                        for (idx, commitment) in sorted_commitments.iter().take(required_dealers) {
+                            commitments_map.insert(*idx as u32, (*commitment).clone());
+                        }
+                        recover_public::<MinSig>(
+                            previous,
+                            &commitments_map,
+                            (player_threshold as usize).try_into().unwrap(),
+                            1, // concurrency
+                        )
+                    } else {
+                        // Initial ceremony: construct from commitments
+                        let commitments: Vec<_> = sorted_commitments
+                            .iter()
+                            .take(required_dealers)
+                            .map(|(_, commitment)| (*commitment).clone())
+                            .collect();
+                        construct_public::<MinSig>(
+                            commitments.iter(),
+                            (player_threshold as usize).try_into().unwrap(),
+                        )
+                    };
+
+                    match computed_result {
                         Ok(computed_public) => {
                             if computed_public == outcome.public {
                                 println!("  ✅ PublicOutcome VERIFIED: matches computed result from IntermediateOutcomes");
@@ -435,7 +458,10 @@ fn main() -> Result<()> {
                         }
                         Err(e) => {
                             println!("  ⚠️  Failed to compute public polynomial: {:?}", e);
-                            println!("     (This may be expected for resharing ceremonies)");
+                            if data.previous_public.is_none() && *epoch > 0 {
+                                println!("     Cannot verify epoch {} - missing previous epoch's PublicOutcome", epoch);
+                                println!("     Need to scan from epoch 0's boundary block to get the initial PublicOutcome");
+                            }
                         }
                     }
                 }
@@ -500,10 +526,37 @@ fn main() -> Result<()> {
                         .map(|(_, commitment)| commitment.clone())
                         .collect();
 
-                    match construct_public::<MinSig>(
-                        commitments.iter(),
-                        (player_threshold as usize).try_into().unwrap(),
-                    ) {
+                    // Use recover_public if we have a previous polynomial, otherwise construct_public
+                    let computed_result = if let Some(ref previous) = data.previous_public {
+                        let mut commitments_map = std::collections::BTreeMap::new();
+                        for (idx, (orig_idx, commitment)) in data
+                            .intermediate_outcomes
+                            .iter()
+                            .filter_map(|(dealer_key, intermediate)| {
+                                dealers
+                                    .iter()
+                                    .position(|d| d == dealer_key)
+                                    .map(|idx| (idx, &intermediate.commitment))
+                            })
+                            .enumerate()
+                            .take(required_dealers)
+                        {
+                            commitments_map.insert(orig_idx as u32, commitment.clone());
+                        }
+                        recover_public::<MinSig>(
+                            previous,
+                            &commitments_map,
+                            (player_threshold as usize).try_into().unwrap(),
+                            1,
+                        )
+                    } else {
+                        construct_public::<MinSig>(
+                            commitments.iter(),
+                            (player_threshold as usize).try_into().unwrap(),
+                        )
+                    };
+
+                    match computed_result {
                         Ok(computed_public) => {
                             println!("  ✅ Successfully computed PublicOutcome from IntermediateOutcomes!");
                             println!("     This means the ceremony COULD have succeeded.");
@@ -516,7 +569,12 @@ fn main() -> Result<()> {
                         }
                         Err(e) => {
                             println!("  ❌ Failed to compute PublicOutcome: {:?}", e);
-                            println!("     This explains why the ceremony failed - invalid commitments.");
+                            if data.previous_public.is_none() && *epoch > 0 {
+                                println!("     Cannot verify epoch {} - missing previous epoch's PublicOutcome", epoch);
+                                println!("     Need to scan from epoch 0's boundary block to get the initial PublicOutcome");
+                            } else {
+                                println!("     This explains why the ceremony failed - invalid commitments.");
+                            }
                         }
                     }
                 } else {
