@@ -22,7 +22,7 @@ use core_affinity::CoreId;
 use eyre::{Context, OptionExt, ensure};
 use governor::{Quota, RateLimiter};
 use indicatif::ProgressBar;
-use rand::random;
+use rand::{random, seq::IndexedRandom};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rlimit::Resource;
 use serde::Serialize;
@@ -111,14 +111,32 @@ pub struct MaxTpsArgs {
     /// Benchmark mode for metadata (e.g., "max_tps", "stress_test")
     #[arg(long)]
     benchmark_mode: Option<String>,
+
+    /// A weight that determines the likelihood of generating a TIP-20 transfer transaction.
+    #[arg(long, default_value = "0.8")]
+    tip20_weight: f64,
+
+    /// A weight that determines the likelihood of generating a DEX place transaction.
+    #[arg(long, default_value = "0.01")]
+    place_order_weight: f64,
+
+    /// A weight that determines the likelihood of generating a DEX swapExactAmountIn transaction.
+    #[arg(long, default_value = "0.19")]
+    swap_weight: f64,
 }
 
 impl MaxTpsArgs {
+    const WEIGHT_PRECISION: f64 = 1000.0;
+
     pub async fn run(self) -> eyre::Result<()> {
         // Set file descriptor limit if provided
         if let Some(fd_limit) = self.fd_limit {
             increase_nofile_limit(fd_limit).context("Failed to increase nofile limit")?;
         }
+
+        let tip20_weight = (self.tip20_weight * Self::WEIGHT_PRECISION).trunc() as u64;
+        let place_order_weight = (self.place_order_weight * Self::WEIGHT_PRECISION).trunc() as u64;
+        let swap_weight = (self.swap_weight * Self::WEIGHT_PRECISION).trunc() as u64;
 
         let target_urls: Vec<Url> = self
             .target_urls
@@ -139,6 +157,9 @@ impl MaxTpsArgs {
                 &self.mnemonic,
                 self.chain_id,
                 &target_urls[0],
+                tip20_weight,
+                place_order_weight,
+                swap_weight,
             )
             .await
             .context("Failed to generate transactions")?,
@@ -276,6 +297,9 @@ async fn generate_transactions(
     mnemonic: &str,
     chain_id: u64,
     rpc_url: &Url,
+    transfer_weight: u64,
+    place_weight: u64,
+    swap_weight: u64,
 ) -> eyre::Result<Vec<Vec<u8>>> {
     println!("Generating {num_accounts} accounts...");
     let signers: Vec<PrivateKeySigner> = (0..num_accounts as u32)
@@ -316,17 +340,49 @@ async fn generate_transactions(
         }
     }
 
+    let user_tokens = [base1, base2];
+    let user_tokens_count = 2;
+
     let transactions: Vec<Vec<u8>> = params
         .into_par_iter()
         .tqdm()
-        .map(|(signer, nonce)| match random::<u32>() % 6u32 {
-            0 => dex::place(&exchange, signer.clone(), nonce, chain_id, base1),
-            1 => dex::place(&exchange, signer.clone(), nonce, chain_id, base2),
-            2 => dex::swap_in(&exchange, signer.clone(), nonce, chain_id, base1, quote),
-            3 => dex::swap_in(&exchange, signer.clone(), nonce, chain_id, base2, quote),
-            4 => tip20::transfer(signer.clone(), nonce, chain_id, base1),
-            5 => tip20::transfer(signer.clone(), nonce, chain_id, base2),
-            v => unreachable!("Number {v} is outside the random range"),
+        .map(|(signer, nonce)| {
+            let tx_factory: [Box<dyn Fn(PrivateKeySigner, u64) -> eyre::Result<Vec<u8>>>; 3] = [
+                Box::new(|signer: PrivateKeySigner, nonce: u64| {
+                    tip20::transfer(
+                        signer.clone(),
+                        nonce,
+                        chain_id,
+                        user_tokens[random::<u16>() as usize % user_tokens_count],
+                    )
+                }),
+                Box::new(|signer: PrivateKeySigner, nonce: u64| {
+                    dex::swap_in(
+                        &exchange,
+                        signer.clone(),
+                        nonce,
+                        chain_id,
+                        user_tokens[random::<u16>() as usize % user_tokens_count],
+                        quote,
+                    )
+                }),
+                Box::new(|signer: PrivateKeySigner, nonce: u64| {
+                    dex::place(
+                        &exchange,
+                        signer.clone(),
+                        nonce,
+                        chain_id,
+                        user_tokens[random::<u16>() as usize % user_tokens_count],
+                    )
+                }),
+            ];
+            let weights = [(0, transfer_weight), (1, swap_weight), (2, place_weight)];
+
+            let mut rng = rand::rng();
+            let index = weights.choose_weighted(&mut rng, |item| item.1)?.0;
+            let f = &tx_factory[index];
+
+            f(signer, nonce)
         })
         .collect::<eyre::Result<Vec<_>>>()?;
 
