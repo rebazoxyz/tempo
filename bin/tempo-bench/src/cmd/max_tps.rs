@@ -5,7 +5,7 @@ use tempo_alloy::TempoNetwork;
 
 use alloy::{
     consensus::BlockHeader,
-    eips::BlockNumberOrTag::Latest,
+    eips::{BlockNumberOrTag::Latest, Decodable2718},
     network::{
         Ethereum, EthereumWallet, Network, ReceiptResponse, TransactionBuilder, TxSignerSync,
     },
@@ -20,7 +20,9 @@ use alloy::{
     sol_types::{SolCall, SolEvent},
     transports::http::reqwest::Url,
 };
-use alloy_consensus::{SignableTransaction, TxLegacy, transaction::RlpEcdsaEncodableTx};
+use alloy_consensus::{
+    EthereumTxEnvelope, SignableTransaction, TxEip4844, TxLegacy, transaction::RlpEcdsaEncodableTx,
+};
 use alloy_signer_local::{MnemonicBuilder, PrivateKeySigner, coins_bip39::English};
 use clap::Parser;
 use core_affinity::CoreId;
@@ -193,11 +195,11 @@ impl MaxTpsArgs {
         let tx_counter = Arc::new(AtomicU64::new(0));
 
         // Spawn monitoring thread for TPS tracking
-        let _monitor_handle = monitor_tps(tx_counter.clone());
+        let _monitor_handle = monitor_tps(tx_counter.clone(), total_txs);
 
         // Spawn workers and send transactions
         send_transactions(
-            transactions,
+            transactions.clone(),
             self.workers,
             self.total_connections,
             target_urls.clone(),
@@ -207,15 +209,32 @@ impl MaxTpsArgs {
         )
         .context("Failed to send transactions")?;
 
-        // Wait for all sender threads to finish
-        std::thread::sleep(Duration::from_secs(self.duration));
-        println!("Finished sending transactions");
+        // Graceful period of 1 second for `monitor_tps` to print out last statement
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let end_block = provider
-            .get_block(Latest.into())
-            .await?
-            .ok_or_eyre("failed to fetch start block")?;
-        let end_block_number = end_block.header.number;
+        let mut rng = rand::rng();
+        let sample_size = transactions.len().min(100);
+        let mut end_block_number = start_block_number;
+        println!("Collecting a sample of {sample_size} receipts");
+        let progress = ProgressBar::new(sample_size as u64);
+        progress.tick();
+
+        for transaction in transactions.choose_multiple(&mut rng, sample_size) {
+            let tx = EthereumTxEnvelope::<TxEip4844>::decode_2718_exact(transaction.as_slice())
+                .expect("should be serialized as EIP-2718");
+            let tx_hash = *tx.hash();
+            let receipt = PendingTransactionBuilder::new(provider.root().clone(), tx_hash)
+                .get_receipt()
+                .await?;
+            progress.inc(1);
+
+            if let Some(block_number) = receipt.block_number
+                && block_number > end_block_number
+            {
+                end_block_number = block_number;
+            }
+        }
+        progress.force_draw();
 
         generate_report(
             &target_urls[0].clone(),
@@ -251,57 +270,63 @@ fn send_transactions(
         NonZeroU32::new(tps as u32).unwrap(),
     )));
 
-    for thread_id in 0..num_sender_threads {
-        if !disable_thread_pinning {
-            let core_id = core_ids[thread_id % core_ids.len()];
-            pin_thread(core_id);
-        }
+    let handles: Vec<_> = (0..num_sender_threads)
+        .map(|thread_id| {
+            if !disable_thread_pinning {
+                let core_id = core_ids[thread_id % core_ids.len()];
+                pin_thread(core_id);
+            }
 
-        // Segment transactions
-        let rate_limiter = rate_limiter.clone();
-        let transactions = transactions.clone();
-        let target_urls = target_urls.to_vec();
-        let tx_counter = tx_counter.clone();
-        let start = thread_id * chunk_size;
-        let end = (start + chunk_size).min(transactions.len());
+            // Segment transactions
+            let rate_limiter = rate_limiter.clone();
+            let transactions = transactions.clone();
+            let target_urls = target_urls.to_vec();
+            let tx_counter = tx_counter.clone();
+            let start = thread_id * chunk_size;
+            let end = (start + chunk_size).min(transactions.len());
 
-        // Spawn thread and send transactions over specified duration
-        thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to build tokio runtime");
+            // Spawn thread and send transactions over specified duration
+            thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to build tokio runtime");
 
-            rt.block_on(async {
-                // TODO: Send txs from multiple senders
-                // Create multiple connections for this thread
-                // let mut providers = Vec::new();
-                // for i in 0..num_connections {
-                //     println!("{i:?}");
-                //     let url = &target_urls[(i as usize) % target_urls.len()];
-                //     let provider = ProviderBuilder::new().connect_http(url.clone());
-                //     providers.push(provider);
-                // }
+                rt.block_on(async {
+                    // TODO: Send txs from multiple senders
+                    // Create multiple connections for this thread
+                    // let mut providers = Vec::new();
+                    // for i in 0..num_connections {
+                    //     println!("{i:?}");
+                    //     let url = &target_urls[(i as usize) % target_urls.len()];
+                    //     let provider = ProviderBuilder::new().connect_http(url.clone());
+                    //     providers.push(provider);
+                    // }
 
-                let provider = ProviderBuilder::new().connect_http(target_urls[0].clone());
-                for tx_bytes in transactions[start..end].iter() {
-                    rate_limiter.until_ready().await;
+                    let provider = ProviderBuilder::new().connect_http(target_urls[0].clone());
+                    for tx_bytes in transactions[start..end].iter() {
+                        rate_limiter.until_ready().await;
 
-                    match timeout(
-                        Duration::from_secs(1),
-                        provider.send_raw_transaction(tx_bytes),
-                    )
-                    .await
-                    {
-                        Ok(Ok(_)) => {
-                            tx_counter.fetch_add(1, Ordering::Relaxed);
+                        match timeout(
+                            Duration::from_secs(1),
+                            provider.send_raw_transaction(tx_bytes),
+                        )
+                        .await
+                        {
+                            Ok(Ok(_)) => {
+                                tx_counter.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Ok(Err(e)) => eprintln!("Failed to send transaction: {e}"),
+                            Err(_) => eprintln!("Tx send timed out"),
                         }
-                        Ok(Err(e)) => eprintln!("Failed to send transaction: {e}"),
-                        Err(_) => eprintln!("Tx send timed out"),
                     }
-                }
-            });
-        });
+                });
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().unwrap();
     }
 
     Ok(())
@@ -595,7 +620,7 @@ pub async fn generate_report(
     Ok(())
 }
 
-fn monitor_tps(tx_counter: Arc<AtomicU64>) -> thread::JoinHandle<()> {
+fn monitor_tps(tx_counter: Arc<AtomicU64>, target_count: u64) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut last_count = 0u64;
         loop {
@@ -605,6 +630,10 @@ fn monitor_tps(tx_counter: Arc<AtomicU64>) -> thread::JoinHandle<()> {
 
             println!("TPS Sent: {tps}, Total Txs Sent: {current_count}");
             thread::sleep(Duration::from_secs(1));
+
+            if current_count == target_count {
+                break;
+            }
         }
     })
 }
