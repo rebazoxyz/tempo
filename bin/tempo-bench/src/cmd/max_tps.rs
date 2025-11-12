@@ -467,10 +467,11 @@ mod dex {
         P: Provider<N>,
     {
         let min_order_amount = MIN_ORDER_AMOUNT;
+        let tick = (random::<u16>() % (MAX_TICK - MIN_TICK) as u16 + MIN_TICK as u16) as i16;
 
         // Place an order at exactly the dust limit (should succeed)
         let mut tx = exchange
-            .place(token_address, min_order_amount, true, 0)
+            .place(token_address, min_order_amount, true, tick)
             .into_transaction_request()
             .with_gas_limit(GAS_LIMIT)
             .with_gas_price(TEMPO_BASE_FEE as u128)
