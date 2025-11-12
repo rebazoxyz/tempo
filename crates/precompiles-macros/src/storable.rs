@@ -162,10 +162,10 @@ fn derive_struct_impl(input: DeriveInput) -> syn::Result<TokenStream> {
                 {
                     use crate::storage::Storable;
 
-                    // Structs can only be loaded with Full context
-                    if !matches!(ctx, crate::storage::LayoutCtx::Full) {
-                        unreachable!("Struct types can only be loaded with LayoutCtx::Full");
-                    }
+                    debug_assert_eq!(
+                        ctx, crate::storage::LayoutCtx::Full,
+                        "Struct types can only be loaded with LayoutCtx::Full"
+                    );
 
                     #load_impl
 
@@ -187,10 +187,11 @@ fn derive_struct_impl(input: DeriveInput) -> syn::Result<TokenStream> {
                 {
                     use crate::storage::Storable;
 
-                    // Structs can only be stored with Full context
-                    if !matches!(ctx, crate::storage::LayoutCtx::Full) {
-                        unreachable!("Struct types can only be stored with LayoutCtx::Full");
-                    }
+                    debug_assert_eq!(
+                        ctx, crate::storage::LayoutCtx::Full,
+                        "Struct types can only be stored with LayoutCtx::Full"
+                    );
+
 
                     #store_impl
 
@@ -251,10 +252,10 @@ fn derive_struct_impl(input: DeriveInput) -> syn::Result<TokenStream> {
                     {
                         use crate::storage::Storable;
 
-                        // Structs can only be loaded with Full context
-                        if !matches!(ctx, crate::storage::LayoutCtx::Full) {
-                            unreachable!("Struct types can only be loaded with LayoutCtx::Full");
-                        }
+                        debug_assert_eq!(
+                            ctx, crate::storage::LayoutCtx::Full,
+                            "Struct types can only be loaded with LayoutCtx::Full"
+                        );
 
                         #load_impl
 
@@ -274,10 +275,10 @@ fn derive_struct_impl(input: DeriveInput) -> syn::Result<TokenStream> {
                     {
                         use crate::storage::Storable;
 
-                        // Structs can only be stored with Full context
-                        if !matches!(ctx, crate::storage::LayoutCtx::Full) {
-                            unreachable!("Struct types can only be stored with LayoutCtx::Full");
-                        }
+                        debug_assert_eq!(
+                            ctx, crate::storage::LayoutCtx::Full,
+                            "Struct types can only be stored with LayoutCtx::Full"
+                        );
 
                         #store_impl
 

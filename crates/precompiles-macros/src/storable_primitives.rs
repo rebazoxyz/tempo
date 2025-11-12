@@ -124,25 +124,14 @@ fn gen_storable_impl(
                 impl Storable<1> for #type_path {
                     #[inline]
                     fn load<S: StorageOps>(storage: &mut S, base_slot: #type_path, ctx: LayoutCtx) -> Result<Self> {
-                        match ctx {
-                            LayoutCtx::Full => storage.sload(base_slot),
-                            LayoutCtx::Packed(_) => {
-                                unreachable!("U256 occupies a full slot and cannot be packed")
-                            }
-                        }
+                        debug_assert_eq!(ctx, LayoutCtx::Full, "U256 takes a full slot and cannot be packed");
+                        storage.sload(base_slot)
                     }
 
                     #[inline]
                     fn store<S: StorageOps>(&self, storage: &mut S, base_slot: #type_path, ctx: LayoutCtx) -> Result<()> {
-                        match ctx {
-                            LayoutCtx::Full => {
-                                storage.sstore(base_slot, *self)?;
-                                Ok(())
-                            }
-                            LayoutCtx::Packed(_) => {
-                                unreachable!("U256 occupies a full slot and cannot be packed")
-                            }
-                        }
+                        debug_assert_eq!(ctx, LayoutCtx::Full, "U256 takes a full slot and cannot be packed");
+                        storage.sstore(base_slot, *self)
                     }
 
                     #[inline]
@@ -501,12 +490,6 @@ fn gen_array_impl(config: &ArrayConfig) -> TokenStream {
         gen_unpacked_array_store()
     };
 
-    let delete_impl = if *elem_is_packable {
-        gen_packed_array_delete(array_size, elem_byte_count)
-    } else {
-        gen_unpacked_array_delete(array_size)
-    };
-
     let to_evm_words_impl = if *elem_is_packable {
         gen_packed_array_to_evm_words(array_size, elem_byte_count)
     } else {
@@ -538,29 +521,23 @@ fn gen_array_impl(config: &ArrayConfig) -> TokenStream {
         // Implement Storable
         impl Storable<{ #mod_ident::SLOT_COUNT }> for [#elem_type; #array_size] {
             fn load<S: StorageOps>(storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<Self> {
-                // Arrays can only be loaded with Full context
-                if !matches!(ctx, LayoutCtx::Full) {
-                    unreachable!("Array types can only be loaded with LayoutCtx::Full");
-                }
+                debug_assert_eq!(
+                    ctx, crate::storage::LayoutCtx::Full,
+                    "Arrays can only be loaded with LayoutCtx::Full"
+                );
+
                 use crate::storage::packing::{calc_element_slot, calc_element_offset, extract_packed_value};
                 #load_impl
             }
 
             fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-                // Arrays can only be stored with Full context
-                if !matches!(ctx, LayoutCtx::Full) {
-                    unreachable!("Array types can only be stored with LayoutCtx::Full");
-                }
+                debug_assert_eq!(
+                    ctx, crate::storage::LayoutCtx::Full,
+                    "Arrays can only be stored with LayoutCtx::Full"
+                );
+
                 use crate::storage::packing::{calc_element_slot, calc_element_offset, insert_packed_value};
                 #store_impl
-            }
-
-            fn delete<S: StorageOps>(storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-                // Arrays can only be deleted with Full context
-                if !matches!(ctx, LayoutCtx::Full) {
-                    unreachable!("Array types can only be deleted with LayoutCtx::Full");
-                }
-                #delete_impl
             }
 
             fn to_evm_words(&self) -> Result<[U256; { #mod_ident::SLOT_COUNT }]> {
@@ -631,17 +608,6 @@ fn gen_packed_array_store(array_size: &usize, elem_byte_count: &usize) -> TokenS
     }
 }
 
-/// Generate delete implementation for packed arrays
-fn gen_packed_array_delete(array_size: &usize, elem_byte_count: &usize) -> TokenStream {
-    quote! {
-        let slot_count = (#array_size * #elem_byte_count).div_ceil(32);
-        for slot_idx in 0..slot_count {
-            storage.sstore(base_slot + U256::from(slot_idx), U256::ZERO)?;
-        }
-        Ok(())
-    }
-}
-
 /// Generate load implementation for unpacked arrays
 fn gen_unpacked_array_load(array_size: &usize) -> TokenStream {
     quote! {
@@ -660,17 +626,6 @@ fn gen_unpacked_array_store() -> TokenStream {
         for (i, elem) in self.iter().enumerate() {
             let elem_slot = base_slot + U256::from(i);
             elem.store(storage, elem_slot, LayoutCtx::Full)?;
-        }
-        Ok(())
-    }
-}
-
-/// Generate delete implementation for unpacked arrays
-fn gen_unpacked_array_delete(array_size: &usize) -> TokenStream {
-    quote! {
-        // For unpacked single-slot elements, just zero out each slot
-        for i in 0..#array_size {
-            storage.sstore(base_slot + U256::from(i), U256::ZERO)?;
         }
         Ok(())
     }
@@ -896,7 +851,6 @@ fn gen_struct_array_impl(struct_type: &TokenStream, array_size: usize) -> TokenS
     // Generate implementation methods
     let load_impl = gen_struct_array_load(struct_type, array_size);
     let store_impl = gen_struct_array_store(struct_type);
-    let delete_impl = gen_struct_array_delete(struct_type, array_size);
     let to_evm_words_impl = gen_struct_array_to_evm_words(struct_type, array_size);
     let from_evm_words_impl = gen_struct_array_from_evm_words(struct_type, array_size);
 
@@ -929,13 +883,6 @@ fn gen_struct_array_impl(struct_type: &TokenStream, array_size: usize) -> TokenS
                 base_slot: ::alloy::primitives::U256
             ) -> crate::error::Result<()> {
                 #store_impl
-            }
-
-            fn delete<S: crate::storage::StorageOps>(
-                storage: &mut S,
-                base_slot: ::alloy::primitives::U256
-            ) -> crate::error::Result<()> {
-                #delete_impl
             }
 
             fn to_evm_words(&self) -> crate::error::Result<[::alloy::primitives::U256; { #mod_ident::SLOT_COUNT }]> {
@@ -997,25 +944,6 @@ fn gen_struct_array_store(struct_type: &TokenStream) -> TokenStream {
             ).ok_or(crate::error::TempoError::SlotOverflow)?;
 
             <#struct_type as crate::storage::Storable<{<#struct_type as crate::storage::StorableType>::LAYOUT.slots()}>>::store(elem, storage, elem_slot)?;
-        }
-        Ok(())
-    }
-}
-
-/// Generate delete implementation for struct arrays.
-///
-/// Calls `delete()` on each element to ensure proper cleanup of nested structures.
-fn gen_struct_array_delete(struct_type: &TokenStream, array_size: usize) -> TokenStream {
-    quote! {
-        for i in 0..#array_size {
-            // Calculate slot for this element: base_slot + (i * element_slot_count)
-            let elem_slot = base_slot.checked_add(
-                ::alloy::primitives::U256::from(i).checked_mul(
-                    ::alloy::primitives::U256::from(<#struct_type as crate::storage::StorableType>::LAYOUT.slots())
-                ).ok_or(crate::error::TempoError::SlotOverflow)?
-            ).ok_or(crate::error::TempoError::SlotOverflow)?;
-
-            <#struct_type as crate::storage::Storable<{<#struct_type as crate::storage::StorableType>::LAYOUT.slots()}>>::delete(storage, elem_slot)?;
         }
         Ok(())
     }
