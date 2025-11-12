@@ -731,9 +731,8 @@ async fn read_validator_config_with_retry<C: commonware_runtime::Clock>(
 ) -> OrderedAssociated<PublicKey, DecodedValidator> {
     let mut attempts = 1;
     let retry_after = Duration::from_secs(1);
-    let validators = loop {
-        if let Ok(validators) =
-            read_validator_config_from_contract(attempts, &node, at_height).await
+    loop {
+        if let Ok(validators) = read_validator_config_from_contract(attempts, node, at_height).await
         {
             break validators;
         }
@@ -746,8 +745,7 @@ async fn read_validator_config_with_retry<C: commonware_runtime::Clock>(
         });
         attempts += 1;
         context.sleep(retry_after).await;
-    };
-    validators
+    }
 }
 
 /// Reads the validator config `at_height` from a smart contract.
@@ -819,14 +817,14 @@ async fn decode_contract_validators(
     for val in contract_vals.into_iter().filter(|val| val.active) {
         // NOTE: not reporting errors because `decode_from_contract` emits
         // events on success and error
-        if let Ok(val) = DecodedValidator::decode_from_contract(val) {
-            if let Some(old) = decoded.insert(val.public_key.clone(), val) {
-                warn!(
-                    %old,
-                    new = %decoded.get(&old.public_key).expect("just inserted it"),
-                    "replaced peer because public keys were duplicated",
-                );
-            }
+        if let Ok(val) = DecodedValidator::decode_from_contract(val)
+            && let Some(old) = decoded.insert(val.public_key.clone(), val)
+        {
+            warn!(
+                %old,
+                new = %decoded.get(&old.public_key).expect("just inserted it"),
+                "replaced peer because public keys were duplicated",
+            );
         }
     }
     decoded.into_iter().collect::<_>()

@@ -92,7 +92,7 @@ impl Participants {
         let mut buffered = ringbuffer::ConstGenericRingBuffer::new();
         buffered.enqueue(validators.clone());
         buffered.enqueue(validators.clone());
-        buffered.enqueue(validators.clone());
+        buffered.enqueue(validators);
         Self { buffered }
     }
 
