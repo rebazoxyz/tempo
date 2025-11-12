@@ -336,8 +336,6 @@ pub(crate) fn is_array_type(ty: &Type) -> bool {
 /// - Start at offset 0 of a new slot
 /// - Force the next field to start at a new slot
 /// - Cannot be packed with other fields
-///
-/// Unlike custom structs, mappings do NOT have a SLOTS constant.
 pub(crate) fn is_mapping_type(ty: &Type) -> bool {
     extract_mapping_types(ty).is_some()
 }
