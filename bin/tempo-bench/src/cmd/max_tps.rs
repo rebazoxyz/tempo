@@ -46,6 +46,8 @@ use tempo_precompiles::{
 };
 use tokio::time::timeout;
 
+const GAS_LIMIT: u64 = 1_000_000;
+
 /// Run maximum TPS throughput benchmarking
 #[derive(Parser, Debug)]
 pub struct MaxTpsArgs {
@@ -470,7 +472,7 @@ mod dex {
         let mut tx = exchange
             .place(token_address, min_order_amount, true, 0)
             .into_transaction_request()
-            .with_gas_limit(300_000)
+            .with_gas_limit(GAS_LIMIT)
             .with_gas_price(TEMPO_BASE_FEE as u128)
             .with_chain_id(chain_id)
             .with_nonce(nonce)
@@ -505,7 +507,7 @@ mod dex {
         let mut tx = exchange
             .swapExactAmountIn(token_in, token_out, min_order_amount, min_amount_out)
             .into_transaction_request()
-            .with_gas_limit(300_000)
+            .with_gas_limit(GAS_LIMIT)
             .with_gas_price(TEMPO_BASE_FEE as u128)
             .with_chain_id(chain_id)
             .with_nonce(nonce)
