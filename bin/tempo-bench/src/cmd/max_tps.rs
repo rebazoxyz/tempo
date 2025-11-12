@@ -6,7 +6,9 @@ use tempo_alloy::TempoNetwork;
 use alloy::{
     consensus::BlockHeader,
     eips::BlockNumberOrTag::Latest,
-    network::{Ethereum, EthereumWallet, Network, TransactionBuilder, TxSignerSync},
+    network::{
+        Ethereum, EthereumWallet, Network, ReceiptResponse, TransactionBuilder, TxSignerSync,
+    },
     primitives::{Address, BlockNumber, ChainId, Signature, TxKind, U256},
     providers::{
         PendingTransactionBuilder, Provider, ProviderBuilder, RootProvider,
@@ -477,6 +479,8 @@ pub fn pin_thread(core_id: CoreId) {
 struct BenchmarkedBlock {
     number: BlockNumber,
     tx_count: usize,
+    ok_count: usize,
+    err_count: usize,
     gas_used: u64,
     timestamp: u64,
     latency_ms: Option<u64>,
@@ -531,10 +535,22 @@ pub async fn generate_report(
         let timestamp = block.header.timestamp_millis();
 
         let latency_ms = last_block_timestamp.map(|last| timestamp - last);
+        let (ok_count, err_count) =
+            receipts
+                .iter()
+                .fold((0, 0), |(successes, failures), receipt| {
+                    if receipt.status() {
+                        (successes + 1, failures)
+                    } else {
+                        (successes, failures + 1)
+                    }
+                });
 
         benchmarked_blocks.push(BenchmarkedBlock {
             number,
             tx_count: receipts.len(),
+            ok_count,
+            err_count,
             gas_used: block.header.gas_used(),
             timestamp: block.header.timestamp_millis(),
             latency_ms,
