@@ -6,17 +6,9 @@ use tempo_alloy::TempoNetwork;
 use alloy::{
     consensus::BlockHeader,
     eips::{BlockNumberOrTag::Latest, Decodable2718},
-    network::{
-        Ethereum, EthereumWallet, Network, ReceiptResponse, TransactionBuilder, TxSignerSync,
-    },
+    network::{Ethereum, Network, ReceiptResponse, TransactionBuilder, TxSignerSync},
     primitives::{Address, BlockNumber, ChainId, Signature, TxKind, U256},
-    providers::{
-        PendingTransactionBuilder, Provider, ProviderBuilder, RootProvider,
-        fillers::{
-            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-            WalletFiller,
-        },
-    },
+    providers::{PendingTransactionBuilder, Provider, ProviderBuilder},
     sol_types::{SolCall, SolEvent},
     transports::http::reqwest::Url,
 };

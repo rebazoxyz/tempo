@@ -1,20 +1,10 @@
 use super::*;
+use alloy::providers::DynProvider;
 use std::pin::Pin;
 use tempo_contracts::precompiles::IStablecoinExchange;
 use tempo_precompiles::stablecoin_exchange::{MAX_TICK, MIN_TICK, price_to_tick};
 
 const GAS_LIMIT: u64 = 500_000;
-
-type DexProvider = FillProvider<
-    JoinFill<
-        JoinFill<
-            alloy::providers::Identity,
-            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-        >,
-        WalletFiller<EthereumWallet>,
-    >,
-    RootProvider,
->;
 
 /// This method performs a one-time setup for sending a lot of transactions:
 /// * Adds a quote token and a couple of user tokens paired with the quote token.
@@ -27,7 +17,7 @@ pub(super) async fn setup(
     signers: Vec<PrivateKeySigner>,
     max_concurrent_requests: usize,
 ) -> eyre::Result<(
-    IStablecoinExchangeInstance<DexProvider>,
+    IStablecoinExchangeInstance<DynProvider>,
     Address,
     Address,
     Address,
@@ -135,7 +125,7 @@ pub(super) async fn setup(
 
     join_all(futures, &tx_count, max_concurrent_requests).await?;
 
-    let exchange = IStablecoinExchange::new(STABLECOIN_EXCHANGE_ADDRESS, provider.clone());
+    let exchange = IStablecoinExchange::new(STABLECOIN_EXCHANGE_ADDRESS, provider.clone().erased());
 
     Ok((
         exchange,
