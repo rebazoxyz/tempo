@@ -35,6 +35,8 @@ reth-node-core.workspace = true
 reth-node-metrics.workspace = true
 reth-rpc-builder.workspace = true
 
+secp256k1 = { version = "0.30", default-features = false, features = ["global-context"] }
+
 tempo-chainspec.workspace = true
 tempo-commonware-node.workspace = true
 tempo-eyre.workspace = true

@@ -16,180 +16,30 @@ use commonware_cryptography::{
 };
 use commonware_p2p::{
     Manager as _,
-    simulated::{self, Control, Link, Network, Oracle, SocketManager},
+    simulated::{self, Link, Network, Oracle},
 };
 
 use commonware_runtime::{
-    Clock, Handle, Metrics as _, Runner as _,
+    Clock, Metrics as _, Runner as _,
     deterministic::{self, Context, Runner},
 };
 use commonware_utils::{quorum, set::OrderedAssociated};
 use futures::future::join_all;
 use itertools::Itertools as _;
 use reth_node_metrics::recorder::PrometheusRecorder;
-use tempo_commonware_node::consensus;
-use tracing::debug;
 
 pub mod execution_runtime;
+pub use execution_runtime::ExecutionNodeConfig;
 pub mod testing_node;
 // pub mod genesis;
 pub use execution_runtime::ExecutionRuntime;
 pub use testing_node::TestingNode;
-
-use crate::execution_runtime::ExecutionNode;
 
 #[cfg(test)]
 mod tests;
 
 pub const CONSENSUS_NODE_PREFIX: &str = "consensus";
 pub const EXECUTION_NODE_PREFIX: &str = "execution";
-
-/// A Tempo node with lazily started consensus engine.
-pub struct PreparedNode {
-    pub uid: String,
-
-    /// Execution-layer node. Spawned in the background but won't progress unless consensus engine is started.
-    pub execution_node: ExecutionNode,
-
-    /// Public key of the validator.
-    pub public_key: PublicKey,
-
-    pub consensus_config: consensus::Builder<Control<PublicKey>, Context, SocketManager<PublicKey>>,
-
-    pub oracle: simulated::Oracle<PublicKey>,
-}
-
-impl PreparedNode {
-    pub async fn start(self) -> RunningNode {
-        let Self {
-            uid,
-            execution_node,
-            public_key,
-            consensus_config,
-            oracle,
-        } = self;
-        let engine = consensus_config
-            .clone()
-            .try_init()
-            .await
-            .expect("must be able to start the engine");
-        let pending = oracle
-            .control(public_key.clone())
-            .register(0)
-            .await
-            .unwrap();
-        let recovered = oracle
-            .control(public_key.clone())
-            .register(1)
-            .await
-            .unwrap();
-        let resolver = oracle
-            .control(public_key.clone())
-            .register(2)
-            .await
-            .unwrap();
-        let broadcast = oracle
-            .control(public_key.clone())
-            .register(3)
-            .await
-            .unwrap();
-        let marshal = oracle
-            .control(public_key.clone())
-            .register(4)
-            .await
-            .unwrap();
-        let dkg = oracle
-            .control(public_key.clone())
-            .register(5)
-            .await
-            .unwrap();
-        let boundary_certs = oracle
-            .control(public_key.clone())
-            .register(6)
-            .await
-            .unwrap();
-        let subblocks = oracle
-            .control(public_key.clone())
-            .register(7)
-            .await
-            .unwrap();
-
-        let consensus_handle = engine.start(
-            pending,
-            recovered,
-            resolver,
-            broadcast,
-            marshal,
-            dkg,
-            boundary_certs,
-            subblocks,
-        );
-
-        debug!(%uid, "started validator");
-
-        RunningNode {
-            uid,
-            consensus_config,
-            consensus_handle,
-            execution_node,
-            public_key,
-            oracle,
-        }
-    }
-}
-
-/// A Tempo node with lazily started consensus engine.
-pub struct RunningNode {
-    pub uid: String,
-
-    pub consensus_config: consensus::Builder<Control<PublicKey>, Context, SocketManager<PublicKey>>,
-    pub consensus_handle: Handle<eyre::Result<()>>,
-
-    /// Execution-layer node. Spawned in the background but won't progress unless consensus engine is started.
-    pub execution_node: ExecutionNode,
-
-    /// Public key of the validator.
-    pub public_key: PublicKey,
-
-    pub oracle: simulated::Oracle<PublicKey>,
-}
-
-impl RunningNode {
-    /// Stops the consensus engine but keeps the execution node running.
-    ///
-    /// The execution node cannot be individually stopped because all execution nodes
-    /// share the same TaskManager in the ExecutionRuntime. To fully stop execution nodes,
-    /// the entire ExecutionRuntime must be stopped via `ExecutionRuntime::stop()`.
-    ///
-    /// The execution node will be reused when `PreparedNode::start()` is called.
-    pub fn stop(self) -> PreparedNode {
-        let Self {
-            uid,
-            execution_node,
-            public_key,
-            oracle,
-            consensus_config,
-            consensus_handle,
-        } = self;
-        // Stop consensus engine
-        consensus_handle.abort();
-        execution_node
-            .node
-            .task_executor
-            .spawn_critical("sudden", async {
-                panic!("");
-            });
-
-        // Return PreparedNode with the still-running execution node
-        PreparedNode {
-            uid,
-            execution_node,
-            public_key,
-            consensus_config,
-            oracle,
-        }
-    }
-}
 
 /// The test setup run by [`run`].
 #[derive(Clone)]
@@ -217,7 +67,7 @@ pub async fn setup_validators(
         connect_execution_layer_nodes,
         ..
     }: Setup,
-) -> (Vec<PreparedNode>, simulated::Oracle<PublicKey>) {
+) -> (Vec<TestingNode>, simulated::Oracle<PublicKey>) {
     let (network, oracle) = Network::new(
         context.with_label("network"),
         simulated::Config {
@@ -241,7 +91,6 @@ pub async fn setup_validators(
         ops::generate_shares::<_, MinSig>(&mut context, None, how_many_signers, threshold);
 
     let mut nodes = Vec::new();
-    let mut execution_nodes: Vec<ExecutionNode> = Vec::with_capacity(how_many_signers as usize);
 
     // The actual port here does not matter because in the simulated p2p
     // oracle it will be ignored. But it's nice because the nodes can be
@@ -260,42 +109,37 @@ pub async fn setup_validators(
         .collect::<Vec<_>>()
         .into();
 
-    for signer in &private_keys {
-        let node = execution_runtime
-            .spawn_node(&execution_runtime::execution_node_name(
-                &signer.public_key(),
-            ))
-            .await
-            .expect("must be able to spawn nodes on the runtime");
-
-        if connect_execution_layer_nodes {
-            // ensure EL p2p connectivity for backfill syncs
-            for existing_node in &execution_nodes {
-                existing_node.connect_peer(&node).await;
-            }
-        }
-
-        execution_nodes.push(node);
-    }
-
     let mut private_keys = private_keys.into_iter();
+    let execution_configs =
+        ExecutionNodeConfig::generate_many(how_many_signers, connect_execution_layer_nodes);
 
-    // First, process the signers
-    for (private_key, share) in private_keys
+    // Spawn a dummy execution node to use as a placeholder in consensus configs
+    // This will be replaced when TestingNode::start_execution() is called
+    let dummy_execution_node = execution_runtime
+        .spawn_node(
+            "dummy",
+            ExecutionNodeConfig::generate_many(1, false)[0].clone(),
+        )
+        .await
+        .expect("must be able to spawn dummy execution node");
+
+    // Process the signers
+    for ((private_key, share), execution_config) in private_keys
         .by_ref()
         .take(how_many_signers as usize)
         .zip_eq(shares)
+        .zip_eq(execution_configs)
     {
         let oracle = oracle.clone();
 
         let uid = format!("{CONSENSUS_NODE_PREFIX}-{}", private_key.public_key());
-        let execution_node = execution_nodes.remove(0);
 
         oracle.socket_manager().update(0, peers.clone()).await;
         let engine_config = tempo_commonware_node::consensus::Builder {
             context: context.with_label(&uid),
             fee_recipient: alloy_primitives::Address::ZERO,
-            execution_node: execution_node.node.clone(),
+            // Placeholder that will be replaced by TestingNode::start_execution()
+            execution_node: dummy_execution_node.node.clone(),
             blocker: oracle.control(private_key.public_key()),
             peer_manager: oracle.socket_manager(),
             partition_prefix: uid.clone(),
@@ -316,13 +160,14 @@ pub async fn setup_validators(
             time_to_build_subblock: Duration::from_millis(100),
         };
 
-        nodes.push(PreparedNode {
-            execution_node,
-            public_key: private_key.public_key(),
-            consensus_config: engine_config,
-            oracle: oracle.clone(),
-            uid: uid.clone(),
-        });
+        nodes.push(TestingNode::new(
+            uid,
+            private_key.public_key(),
+            oracle.clone(),
+            engine_config,
+            execution_runtime.handle(),
+            execution_config,
+        ));
     }
 
     (nodes, oracle)
@@ -338,12 +183,12 @@ pub fn run(setup: Setup, mut stop_condition: impl FnMut(&str, &str) -> bool) -> 
 
         let linkage = setup.linkage.clone();
         // Setup and run all validators.
-        let (nodes, mut oracle) =
+        let (mut nodes, mut oracle) =
             setup_validators(context.clone(), &execution_runtime, setup).await;
 
-        let running = join_all(nodes.into_iter().map(|node| node.start())).await;
+        join_all(nodes.iter_mut().map(|node| node.start())).await;
 
-        link_validators(&mut oracle, &running, linkage, None).await;
+        link_validators(&mut oracle, &nodes, linkage, None).await;
 
         let pat = format!("{CONSENSUS_NODE_PREFIX}-");
         loop {
@@ -388,14 +233,14 @@ pub fn run(setup: Setup, mut stop_condition: impl FnMut(&str, &str) -> bool) -> 
 /// otherwise all validators will be linked to all other validators.
 pub async fn link_validators(
     oracle: &mut Oracle<PublicKey>,
-    validators: &[RunningNode],
+    validators: &[TestingNode],
     link: Link,
     restrict_to: Option<fn(usize, usize, usize) -> bool>,
 ) {
     for (i1, v1) in validators.iter().enumerate() {
         for (i2, v2) in validators.iter().enumerate() {
             // Ignore self
-            if v1.public_key == v2.public_key {
+            if v1.public_key() == v2.public_key() {
                 continue;
             }
 
@@ -408,7 +253,11 @@ pub async fn link_validators(
 
             // Add link
             match oracle
-                .add_link(v1.public_key.clone(), v2.public_key.clone(), link.clone())
+                .add_link(
+                    v1.public_key().clone(),
+                    v2.public_key().clone(),
+                    link.clone(),
+                )
                 .await
             {
                 Ok(()) => (),

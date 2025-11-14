@@ -21,7 +21,7 @@ use tempo_node::primitives::{
     TempoTxEnvelope, TxAA, subblock::TEMPO_SUBBLOCK_NONCE_KEY_PREFIX, transaction::Call,
 };
 
-use crate::{ExecutionRuntime, RunningNode, Setup, link_validators, setup_validators};
+use crate::{ExecutionRuntime, Setup, TestingNode, link_validators, setup_validators};
 
 #[test_traced]
 fn subblocks_are_included() {
@@ -45,18 +45,14 @@ fn subblocks_are_included() {
 
         // Setup and start all nodes.
         let execution_runtime = ExecutionRuntime::new();
-        let (nodes, mut oracle) =
+        let (mut nodes, mut oracle) =
             setup_validators(context.clone(), &execution_runtime, setup).await;
 
-        let running = join_all(nodes.into_iter().map(|node| node.start())).await;
+        join_all(nodes.iter_mut().map(|node| node.start())).await;
 
-        link_validators(&mut oracle, &running, linkage.clone(), None).await;
+        link_validators(&mut oracle, &nodes, linkage.clone(), None).await;
 
-        let mut stream = running[0]
-            .execution_node
-            .node
-            .provider
-            .canonical_state_stream();
+        let mut stream = nodes[0].execution_provider().canonical_state_stream();
 
         let mut expected_transactions: Vec<TxHash> = Vec::new();
         while let Some(update) = stream.next().await {
@@ -84,7 +80,7 @@ fn subblocks_are_included() {
             }
 
             // Send subblock transactions to all nodes.
-            for node in running.iter() {
+            for node in nodes.iter() {
                 for _ in 0..5 {
                     expected_transactions.push(submit_subblock_tx(node).await);
                 }
@@ -93,15 +89,17 @@ fn subblocks_are_included() {
     });
 }
 
-async fn submit_subblock_tx(node: &RunningNode) -> TxHash {
+async fn submit_subblock_tx(node: &TestingNode) -> TxHash {
     let wallet = PrivateKeySigner::random();
 
     let mut nonce_bytes = [0; 32];
     nonce_bytes[0] = TEMPO_SUBBLOCK_NONCE_KEY_PREFIX;
-    nonce_bytes[1..16].copy_from_slice(&node.public_key.as_ref()[..15]);
+    nonce_bytes[1..16].copy_from_slice(&node.public_key().as_ref()[..15]);
+
+    let provider = node.execution_provider();
 
     let mut tx = TxAA {
-        chain_id: node.execution_node.node.provider.chain_spec().chain_id(),
+        chain_id: provider.chain_spec().chain_id(),
         calls: vec![Call {
             to: Address::ZERO.into(),
             input: Default::default(),
@@ -111,13 +109,12 @@ async fn submit_subblock_tx(node: &RunningNode) -> TxHash {
         nonce_key: U256::from_be_bytes(nonce_bytes),
         ..Default::default()
     };
-    assert!(tx.subblock_proposer().unwrap().matches(&node.public_key));
+    assert!(tx.subblock_proposer().unwrap().matches(node.public_key()));
     let signature = wallet.sign_transaction_sync(&mut tx).unwrap();
 
     let tx = TempoTxEnvelope::AA(tx.into_signed(signature.into()));
     let tx_hash = *tx.tx_hash();
-    node.execution_node
-        .node
+    node.execution()
         .eth_api()
         .send_raw_transaction(tx.encoded_2718().into())
         .await

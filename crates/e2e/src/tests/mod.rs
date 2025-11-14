@@ -32,8 +32,13 @@ fn spawning_execution_node_works() {
     let handle = runtime.handle();
 
     futures::executor::block_on(async move {
+        let config = crate::ExecutionNodeConfig {
+            secret_key: alloy_primitives::B256::random(),
+            trusted_peers: vec![],
+            port: 0,
+        };
         let node = handle
-            .spawn_node("node-1")
+            .spawn_node("node-1", config)
             .await
             .expect("a running execution runtime must be able to spawn nodes");
 

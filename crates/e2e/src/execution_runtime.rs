@@ -1,10 +1,12 @@
 //! The environment to launch tempo execution nodes in.
 use std::{
     path::{Path, PathBuf},
+    str::FromStr,
     sync::Arc,
     time::Duration,
 };
 
+use alloy_primitives::B256;
 use eyre::WrapErr as _;
 use futures::StreamExt;
 use reth_db::mdbx::DatabaseArguments;
@@ -18,15 +20,80 @@ use reth_ethereum::{
     },
     tasks::{TaskExecutor, TaskManager},
 };
+use reth_network_peers::{NodeRecord, TrustedPeer};
 use reth_node_builder::{NodeBuilder, NodeConfig};
 use reth_node_core::{
     args::{DatadirArgs, PayloadBuilderArgs, RpcServerArgs},
     exit::NodeExitFuture,
 };
 use reth_rpc_builder::RpcModuleSelection;
+use secp256k1::SecretKey;
+use std::net::TcpListener;
 use tempfile::TempDir;
 use tempo_chainspec::TempoChainSpec;
 use tempo_node::{TempoFullNode, node::TempoNode};
+
+/// Configuration for launching an execution node.
+#[derive(Clone, Debug)]
+pub struct ExecutionNodeConfig {
+    /// Network secret key for the node's identity.
+    pub secret_key: B256,
+    /// List of trusted peer enode URLs to connect to.
+    pub trusted_peers: Vec<String>,
+    /// Port for the network service.
+    pub port: u16,
+}
+
+impl ExecutionNodeConfig {
+    /// Generate multiple execution node configs with optional trusted peer connections.
+    pub fn generate_many(count: u32, connect_peers: bool) -> Vec<Self> {
+        // Reserve ports by binding to them
+        let ports: Vec<u16> = (0..count)
+            .map(|_| {
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                let port = listener
+                    .local_addr()
+                    .expect("failed to get local addr")
+                    .port();
+                drop(listener);
+                port
+            })
+            .collect();
+
+        let mut configs: Vec<Self> = ports
+            .iter()
+            .map(|&port| Self {
+                secret_key: B256::random(),
+                trusted_peers: vec![],
+                port,
+            })
+            .collect();
+
+        if connect_peers {
+            let enode_urls: Vec<String> = configs
+                .iter()
+                .map(|config| {
+                    let secret_key = SecretKey::from_slice(config.secret_key.as_slice())
+                        .expect("valid secret key");
+                    let addr = format!("127.0.0.1:{}", config.port)
+                        .parse()
+                        .expect("valid socket address");
+                    NodeRecord::from_secret_key(addr, &secret_key).to_string()
+                })
+                .collect();
+
+            for (i, config) in configs.iter_mut().enumerate() {
+                for (j, enode_url) in enode_urls.iter().enumerate() {
+                    if i != j {
+                        config.trusted_peers.push(enode_url.clone());
+                    }
+                }
+            }
+        }
+
+        configs
+    }
+}
 
 /// An execution runtime wrapping a thread running a [`tokio::runtime::Runtime`].
 ///
@@ -64,11 +131,18 @@ impl ExecutionRuntime {
                 let task_manager = TaskManager::current();
                 while let Some(msg) = from_handle.recv().await {
                     match msg {
-                        Message::SpawnNode { name, response } => {
-                            let node =
-                                launch_execution_node(task_manager.executor(), datadir.join(name))
-                                    .await
-                                    .expect("must be able to launch execution nodes");
+                        Message::SpawnNode {
+                            name,
+                            config,
+                            response,
+                        } => {
+                            let node = launch_execution_node(
+                                task_manager.executor(),
+                                datadir.join(name),
+                                config,
+                            )
+                            .await
+                            .expect("must be able to launch execution nodes");
                             response.send(node).expect(
                                 "receiver must hold the return channel until the node is returned",
                             );
@@ -99,11 +173,16 @@ impl ExecutionRuntime {
     }
 
     /// Requests a new execution node and blocks until its returned.
-    pub async fn spawn_node(&self, name: &str) -> eyre::Result<ExecutionNode> {
+    pub async fn spawn_node(
+        &self,
+        name: &str,
+        config: ExecutionNodeConfig,
+    ) -> eyre::Result<ExecutionNode> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_runtime
             .send(Message::SpawnNode {
                 name: name.to_string(),
+                config,
                 response: tx,
             })
             .wrap_err("the execution runtime went away")?;
@@ -113,11 +192,16 @@ impl ExecutionRuntime {
     }
 
     /// Requests a new execution node and blocks until its returned.
-    pub fn spawn_node_blocking(&self, name: &str) -> eyre::Result<ExecutionNode> {
+    pub fn spawn_node_blocking(
+        &self,
+        name: &str,
+        config: ExecutionNodeConfig,
+    ) -> eyre::Result<ExecutionNode> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_runtime
             .send(Message::SpawnNode {
                 name: name.to_string(),
+                config,
                 response: tx,
             })
             .wrap_err("the execution runtime went away")?;
@@ -160,11 +244,16 @@ impl ExecutionRuntimeHandle {
     }
 
     /// Requests a new execution node and blocks until its returned.
-    pub async fn spawn_node(&self, name: &str) -> eyre::Result<ExecutionNode> {
+    pub async fn spawn_node(
+        &self,
+        name: &str,
+        config: ExecutionNodeConfig,
+    ) -> eyre::Result<ExecutionNode> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_runtime
             .send(Message::SpawnNode {
                 name: name.to_string(),
+                config,
                 response: tx,
             })
             .wrap_err("the execution runtime went away")?;
@@ -174,11 +263,16 @@ impl ExecutionRuntimeHandle {
     }
 
     /// Requests a new execution node and blocks until its returned.
-    pub fn spawn_node_blocking(&self, name: &str) -> eyre::Result<ExecutionNode> {
+    pub fn spawn_node_blocking(
+        &self,
+        name: &str,
+        config: ExecutionNodeConfig,
+    ) -> eyre::Result<ExecutionNode> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.to_runtime
             .send(Message::SpawnNode {
                 name: name.to_string(),
+                config,
                 response: tx,
             })
             .wrap_err("the execution runtime went away")?;
@@ -263,6 +357,7 @@ impl std::fmt::Debug for ExecutionNode {
 pub async fn launch_execution_node<P: AsRef<Path>>(
     executor: TaskExecutor,
     datadir: P,
+    config: ExecutionNodeConfig,
 ) -> eyre::Result<ExecutionNode> {
     let node_config = NodeConfig::new(chainspec())
         .with_rpc(
@@ -271,7 +366,6 @@ pub async fn launch_execution_node<P: AsRef<Path>>(
                 .with_http()
                 .with_http_api(RpcModuleSelection::All),
         )
-        .with_unused_ports()
         .with_datadir_args(DatadirArgs {
             datadir: datadir.as_ref().to_path_buf().into(),
             ..DatadirArgs::default()
@@ -282,6 +376,13 @@ pub async fn launch_execution_node<P: AsRef<Path>>(
         })
         .apply(|mut c| {
             c.network.discovery.disable_discovery = true;
+            c.network.trusted_peers = config
+                .trusted_peers
+                .into_iter()
+                .map(|s| TrustedPeer::from_str(&s).expect("invalid trusted peer enode"))
+                .collect();
+            c.network.port = config.port;
+            c.network.p2p_secret_key_hex = Some(config.secret_key);
             c
         });
 
@@ -308,6 +409,7 @@ pub async fn launch_execution_node<P: AsRef<Path>>(
 enum Message {
     SpawnNode {
         name: String,
+        config: ExecutionNodeConfig,
         response: tokio::sync::oneshot::Sender<ExecutionNode>,
     },
     Stop,

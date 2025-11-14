@@ -45,11 +45,11 @@ fn run_restart_test(
     executor.start(|mut context| async move {
         let execution_runtime = ExecutionRuntime::new();
 
-        let (nodes, mut oracle) =
+        let (mut nodes, mut oracle) =
             setup_validators(context.clone(), &execution_runtime, node_setup.clone()).await;
 
-        let mut running = join_all(nodes.into_iter().map(|node| node.start())).await;
-        link_validators(&mut oracle, &running, node_setup.linkage.clone(), None).await;
+        join_all(nodes.iter_mut().map(|node| node.start())).await;
+        link_validators(&mut oracle, &nodes, node_setup.linkage.clone(), None).await;
 
         debug!(
             height = shutdown_height,
@@ -58,20 +58,21 @@ fn run_restart_test(
         wait_for_height(&context, node_setup.how_many_signers, shutdown_height).await;
 
         // Randomly select a validator to kill
-        let idx = context.gen_range(0..running.len());
-        let to_restart = running.remove(idx).stop();
+        let idx = context.gen_range(0..nodes.len());
+        nodes[idx].stop();
 
-        debug!(public_key = %to_restart.public_key, "stopped a random validator");
+        debug!(public_key = %nodes[idx].public_key(), "stopped a random validator");
 
         debug!(
             height = restart_height,
             "waiting for remaining validators to reach target height before restarting validator",
         );
-        wait_for_height(&context, running.len() as u32, restart_height).await;
+        let num_running = nodes.iter().filter(|n| n.is_running()).count() as u32;
+        wait_for_height(&context, num_running, restart_height).await;
 
-        running.push(to_restart.start().await);
+        nodes[idx].start().await;
         debug!(
-            public_key = %running.last().unwrap().public_key,
+            public_key = %nodes[idx].public_key(),
             "restarted validator",
         );
 
@@ -79,7 +80,7 @@ fn run_restart_test(
             height = final_height,
             "waiting for reconstituted validators to reach target height to reach test success",
         );
-        wait_for_height(&context, running.len() as u32, final_height).await;
+        wait_for_height(&context, nodes.len() as u32, final_height).await;
 
         context.auditor().state()
     })
@@ -196,11 +197,11 @@ fn network_resumes_after_restart() {
         executor.start(|mut context| async move {
             let execution_runtime = ExecutionRuntime::new();
 
-            let (nodes, mut oracle) =
+            let (mut nodes, mut oracle) =
                 setup_validators(context.clone(), &execution_runtime, setup.clone()).await;
 
-            let mut running = join_all(nodes.into_iter().map(|node| node.start())).await;
-            link_validators(&mut oracle, &running, setup.linkage.clone(), None).await;
+            join_all(nodes.iter_mut().map(|node| node.start())).await;
+            link_validators(&mut oracle, &nodes, setup.linkage.clone(), None).await;
 
             debug!(
                 height = shutdown_height,
@@ -208,17 +209,17 @@ fn network_resumes_after_restart() {
             );
             wait_for_height(&context, setup.how_many_signers, shutdown_height).await;
 
-            let idx = context.gen_range(0..running.len());
-            let to_restart = running.remove(idx).stop();
-            debug!(public_key = %to_restart.public_key, "stopped a random validator");
+            let idx = context.gen_range(0..nodes.len());
+            nodes[idx].stop();
+            debug!(public_key = %nodes[idx].public_key(), "stopped a random validator");
 
             // wait a bit to let the network settle; some finalizations come in later
             context.sleep(Duration::from_secs(1)).await;
             ensure_no_progress(&context, 5).await;
 
-            running.push(to_restart.start().await);
+            nodes[idx].start().await;
             debug!(
-                public_key = %running.last().unwrap().public_key,
+                public_key = %nodes[idx].public_key(),
                 "restarted validator",
             );
 
@@ -226,7 +227,7 @@ fn network_resumes_after_restart() {
                 height = final_height,
                 "waiting for reconstituted validators to reach target height to reach test success",
             );
-            wait_for_height(&context, running.len() as u32, final_height).await;
+            wait_for_height(&context, nodes.len() as u32, final_height).await;
         })
     }
 }
