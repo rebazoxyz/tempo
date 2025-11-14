@@ -5,7 +5,7 @@ use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, Ident, Type};
 
 use crate::{
-    packing::{self, LayoutField, PackingConstants, SlotType},
+    packing::{self, LayoutField, PackingConstants},
     storable_primitives::gen_struct_arrays,
     utils::{extract_mapping_types, extract_storable_array_sizes, to_snake_case},
 };
@@ -157,8 +157,17 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
 
 /// Generate a compile-time module that calculates the packing layout from IR.
 fn gen_packing_module_from_ir(fields: &[LayoutField<'_>], mod_ident: &Ident) -> TokenStream {
-    // Generate constants using the unified IR-based function
-    let packing_constants = packing::gen_constants_from_ir(fields, SlotType::Usize);
+    // Generate constants using the unified IR-based function (generates <FIELD>: U256)
+    let packing_constants = packing::gen_constants_from_ir(fields);
+
+    // Generate Storable-specific usize version of the slot constants
+    let slot_usize_constants = fields.iter().map(|field| {
+        let consts = PackingConstants::new(field.name);
+        let (slot_u256, slot_usize) = (consts.slot(), consts.slot_usize());
+        quote! {
+            pub const #slot_usize: usize = #slot_u256.as_limbs()[0] as usize;
+        }
+    });
 
     let last_field = &fields[fields.len() - 1];
     let last_slot_const = PackingConstants::new(last_field.name).slot();
@@ -168,8 +177,9 @@ fn gen_packing_module_from_ir(fields: &[LayoutField<'_>], mod_ident: &Ident) -> 
             use super::*;
 
             #packing_constants
+            #(#slot_usize_constants)*
 
-            pub const SLOT_COUNT: usize = #last_slot_const + 1;
+            pub const SLOT_COUNT: usize = (#last_slot_const.saturating_add(::alloy::primitives::U256::ONE)).as_limbs()[0] as usize;
         }
     }
 }
@@ -178,7 +188,7 @@ fn gen_packing_module_from_ir(fields: &[LayoutField<'_>], mod_ident: &Ident) -> 
 /// Accepts indexed fields where the usize is the original field index in the struct.
 fn gen_load_impl(indexed_fields: &[(usize, &Ident, &Type)], packing: &Ident) -> TokenStream {
     let load_fields = indexed_fields.iter().map(|(_orig_idx, name, ty)| {
-        let (slot_const, offset_const, _bytes_const) = PackingConstants::new(name).into_tuple();
+        let (slot_const, offset_const, _) = PackingConstants::new(name).into_tuple_usize();
         let layout_ctx =
             packing::gen_layout_ctx_expr(ty, false, quote! { #packing::#offset_const });
 
@@ -200,7 +210,7 @@ fn gen_load_impl(indexed_fields: &[(usize, &Ident, &Type)], packing: &Ident) -> 
 /// Accepts indexed fields where the usize is the original field index in the struct.
 fn gen_store_impl(indexed_fields: &[(usize, &Ident, &Type)], packing: &Ident) -> TokenStream {
     let store_fields = indexed_fields.iter().map(|(_orig_idx, name, ty)| {
-        let (slot_const, offset_const, _bytes_const) = PackingConstants::new(name).into_tuple();
+        let (slot_const, offset_const, _) = PackingConstants::new(name).into_tuple_usize();
         let layout_ctx = packing::gen_layout_ctx_expr(ty, false, quote! { #packing::#offset_const });
 
         quote! {
@@ -223,7 +233,7 @@ fn gen_to_evm_words_impl(
     packing: &Ident,
 ) -> TokenStream {
     let pack_fields = indexed_fields.iter().map(|(_orig_idx, name, ty)| {
-        let (slot_const, offset_const, bytes_const) = PackingConstants::new(name).into_tuple();
+        let (slot_const, offset_const, bytes_const) = PackingConstants::new(name).into_tuple_usize();
 
         quote! {
             {
@@ -262,7 +272,8 @@ fn gen_from_evm_words_impl(
     packing: &Ident,
 ) -> TokenStream {
     let decode_fields = indexed_fields.iter().map(|(_orig_idx, name, ty)| {
-        let (slot_const, offset_const, bytes_const) = PackingConstants::new(name).into_tuple();
+        let (slot_const, offset_const, bytes_const) =
+            PackingConstants::new(name).into_tuple_usize();
 
         quote! {
             let #name = {

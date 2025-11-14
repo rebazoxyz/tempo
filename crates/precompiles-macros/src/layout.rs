@@ -1,6 +1,6 @@
 use crate::{
     FieldKind,
-    packing::{self, LayoutField, PackingConstants, SlotAssignment, SlotType},
+    packing::{self, LayoutField, PackingConstants, SlotAssignment},
     utils,
 };
 use quote::{format_ident, quote};
@@ -179,7 +179,7 @@ pub(crate) fn gen_slots_module_with_types(
     allocated_fields: &[LayoutField<'_>],
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
     // Generate constants and `SlotId` types that reference them.
-    let constants = packing::gen_constants_from_ir(allocated_fields, SlotType::U256);
+    let constants = packing::gen_constants_from_ir(allocated_fields);
     let slot_id_types = gen_slot_id_types(allocated_fields);
     let slots_module = quote! {
         pub mod slots {
