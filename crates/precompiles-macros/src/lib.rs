@@ -127,9 +127,6 @@ impl FieldKind<'_> {
             FieldKind::Mapping { .. } | FieldKind::NestedMapping { .. }
         )
     }
-    pub(crate) fn is_direct(&self) -> bool {
-        matches!(self, FieldKind::Slot(..))
-    }
 }
 
 fn parse_fields(input: DeriveInput) -> syn::Result<Vec<FieldInfo>> {

@@ -354,6 +354,7 @@ pub(crate) fn gen_slot_packing_logic(
     };
 
     // If previous field is a mapping, current field starts on next slot
+    // TODO(rusowsky): Necessry to avoid type resolution issues. Remove once `SlotId` is dropped
     if is_prev_mapping {
         let slot_expr = match slot_type {
             SlotType::Usize => quote! { #prev_slot_expr + 1 },
@@ -365,6 +366,7 @@ pub(crate) fn gen_slot_packing_logic(
     }
 
     // If current field is a mapping, it must start on a new slot
+    // TODO(rusowsky): Necessry to avoid type resolution issues. Remove once `SlotId` is dropped
     if is_curr_mapping {
         let slot_expr = match slot_type {
             SlotType::Usize => quote! {{ #prev_slot_expr + #prev_layout_slots }},
