@@ -553,28 +553,23 @@ mod tests {
         // Should contain compile-time comparisons
         assert!(
             result_str.contains("FIELD2") && result_str.contains("FIELD1"),
-            "Expected slot comparison, got: {}",
-            result_str
+            "Expected slot comparison, got: {result_str}",
         );
         assert!(
             result_str.contains("FIELD2_OFFSET"),
-            "Expected offset check, got: {}",
-            result_str
+            "Expected offset check, got: {result_str}",
         );
         assert!(
             result_str.contains("IS_PACKABLE"),
-            "Expected IS_PACKABLE check, got: {}",
-            result_str
+            "Expected IS_PACKABLE check, got: {result_str}",
         );
         assert!(
             result_str.contains("Packed"),
-            "Expected Packed variant, got: {}",
-            result_str
+            "Expected Packed variant, got: {result_str}",
         );
         assert!(
             result_str.contains("Full"),
-            "Expected Full variant, got: {}",
-            result_str
+            "Expected Full variant, got: {result_str}",
         );
     }
 }
