@@ -11397,7 +11397,6 @@ dependencies = [
 name = "tempo"
 version = "0.4.0"
 dependencies = [
- "camino",
  "clap",
  "commonware-runtime",
  "eyre",
@@ -11944,7 +11943,6 @@ version = "0.4.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
- "camino",
  "clap",
  "commonware-codec",
  "commonware-cryptography",
