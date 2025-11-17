@@ -209,6 +209,8 @@ pub(crate) fn gen_constants_from_ir(fields: &[LayoutField<'_>], gen_location: bo
         });
 
         // For the `Storable` macro, also generate the location constant
+        // NOTE: `slot_const` refers to the slot offset of the struct field relative to the struct's base slot.
+        // Because of that it is safe to use the usize -> U256 conversion (a struct will never have 2**64 fields).
         if gen_location {
             constants.extend(quote! {
                 pub const #loc_const: crate::storage::packing::FieldLocation =
