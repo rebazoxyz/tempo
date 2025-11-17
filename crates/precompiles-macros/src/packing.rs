@@ -349,42 +349,11 @@ pub(crate) fn gen_slot_packing_logic(
 
 /// Generate a `LayoutCtx` expression for accessing a field.
 ///
-/// Despite we could deterministically know if a field shares its slot with a neighbour, we
-/// treat all primitive types as packable for backward-compatibility reasons.
-///
-/// In a future hardfork, we should implement the logic in `fn gen_layout_ctx_expr_efficient()`.
-pub(crate) fn gen_layout_ctx_expr(
-    ty: &Type,
-    is_manual_slot: bool,
-    _slot_const_ref: TokenStream,
-    offset_const_ref: TokenStream,
-    _prev_slot_const_ref: Option<TokenStream>,
-    _next_slot_const_ref: Option<TokenStream>,
-) -> TokenStream {
-    if !is_manual_slot {
-        quote! {
-            if <#ty as crate::storage::StorableType>::IS_PACKABLE {
-                crate::storage::LayoutCtx::Packed(#offset_const_ref)
-            } else {
-                crate::storage::LayoutCtx::Full
-            }
-        }
-    } else {
-        quote! { crate::storage::LayoutCtx::Full }
-    }
-}
-
-// TODO(rusowsky): implement this logic to `fn gen_layout_ctx_expr` reduce has usage.
-// Note that this requires a hardfork and must be properly coordinated.
-
-/// Generate a `LayoutCtx` expression for accessing a field.
-///
 /// This helper unifies the logic for choosing between `LayoutCtx::Full` and
 /// `LayoutCtx::Packed` based on compile-time slot comparison with neighboring fields.
 ///
 /// A field uses `Packed` if it shares a slot with any neighboring field.
-#[allow(dead_code)]
-pub(crate) fn gen_layout_ctx_expr_efficient(
+pub(crate) fn gen_layout_ctx_expr(
     ty: &Type,
     is_manual_slot: bool,
     slot_const_ref: TokenStream,
@@ -411,6 +380,34 @@ pub(crate) fn gen_layout_ctx_expr_efficient(
                 } else {
                     crate::storage::LayoutCtx::Full
                 }
+            }
+        }
+    } else {
+        quote! { crate::storage::LayoutCtx::Full }
+    }
+}
+
+// TODO(rusowsky): fully embrace `fn gen_layout_ctx_expr` to reduce has usage.
+// Note that this requires a hardfork and must be properly coordinated.
+
+/// Generate a `LayoutCtx` expression for accessing a field.
+///
+/// Despite we could deterministically know if a field shares its slot with a neighbour, we
+/// treat all primitive types as packable for backward-compatibility reasons.
+pub(crate) fn gen_layout_ctx_expr_inefficient(
+    ty: &Type,
+    is_manual_slot: bool,
+    _slot_const_ref: TokenStream,
+    offset_const_ref: TokenStream,
+    _prev_slot_const_ref: Option<TokenStream>,
+    _next_slot_const_ref: Option<TokenStream>,
+) -> TokenStream {
+    if !is_manual_slot {
+        quote! {
+            if <#ty as crate::storage::StorableType>::IS_PACKABLE {
+                crate::storage::LayoutCtx::Packed(#offset_const_ref)
+            } else {
+                crate::storage::LayoutCtx::Full
             }
         }
     } else {

@@ -94,7 +94,7 @@ pub(crate) fn gen_getters_and_setters(
                 quote! { slots::#next_slot }
             });
 
-            let layout_ctx = packing::gen_layout_ctx_expr(
+            let layout_ctx = packing::gen_layout_ctx_expr_inefficient(
                 allocated.ty,
                 matches!(allocated.assigned_slot, SlotAssignment::Manual(_)),
                 quote! { slots::#slot_const },
