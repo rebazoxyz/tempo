@@ -857,10 +857,11 @@ where
         // Call collectFeePostTx on TipFeeManager precompile
         let context = evm.ctx();
         let tx = context.tx();
-        let tx_caller = tx.caller; // Get tx.caller before mutable borrows
+        let tx_caller = tx.caller;
         let basefee = context.block().basefee() as u128;
         let effective_gas_price = tx.effective_gas_price(basefee);
         let gas = exec_result.gas();
+        let is_moderato = context.cfg().spec.is_moderato();
 
         // Calculate actual used and refund amounts
         let actual_spending = calc_gas_balance_spending(gas.used(), effective_gas_price);
@@ -891,13 +892,16 @@ where
                 .map_err(|e| EVMError::Custom(format!("{e:?}")))?;
         }
 
-        // Clear the transaction key after transaction execution completes
+        // Clear the transaction key after transaction execution completes (Moderato+ only)
         // This ensures the transaction key doesn't persist across transactions
         // The transaction key is used to track which key (main or access) authorized the transaction
-        let mut keychain = AccountKeychain::new(&mut storage_provider);
-        keychain
-            .set_transaction_key(tx_caller, Address::ZERO)
-            .map_err(|e| EVMError::Custom(e.to_string()))?;
+        // Only needed after Moderato hardfork when AccountKeychain feature was introduced
+        if is_moderato {
+            let mut keychain = AccountKeychain::new(&mut storage_provider);
+            keychain
+                .set_transaction_key(tx_caller, Address::ZERO)
+                .map_err(|e| EVMError::Custom(e.to_string()))?;
+        }
 
         Ok(())
     }
