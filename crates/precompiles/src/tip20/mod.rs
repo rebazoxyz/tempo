@@ -516,23 +516,26 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     // Standard token functions
     pub fn approve(&mut self, msg_sender: Address, call: ITIP20::approveCall) -> Result<bool> {
-        // If the sender is using an access key, check the spending limits
-        if let Some(transaction_key) = self.is_access_key_used(&msg_sender)? {
-            // Get the old allowance to calculate the increase
-            let old_allowance = self.get_allowance(msg_sender, call.spender)?;
+        // Only check access keys after Moderato hardfork
+        if self.storage.spec().is_moderato() {
+            // If the sender is using an access key, check the spending limits
+            if let Some(transaction_key) = self.is_access_key_used(&msg_sender)? {
+                // Get the old allowance to calculate the increase
+                let old_allowance = self.get_allowance(msg_sender, call.spender)?;
 
-            // Calculate the increase in approval (only deduct if increasing)
-            // If old approval is 100 and new approval is 120, deduct 20 from spending limit
-            // If old approval is 100 and new approval is 80, deduct 0 (decreasing approval is free)
-            let approval_increase = if call.amount > old_allowance {
-                call.amount - old_allowance
-            } else {
-                U256::ZERO
-            };
+                // Calculate the increase in approval (only deduct if increasing)
+                // If old approval is 100 and new approval is 120, deduct 20 from spending limit
+                // If old approval is 100 and new approval is 80, deduct 0 (decreasing approval is free)
+                let approval_increase = if call.amount > old_allowance {
+                    call.amount - old_allowance
+                } else {
+                    U256::ZERO
+                };
 
-            // Check spending limits if there's an increase in approval
-            if !approval_increase.is_zero() {
-                self.check_spending_limit(&msg_sender, transaction_key, approval_increase)?;
+                // Check spending limits if there's an increase in approval
+                if !approval_increase.is_zero() {
+                    self.check_spending_limit(&msg_sender, transaction_key, approval_increase)?;
+                }
             }
         }
 
@@ -557,9 +560,13 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         self.check_not_paused()?;
         self.check_not_token_address(call.to)?;
         self.ensure_transfer_authorized(msg_sender, call.to)?;
-        // Check spending limits if using access key
-        if let Some(transaction_key) = self.is_access_key_used(&msg_sender)? {
-            self.check_spending_limit(&msg_sender, transaction_key, call.amount)?;
+
+        // Only check access keys after Moderato hardfork
+        if self.storage.spec().is_moderato() {
+            // Check spending limits if using access key
+            if let Some(transaction_key) = self.is_access_key_used(&msg_sender)? {
+                self.check_spending_limit(&msg_sender, transaction_key, call.amount)?;
+            }
         }
 
         self._transfer(msg_sender, call.to, call.amount)?;
