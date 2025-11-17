@@ -8,7 +8,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Ident, Type};
 
-use crate::FieldKind;
+use crate::{FieldInfo, FieldKind};
 
 /// Helper for generating packing constant identifiers
 pub(crate) struct PackingConstants(String);
@@ -81,22 +81,6 @@ pub(crate) struct LayoutField<'a> {
     pub assigned_slot: SlotAssignment,
 }
 
-/// Helper trait to extract field information needed for layout IR construction.
-///
-/// This allows `allocate_slots` to work with different field types from
-/// different macros (`FieldInfo` from `#[contract]`, or tuples from `#[derive(Storable)]`).
-pub(crate) trait AllocInfoExt {
-    fn alloc_info(&self) -> (&Ident, &Type, Option<U256>, Option<U256>);
-}
-
-/// Implementation for simple (name, type) tuples used by the `Storable` derive macro.
-/// These fields never have manual slot assignments.
-impl<'a> AllocInfoExt for (&'a Ident, &'a Type) {
-    fn alloc_info(&self) -> (&Ident, &Type, Option<U256>, Option<U256>) {
-        (self.0, self.1, None, None)
-    }
-}
-
 /// Build layout IR from field information.
 ///
 /// This function performs slot allocation and packing decisions, returning
@@ -106,21 +90,17 @@ impl<'a> AllocInfoExt for (&'a Ident, &'a Type) {
 ///
 /// The IR captures the *structure* of the layout (which fields share base slots,
 /// which are manually assigned, etc.) using the `SlotAssignment` enum.
-pub(crate) fn allocate_slots<'a, F>(fields: &'a [F]) -> syn::Result<Vec<LayoutField<'a>>>
-where
-    F: AllocInfoExt,
-{
+pub(crate) fn allocate_slots(fields: &[FieldInfo]) -> syn::Result<Vec<LayoutField<'_>>> {
     let mut result = Vec::with_capacity(fields.len());
     let mut current_base_slot = U256::ZERO;
 
     for field in fields.iter() {
-        let (name, ty, manual_slot, base_slot) = field.alloc_info();
-        let kind = classify_field_type(ty)?;
+        let kind = classify_field_type(&field.ty)?;
 
         // Explicit fixed slot, doesn't affect auto-assignment chain
-        let assigned_slot = if let Some(explicit) = manual_slot {
+        let assigned_slot = if let Some(explicit) = field.slot {
             SlotAssignment::Manual(explicit)
-        } else if let Some(new_base) = base_slot {
+        } else if let Some(new_base) = field.base_slot {
             // Explicit base slot, resets auto-assignment chain
             current_base_slot = new_base;
             SlotAssignment::Auto {
@@ -133,8 +113,8 @@ where
         };
 
         result.push(LayoutField {
-            name,
-            ty,
+            name: &field.name,
+            ty: &field.ty,
             kind,
             assigned_slot,
         });

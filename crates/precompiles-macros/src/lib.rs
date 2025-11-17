@@ -87,12 +87,6 @@ struct FieldInfo {
     base_slot: Option<U256>,
 }
 
-impl packing::AllocInfoExt for FieldInfo {
-    fn alloc_info(&self) -> (&Ident, &Type, Option<U256>, Option<U256>) {
-        (&self.name, &self.ty, self.slot, self.base_slot)
-    }
-}
-
 /// Classification of a field based on its type
 #[derive(Debug, Clone, Copy)]
 enum FieldKind<'a> {
