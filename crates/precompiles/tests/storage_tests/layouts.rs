@@ -394,3 +394,4 @@ fn test_collision_overlapping_slots_auto() {
     let mut s = setup_storage();
     let _layout = Layout::_new(s.address, s.storage());
 }
+
