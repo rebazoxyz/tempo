@@ -7,7 +7,7 @@
 use crate::{
     error::TempoPrecompileError,
     stablecoin_exchange::{IStablecoinExchange, error::OrderError},
-    storage::{SlotPacked, StorageOps, slots::mapping_slot},
+    storage::{Slot, StorageOps, slots::mapping_slot},
 };
 use alloy::primitives::{Address, B256};
 use tempo_precompiles_macros::Storable;
@@ -65,9 +65,9 @@ pub struct Order {
 }
 
 // Helper type to easily interact with u128 fields (order_id, prev, next)
-type OrderId = SlotPacked<u128>;
+type OrderId = Slot<u128>;
 // Helper type to easily interact with u128 fields (amount, remaining)
-type OrderAmount = SlotPacked<u128>;
+type OrderAmount = Slot<u128>;
 
 impl Order {
     /// Creates a new order with `prev` and `next` initialized to 0.
@@ -158,12 +158,9 @@ impl Order {
         new_remaining: u128,
     ) -> Result<(), TempoPrecompileError> {
         let order_base_slot = mapping_slot(order_id.to_be_bytes(), super::slots::ORDERS);
-        OrderAmount::new_at_offset(
-            order_base_slot,
-            __packing_order::REMAINING_LOC.offset_slots,
-            __packing_order::REMAINING_LOC.offset_bytes,
-        )
-        .write(storage, new_remaining)?;
+        OrderAmount::new_at_offset(order_base_slot, __packing_order::REMAINING_LOC.offset_slots)
+            .packed(__packing_order::REMAINING_LOC.offset_bytes)
+            .write(storage, new_remaining)?;
         Ok(())
     }
 
@@ -173,12 +170,9 @@ impl Order {
         new_next: u128,
     ) -> Result<(), TempoPrecompileError> {
         let order_base_slot = mapping_slot(order_id.to_be_bytes(), super::slots::ORDERS);
-        OrderId::new_at_offset(
-            order_base_slot,
-            __packing_order::NEXT_LOC.offset_slots,
-            __packing_order::NEXT_LOC.offset_bytes,
-        )
-        .write(storage, new_next)?;
+        OrderId::new_at_offset(order_base_slot, __packing_order::NEXT_LOC.offset_slots)
+            .packed(__packing_order::NEXT_LOC.offset_bytes)
+            .write(storage, new_next)?;
         Ok(())
     }
 
@@ -188,12 +182,9 @@ impl Order {
         new_prev: u128,
     ) -> Result<(), TempoPrecompileError> {
         let order_base_slot = mapping_slot(order_id.to_be_bytes(), super::slots::ORDERS);
-        OrderId::new_at_offset(
-            order_base_slot,
-            __packing_order::PREV_LOC.offset_slots,
-            __packing_order::PREV_LOC.offset_bytes,
-        )
-        .write(storage, new_prev)?;
+        OrderId::new_at_offset(order_base_slot, __packing_order::PREV_LOC.offset_slots)
+            .packed(__packing_order::PREV_LOC.offset_bytes)
+            .write(storage, new_prev)?;
         Ok(())
     }
 

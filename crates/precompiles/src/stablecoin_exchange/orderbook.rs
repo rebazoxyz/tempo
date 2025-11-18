@@ -3,7 +3,7 @@
 use crate::{
     error::TempoPrecompileError,
     stablecoin_exchange::IStablecoinExchange,
-    storage::{Mapping, Slot, SlotPacked, StorageOps, slots::mapping_slot},
+    storage::{Mapping, Slot, StorageOps, slots::mapping_slot},
 };
 use alloy::primitives::{Address, B256, U256, keccak256};
 use tempo_contracts::precompiles::StablecoinExchangeError;
@@ -97,7 +97,7 @@ pub struct Orderbook {
 // Helper type to easily access storage for orderbook tokens (base, quote)
 type Tokens = Slot<Address>;
 // Helper type to easily access storage for best orderbook orders (best_bid, best_ask)
-type BestOrders = SlotPacked<i16>;
+type BestOrders = Slot<i16>;
 // Helper type to easile access storage for orders (bids, asks)
 type Orders = Mapping<i16, TickLevel>;
 // Helper type to easily access storage for bitmaps (bid_bitmap, ask_bitmap)
@@ -153,8 +153,8 @@ impl Orderbook {
         BestOrders::new_at_offset(
             orderbook_base_slot,
             __packing_orderbook::BEST_BID_TICK_LOC.offset_slots,
-            __packing_orderbook::BEST_BID_TICK_LOC.offset_bytes,
         )
+        .packed(__packing_orderbook::BEST_BID_TICK_LOC.offset_bytes)
         .write(contract, new_best_bid)?;
         Ok(())
     }
@@ -169,8 +169,8 @@ impl Orderbook {
         BestOrders::new_at_offset(
             orderbook_base_slot,
             __packing_orderbook::BEST_ASK_TICK_LOC.offset_slots,
-            __packing_orderbook::BEST_ASK_TICK_LOC.offset_bytes,
         )
+        .packed(__packing_orderbook::BEST_ASK_TICK_LOC.offset_bytes)
         .write(contract, new_best_ask)?;
         Ok(())
     }
