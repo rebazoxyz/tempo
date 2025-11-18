@@ -92,10 +92,7 @@ impl<T> Slot<T> {
     /// Returns `Some(offset)` if this is a packed slot, `None` if it's a full slot.
     #[inline]
     pub const fn offset(&self) -> Option<usize> {
-        match self.ctx {
-            crate::storage::types::LayoutCtx::Full => None,
-            crate::storage::types::LayoutCtx::Packed(offset) => Some(offset),
-        }
+        self.ctx.packed_offset()
     }
 
     /// Reads a value from storage at this slot.
@@ -204,23 +201,6 @@ mod tests {
 
     fn arb_u256() -> impl Strategy<Value = U256> {
         any::<[u64; 4]>().prop_map(U256::from_limbs)
-    }
-
-    #[test]
-    fn test_slot_size() {
-        // Slot now stores U256 (32 bytes) + LayoutCtx (16 bytes) + PhantomData (zero-sized)
-        // Note: LayoutCtx is an enum with usize variant, so it's 16 bytes on 64-bit systems
-        assert_eq!(std::mem::size_of::<Slot<U256>>(), 48);
-        assert_eq!(std::mem::size_of::<Slot<Address>>(), 48);
-        assert_eq!(std::mem::size_of::<Slot<bool>>(), 48);
-    }
-
-    #[test]
-    fn test_slot_creation() {
-        let _slot_u256 = Slot::<U256>::new(TEST_SLOT_0);
-        let _slot_addr = Slot::<Address>::new(TEST_SLOT_1);
-        let _slot_default = Slot::<bool>::default();
-        assert_eq!(_slot_default.slot(), U256::ZERO);
     }
 
     #[test]

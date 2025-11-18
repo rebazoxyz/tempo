@@ -72,12 +72,16 @@ impl Layout {
 /// This determines whether the value occupies an entire storage slot or is packed
 /// with other values at a specific byte offset within a slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LayoutCtx {
+#[repr(transparent)]
+pub struct LayoutCtx(u8);
+
+impl LayoutCtx {
     /// Load/store the entire value at `base_slot`.
     ///
     /// For writes, this directly overwrites the entire slot without needing SLOAD.
     /// All `Storable` types support this context.
-    Full,
+    #[allow(non_upper_case_globals)]
+    pub const Full: Self = Self(255);
 
     /// Load/store a packed primitive at the given byte offset within a slot.
     ///
@@ -86,7 +90,35 @@ pub enum LayoutCtx {
     /// packed fields in the same slot.
     ///
     /// Only primitive types with `Layout::Bytes(n)` where `n < 32` support this context.
-    Packed(usize),
+    #[allow(non_snake_case)]
+    pub const fn Packed(offset: usize) -> Self {
+        debug_assert!(offset < 32);
+        Self(offset as u8)
+    }
+
+    // -- GETTER FUNCTIONS ----------------------------------------------------
+
+    /// Check if this is a full slot layout
+    #[inline]
+    pub const fn is_full(&self) -> bool {
+        self.0 == 255
+    }
+
+    /// Check if this is a packed layout
+    #[inline]
+    pub const fn is_packed(&self) -> bool {
+        self.0 != 255
+    }
+
+    /// Get the packed offset, returns `None` for `Full`
+    #[inline]
+    pub const fn packed_offset(&self) -> Option<usize> {
+        if self.0 == 255 {
+            None
+        } else {
+            Some(self.0 as usize)
+        }
+    }
 }
 
 /// Helper trait to access storage layout information without requiring const generic parameter.
@@ -190,14 +222,14 @@ pub trait Storable<const SLOTS: usize>: Sized + StorableType {
     /// - Storage write fails
     /// - Context is invalid for this type
     fn delete<S: StorageOps>(storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-        match ctx {
-            LayoutCtx::Full => {
+        match ctx.packed_offset() {
+            None => {
                 for offset in 0..SLOTS {
                     storage.sstore(base_slot + U256::from(offset), U256::ZERO)?;
                 }
                 Ok(())
             }
-            LayoutCtx::Packed(offset) => {
+            Some(offset) => {
                 // For packed context, we need to preserve other fields in the slot
                 let bytes = Self::BYTES;
                 let current = storage.sload(base_slot)?;

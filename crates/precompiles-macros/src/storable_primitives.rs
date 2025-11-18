@@ -78,12 +78,12 @@ fn gen_storable_impl(
                 impl Storable<1> for #type_path {
                     #[inline]
                     fn load<S: StorageOps>(storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<Self> {
-                        match ctx {
-                            LayoutCtx::Full => {
+                        match ctx.packed_offset() {
+                            None => {
                                 let value = storage.sload(base_slot)?;
                                 Ok(value.to::<Self>())
                             }
-                            LayoutCtx::Packed(offset) => {
+                            Some(offset) => {
                                 let slot = storage.sload(base_slot)?;
                                 crate::storage::packing::extract_packed_value(slot, offset, #byte_count)
                             }
@@ -92,12 +92,12 @@ fn gen_storable_impl(
 
                     #[inline]
                     fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-                        match ctx {
-                            LayoutCtx::Full => {
+                        match ctx.packed_offset() {
+                            None => {
                                 storage.sstore(base_slot, U256::from(*self))?;
                                 Ok(())
                             }
-                            LayoutCtx::Packed(offset) => {
+                            Some(offset) => {
                                 let current = storage.sload(base_slot)?;
                                 let value = U256::from(*self);
                                 let updated = crate::storage::packing::insert_packed_value(current, &value, offset, #byte_count)?;
@@ -152,13 +152,13 @@ fn gen_storable_impl(
                 impl Storable<1> for #type_path {
                     #[inline]
                     fn load<S: StorageOps>(storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<Self> {
-                        match ctx {
-                            LayoutCtx::Full => {
+                        match ctx.packed_offset() {
+                            None => {
                                 let value = storage.sload(base_slot)?;
                                 // Read as unsigned then cast to signed (preserves bit pattern)
                                 Ok(value.to::<#unsigned_type>() as Self)
                             }
-                            LayoutCtx::Packed(offset) => {
+                            Some(offset) => {
                                 let slot = storage.sload(base_slot)?;
                                 crate::storage::packing::extract_packed_value(slot, offset, #byte_count)
                             }
@@ -167,13 +167,13 @@ fn gen_storable_impl(
 
                     #[inline]
                     fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-                        match ctx {
-                            LayoutCtx::Full => {
+                        match ctx.packed_offset() {
+                            None => {
                                 // Cast to unsigned to preserve bit pattern, then extend to U256
                                 storage.sstore(base_slot, U256::from(*self as #unsigned_type))?;
                                 Ok(())
                             }
-                            LayoutCtx::Packed(offset) => {
+                            Some(offset) => {
                                 let current = storage.sload(base_slot)?;
                                 let value = U256::from(*self as #unsigned_type);
                                 let updated = crate::storage::packing::insert_packed_value(current, &value, offset, #byte_count)?;
@@ -200,14 +200,14 @@ fn gen_storable_impl(
                 impl Storable<1> for #type_path {
                     #[inline]
                     fn load<S: StorageOps>(storage: &mut S, base_slot: ::alloy::primitives::U256, ctx: LayoutCtx) -> Result<Self> {
-                        match ctx {
-                            LayoutCtx::Full => {
+                        match ctx.packed_offset() {
+                            None => {
                                 let value = storage.sload(base_slot)?;
                                 // Convert U256 to unsigned type, then reinterpret as signed
                                 let unsigned_val = value.to::<::alloy::primitives::#unsigned_type>();
                                 Ok(Self::from_raw(unsigned_val))
                             }
-                            LayoutCtx::Packed(offset) => {
+                            Some(offset) => {
                                 let slot = storage.sload(base_slot)?;
                                 let unsigned_val: ::alloy::primitives::#unsigned_type = crate::storage::packing::extract_packed_value(slot, offset, #byte_count)?;
                                 Ok(Self::from_raw(unsigned_val))
@@ -217,14 +217,14 @@ fn gen_storable_impl(
 
                     #[inline]
                     fn store<S: StorageOps>(&self, storage: &mut S, base_slot: ::alloy::primitives::U256, ctx: LayoutCtx) -> Result<()> {
-                        match ctx {
-                            LayoutCtx::Full => {
+                        match ctx.packed_offset() {
+                            None => {
                                 // Get unsigned bit pattern and store it
                                 let unsigned_val = self.into_raw();
                                 storage.sstore(base_slot, ::alloy::primitives::U256::from(unsigned_val))?;
                                 Ok(())
                             }
-                            LayoutCtx::Packed(offset) => {
+                            Some(offset) => {
                                 let current = storage.sload(base_slot)?;
                                 let unsigned_val = self.into_raw();
                                 let value = ::alloy::primitives::U256::from(unsigned_val);
@@ -254,8 +254,8 @@ fn gen_storable_impl(
                 impl Storable<1> for #type_path {
                     #[inline]
                     fn load<S: StorageOps>(storage: &mut S, base_slot: ::alloy::primitives::U256, ctx: LayoutCtx) -> Result<Self> {
-                        match ctx {
-                            LayoutCtx::Full => {
+                        match ctx.packed_offset() {
+                            None => {
                                 let value = storage.sload(base_slot)?;
                                 // `FixedBytes` are stored left-aligned in the slot. Extract the first N bytes from the U256
                                 let bytes = value.to_be_bytes::<32>();
@@ -263,7 +263,7 @@ fn gen_storable_impl(
                                 fixed_bytes.copy_from_slice(&bytes[..#size]);
                                 Ok(Self::from(fixed_bytes))
                             }
-                            LayoutCtx::Packed(offset) => {
+                            Some(offset) => {
                                 let slot = storage.sload(base_slot)?;
                                 let bytes: ::alloy::primitives::B256 = crate::storage::packing::extract_packed_value(slot, offset, #size)?;
                                 let mut fixed_bytes = [0u8; #size];
@@ -275,8 +275,8 @@ fn gen_storable_impl(
 
                     #[inline]
                     fn store<S: StorageOps>(&self, storage: &mut S, base_slot: ::alloy::primitives::U256, ctx: LayoutCtx) -> Result<()> {
-                        match ctx {
-                            LayoutCtx::Full => {
+                        match ctx.packed_offset() {
+                            None => {
                                 // Pad `FixedBytes` to 32 bytes (left-aligned).
                                 let mut bytes = [0u8; 32];
                                 bytes[..#size].copy_from_slice(&self[..]);
@@ -284,7 +284,7 @@ fn gen_storable_impl(
                                 storage.sstore(base_slot, value)?;
                                 Ok(())
                             }
-                            LayoutCtx::Packed(offset) => {
+                            Some(offset) => {
                                 let current = storage.sload(base_slot)?;
                                 let mut bytes = [0u8; 32];
                                 bytes[..#size].copy_from_slice(&self[..]);
