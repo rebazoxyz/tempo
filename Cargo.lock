@@ -11409,7 +11409,6 @@ dependencies = [
  "tempo-chainspec",
  "tempo-commonware-node",
  "tempo-consensus",
- "tempo-consensus-args",
  "tempo-evm",
  "tempo-eyre",
  "tempo-faucet",
@@ -11507,6 +11506,7 @@ dependencies = [
  "alloy-rpc-types-engine",
  "axum",
  "bytes",
+ "clap",
  "commonware-broadcast",
  "commonware-codec",
  "commonware-consensus",
@@ -11520,6 +11520,7 @@ dependencies = [
  "futures",
  "governor 0.6.3",
  "indexmap 2.12.0",
+ "jiff",
  "parking_lot",
  "prometheus-client",
  "rand 0.8.5",
@@ -11534,7 +11535,6 @@ dependencies = [
  "reth-provider",
  "reth-revm",
  "ringbuffer 0.16.0",
- "tempo-consensus-args",
  "tempo-dkg-onchain-artifacts",
  "tempo-node",
  "tempo-payload-types",
@@ -11560,15 +11560,6 @@ dependencies = [
  "tempo-chainspec",
  "tempo-contracts",
  "tempo-primitives",
-]
-
-[[package]]
-name = "tempo-consensus-args"
-version = "0.4.0"
-dependencies = [
- "alloy-primitives",
- "clap",
- "jiff",
 ]
 
 [[package]]

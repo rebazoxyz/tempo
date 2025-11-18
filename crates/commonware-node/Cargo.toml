@@ -11,7 +11,6 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-tempo-consensus-args.workspace = true
 tempo-dkg-onchain-artifacts.workspace = true
 tempo-node.workspace = true
 tempo-primitives.workspace = true
@@ -27,6 +26,7 @@ alloy-rlp.workspace = true
 
 axum.workspace = true
 bytes.workspace = true
+clap.workspace = true
 
 commonware-broadcast.workspace = true
 commonware-codec.workspace = true
@@ -42,6 +42,7 @@ eyre.workspace = true
 futures.workspace = true
 governor.workspace = true
 indexmap.workspace = true
+jiff = { workspace = true, features = ["std"] }
 parking_lot.workspace = true
 prometheus-client.workspace = true
 rand.workspace = true

@@ -4,7 +4,7 @@ use std::{net::SocketAddr, path::PathBuf};
 /// Arguments for configuring the consensus layer of a tempo node.
 /// Command line arguments for configuring the consensus layer of a tempo node.
 #[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
-pub struct ConsensusArgs {
+pub struct Args {
     /// The file containing the ed25519 signing key for p2p communication.
     #[arg(long = "consensus-signing-key")]
     pub signing_key: PathBuf,

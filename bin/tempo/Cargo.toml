@@ -18,7 +18,6 @@ tempo-node = { workspace = true, features = ["default"] }
 tempo-commonware-node.workspace = true
 tempo-chainspec = { workspace = true, features = ["default"] }
 tempo-consensus.workspace = true
-tempo-consensus-args.workspace = true
 tempo-evm.workspace = true
 tempo-faucet.workspace = true
 

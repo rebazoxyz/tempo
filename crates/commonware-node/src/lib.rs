@@ -4,6 +4,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub(crate) mod alias;
+mod args;
 pub(crate) mod config;
 pub mod consensus;
 pub(crate) mod dkg;
@@ -33,9 +34,11 @@ use crate::config::{
     RESOLVER_CHANNEL_IDENT, RESOLVER_LIMIT, SUBBLOCKS_CHANNEL_IDENT, SUBBLOCKS_LIMIT,
 };
 
+pub use args::Args;
+
 pub async fn run_consensus_stack(
     context: &commonware_runtime::tokio::Context,
-    config: &tempo_consensus_args::ConsensusArgs,
+    config: &Args,
     execution_node: TempoFullNode,
 ) -> eyre::Result<()> {
     let share = config
