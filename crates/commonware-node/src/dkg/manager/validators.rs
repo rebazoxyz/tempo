@@ -127,7 +127,7 @@ impl Participants {
         &self.buffered[0]
     }
 
-    pub(super) fn syncers(&self) -> &Ordered<PublicKey> {
+    pub(super) fn syncing_players(&self) -> &Ordered<PublicKey> {
         &self.buffered[0]
     }
 

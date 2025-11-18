@@ -149,7 +149,7 @@ where
         let ceremony_dealers = Gauge::default();
         let ceremony_players = Gauge::default();
 
-        let syncers = Gauge::default();
+        let syncing_players = Gauge::default();
 
         let how_often_dealer = Counter::default();
         let how_often_player = Counter::default();
@@ -178,9 +178,9 @@ where
         );
 
         context.register(
-            "syncers",
-            "how many syncers were registered; these will become players in the next ceremony",
-            syncers.clone(),
+            "syncing_players",
+            "how many syncing players were registered; these will become players in the next ceremony",
+            syncing_players.clone(),
         );
 
         context.register(
@@ -208,7 +208,7 @@ where
             ceremony_dealers,
             ceremony_players,
             peers,
-            syncers,
+            syncing_players,
         };
 
         let epoch_state = if let Some::<EpochState>(epoch_state) =
@@ -672,8 +672,8 @@ where
             players = ?ceremony.players(),
             as_player = ceremony.is_player(),
             as_dealer = ceremony.is_dealer(),
-            n_syncers = self.all_participants.syncers().len(),
-            syncers = ?self.all_participants.syncers(),
+            n_syncing_players = self.all_participants.syncing_players().len(),
+            syncing_players = ?self.all_participants.syncing_players(),
             "started a ceremony",
         );
 
@@ -684,8 +684,8 @@ where
             .ceremony_players
             .set(ceremony.players().len() as i64);
         self.metrics
-            .syncers
-            .set(self.all_participants.syncers().len() as i64);
+            .syncing_players
+            .set(self.all_participants.syncing_players().len() as i64);
         self.metrics
             .how_often_dealer
             .inc_by(ceremony.is_dealer() as u64);
@@ -764,7 +764,7 @@ struct Metrics {
     ceremony_dealers: Gauge,
     ceremony_players: Gauge,
     peers: Gauge,
-    syncers: Gauge,
+    syncing_players: Gauge,
 }
 
 /// Attempts to read the validator config from the smart contract until it becomes available.

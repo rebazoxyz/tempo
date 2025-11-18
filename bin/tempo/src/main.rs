@@ -53,7 +53,7 @@ struct TempoArgs {
     pub follow: Option<String>,
 
     #[command(flatten)]
-    pub consensus: tempo_commonware_node::Args,
+    pub consensus: Option<tempo_commonware_node::Args>,
 
     #[command(flatten)]
     pub faucet_args: FaucetArgs,
