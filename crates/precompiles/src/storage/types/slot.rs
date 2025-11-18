@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use crate::{
     error::Result,
-    storage::{FieldLocation, Storable, StorageOps},
+    storage::{FieldLocation, LayoutCtx, Storable, StorageOps},
 };
 
 /// Type-safe wrapper for a single EVM storage slot.
@@ -46,7 +46,20 @@ impl<T> Slot<T> {
     pub const fn new(slot: U256) -> Self {
         Self {
             slot,
-            ctx: crate::storage::types::LayoutCtx::Full,
+            ctx: LayoutCtx::Full,
+            _ty: PhantomData,
+        }
+    }
+
+    /// Creates a new `Slot` with the given slot number and layout context.
+    ///
+    /// This is used by the `#[contract]` macro to create slots with compile-time
+    /// conditional packing based on field type and layout analysis.
+    #[inline]
+    pub const fn new_with_ctx(slot: U256, ctx: LayoutCtx) -> Self {
+        Self {
+            slot,
+            ctx,
             _ty: PhantomData,
         }
     }
@@ -155,6 +168,80 @@ impl<T> Slot<T> {
         T: Storable<N>,
     {
         T::delete(storage, self.slot, self.ctx)
+    }
+
+    /// Reads a value from storage using thread-local storage context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No `StorageGuard` is active (no storage context)
+    /// - No `AddressGuard` is active (no address context)
+    /// - The underlying storage operation fails
+    #[inline]
+    pub fn read_tl<const N: usize>(&self) -> Result<T>
+    where
+        T: Storable<N>,
+    {
+        crate::storage::thread_local::with_storage_context(|storage, address| {
+            // Create a temporary StorageOps implementation
+            let mut ops = StorageOpsTl { storage, address };
+            T::load(&mut ops, self.slot, self.ctx)
+        })
+    }
+
+    /// Writes a value to storage using thread-local storage context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No `StorageGuard` is active (no storage context)
+    /// - No `AddressGuard` is active (no address context)
+    /// - The underlying storage operation fails
+    #[inline]
+    pub fn write_tl<const N: usize>(&self, value: T) -> Result<()>
+    where
+        T: Storable<N>,
+    {
+        crate::storage::thread_local::with_storage_context(|storage, address| {
+            let mut ops = StorageOpsTl { storage, address };
+            value.store(&mut ops, self.slot, self.ctx)
+        })
+    }
+
+    /// Deletes the value at this slot using thread-local storage context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No `StorageGuard` is active (no storage context)
+    /// - No `AddressGuard` is active (no address context)
+    /// - The underlying storage operation fails
+    #[inline]
+    pub fn delete_tl<const N: usize>(&self) -> Result<()>
+    where
+        T: Storable<N>,
+    {
+        crate::storage::thread_local::with_storage_context(|storage, address| {
+            let mut ops = StorageOpsTl { storage, address };
+            T::delete(&mut ops, self.slot, self.ctx)
+        })
+    }
+}
+
+/// Helper type that implements `StorageOps` for thread-local storage access
+struct StorageOpsTl<'a> {
+    storage: &'a mut dyn crate::storage::PrecompileStorageProvider,
+    address: alloy::primitives::Address,
+}
+
+impl StorageOps for StorageOpsTl<'_> {
+    fn sstore(&mut self, slot: U256, value: U256) -> Result<()> {
+        self.storage.sstore(self.address, slot, value)
+    }
+
+    fn sload(&mut self, slot: U256) -> Result<U256> {
+        self.storage.sload(self.address, slot)
     }
 }
 

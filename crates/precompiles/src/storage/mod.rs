@@ -1,5 +1,6 @@
 pub mod evm;
 pub mod hashmap;
+pub mod thread_local;
 
 mod types;
 use tempo_chainspec::hardfork::TempoHardfork;

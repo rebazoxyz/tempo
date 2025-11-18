@@ -20,6 +20,8 @@ pub mod validator_config;
 #[cfg(test)]
 pub mod test_util;
 
+pub mod thread_local_example;
+
 use crate::{
     linking_usd::LinkingUSD,
     nonce::NonceManager,

@@ -66,6 +66,20 @@ pub enum TempoPrecompileError {
     #[error("Fatal precompile error: {0:?}")]
     #[from(skip)]
     Fatal(String),
+
+    /// Thread-local storage context errors
+    #[error(
+        "No storage context available - StorageGuard must be created before accessing thread-local storage"
+    )]
+    NoStorageContext,
+
+    #[error(
+        "No address context available - AddressGuard must be created before accessing contract storage"
+    )]
+    NoAddressContext,
+
+    #[error("Maximum call depth exceeded (limit: 64)")]
+    CallDepthExceeded,
 }
 
 /// Result type alias for Tempo precompile operations
@@ -123,6 +137,11 @@ impl<T> IntoPrecompileResult<T> for Result<T> {
                     }
                     TPErr::Fatal(msg) => {
                         return Err(PrecompileError::Fatal(msg));
+                    }
+                    TPErr::NoStorageContext
+                    | TPErr::NoAddressContext
+                    | TPErr::CallDepthExceeded => {
+                        return Err(PrecompileError::Fatal(err.to_string()));
                     }
                 };
                 Ok(PrecompileOutput::new_reverted(gas, bytes))
