@@ -1,11 +1,10 @@
 use alloy::primitives::TxHash;
 use alloy::providers::Provider;
-use std::collections::VecDeque;
+use futures::StreamExt;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 /// Statistics tracked by the verification service
@@ -48,34 +47,12 @@ impl VerificationStats {
     }
 }
 
-/// Configuration for the verification service
-pub struct VerificationConfig {
-    /// Maximum number of verification attempts before giving up
-    pub max_attempts: u32,
-    /// Delay between verification attempts (in milliseconds)
-    pub retry_delay_ms: u64,
-}
-
-impl Default for VerificationConfig {
-    fn default() -> Self {
-        Self { max_attempts: 20, retry_delay_ms: 500 }
-    }
-}
-
-/// A transaction pending verification
-#[derive(Debug, Clone)]
-struct PendingTx {
-    hash: TxHash,
-    attempts: u32,
-}
-
-/// Transaction verification service that runs in the background
+/// Unified verification service that subscribes to blocks and matches pending transactions
 pub struct VerificationService<P> {
     provider: P,
-    config: VerificationConfig,
     stats: VerificationStats,
-    rx: mpsc::UnboundedReceiver<TxHash>,
-    queue: VecDeque<PendingTx>,
+    pending_rx: mpsc::UnboundedReceiver<TxHash>,
+    pending: HashSet<TxHash>,
 }
 
 impl<P> VerificationService<P>
@@ -85,112 +62,76 @@ where
     /// Create a new verification service
     pub fn new(
         provider: P,
-        config: VerificationConfig,
         stats: VerificationStats,
-        rx: mpsc::UnboundedReceiver<TxHash>,
+        pending_rx: mpsc::UnboundedReceiver<TxHash>,
     ) -> Self {
-        Self { provider, config, stats, rx, queue: VecDeque::new() }
+        Self { provider, stats, pending_rx, pending: HashSet::new() }
     }
 
     /// Run the verification service loop
     pub async fn run(mut self) {
-        info!("Starting transaction verification service");
-        let mut last_log = std::time::Instant::now();
+        info!("Starting unified verification service");
+
+        // Subscribe to new blocks
+        let block_stream = match self.provider.subscribe_blocks().await {
+            Ok(stream) => stream,
+            Err(e) => {
+                error!("Failed to subscribe to blocks: {}", e);
+                return;
+            }
+        };
+
+        let mut block_stream = block_stream.into_stream();
 
         loop {
-            // Process incoming tx hashes (non-blocking)
-            while let Ok(tx_hash) = self.rx.try_recv() {
-                self.stats.total_sent.fetch_add(1, Ordering::Relaxed);
-                self.stats.pending.fetch_add(1, Ordering::Relaxed);
+            tokio::select! {
+                // Process incoming tx hashes from all sender threads
+                Some(tx_hash) = self.pending_rx.recv() => {
+                    self.stats.total_sent.fetch_add(1, Ordering::Relaxed);
+                    self.pending.insert(tx_hash);
+                    self.stats.pending.fetch_add(1, Ordering::Relaxed);
+                }
 
-                self.queue.push_back(PendingTx { hash: tx_hash, attempts: 0 });
-            }
+                // Process new blocks
+                Some(block_header) = block_stream.next() => {
+                    let block_number = block_header.number;
 
-            // Check if we have transactions to verify
-            if self.queue.is_empty() {
-                // Check if sender has closed the channel (benchmark finished)
-                if self.rx.is_closed() {
+                    // Fetch block with transaction hashes
+                    match self.provider.get_block_by_number(block_number.into()).await {
+                        Ok(Some(block)) => {
+                            let tx_hashes: Vec<TxHash> = block.transactions.hashes().collect();
+                            debug!("Block {}: {} transactions", block_number, tx_hashes.len());
+
+                            // Check which pending transactions are in this block
+                            let mut confirmed_count = 0;
+                            for tx_hash in tx_hashes {
+                                if self.pending.remove(&tx_hash) {
+                                    self.stats.confirmed.fetch_add(1, Ordering::Relaxed);
+                                    self.stats.pending.fetch_sub(1, Ordering::Relaxed);
+                                    confirmed_count += 1;
+                                    debug!("Transaction {} confirmed in block {}", tx_hash, block_number);
+                                }
+                            }
+
+                            if confirmed_count > 0 {
+                                debug!("Block {}: {} transactions confirmed", block_number, confirmed_count);
+                            }
+                        }
+                        Ok(None) => {
+                            warn!("Block {} not found", block_number);
+                        }
+                        Err(e) => {
+                            error!("Error fetching block {}: {}", block_number, e);
+                        }
+                    }
+                }
+
+                // Check if channel is closed (benchmark finished)
+                else => {
                     info!("Verification channel closed, shutting down");
                     break;
                 }
-
-                // Wait a bit before checking again
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
             }
-
-            // Verify the next transaction in the queue
-            if let Some(mut pending_tx) = self.queue.pop_front() {
-                pending_tx.attempts += 1;
-
-                // Try to get the receipt with a quick timeout (10ms)
-                let receipt_result = timeout(
-                    Duration::from_millis(10),
-                    self.provider.get_transaction_receipt(pending_tx.hash),
-                )
-                .await;
-
-                match receipt_result {
-                    Ok(Ok(Some(receipt))) => {
-                        // Transaction was mined!
-                        self.stats.confirmed.fetch_add(1, Ordering::Relaxed);
-                        self.stats.pending.fetch_sub(1, Ordering::Relaxed);
-
-                        debug!(
-                            "Transaction {} confirmed in block {:?} (attempts: {})",
-                            pending_tx.hash, receipt.block_number, pending_tx.attempts
-                        );
-                    }
-                    Ok(Ok(None)) => {
-                        // No receipt yet - check if we should retry
-                        if pending_tx.attempts >= self.config.max_attempts {
-                            // Give up on this transaction
-                            self.stats.failed.fetch_add(1, Ordering::Relaxed);
-                            self.stats.pending.fetch_sub(1, Ordering::Relaxed);
-
-                            warn!(
-                                "Transaction {} not found after {} attempts, marking as failed",
-                                pending_tx.hash, pending_tx.attempts
-                            );
-                        } else {
-                            // Push back to the end of the queue for retry
-                            self.queue.push_back(pending_tx);
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        // Error fetching receipt - permanent failure, don't retry
-                        error!(
-                            "Error fetching receipt for {}: {} (attempt {}), marking as failed",
-                            pending_tx.hash, e, pending_tx.attempts
-                        );
-                        self.stats.failed.fetch_add(1, Ordering::Relaxed);
-                        self.stats.pending.fetch_sub(1, Ordering::Relaxed);
-                    }
-                    Err(_) => {
-                        // Timeout - keep retrying indefinitely
-                        debug!(
-                            "Receipt fetch timed out for {} (attempt {}), retrying",
-                            pending_tx.hash, pending_tx.attempts
-                        );
-                        self.queue.push_back(pending_tx);
-                    }
-                }
-            }
-
-            // Log stats periodically
-            if last_log.elapsed() >= Duration::from_secs(5) {
-                info!(
-                    "Verification stats - Total: {}, Confirmed: {}, Pending: {}, Failed: {}",
-                    self.stats.total_sent(),
-                    self.stats.confirmed(),
-                    self.stats.pending(),
-                    self.stats.failed()
-                );
-                last_log = std::time::Instant::now();
-            }
-
-            // Small delay between verification attempts
-            tokio::time::sleep(Duration::from_millis(self.config.retry_delay_ms)).await;
         }
 
         // Final stats
@@ -204,28 +145,30 @@ where
     }
 }
 
-/// Create a verification service channel and spawn the service in a blocking task
+/// Spawn the unified verification service (call this once)
+/// Returns a channel that all sender threads use to send pending tx hashes
 pub fn spawn_verification_service<P>(
     provider: P,
-    config: VerificationConfig,
     stats: VerificationStats,
 ) -> (mpsc::UnboundedSender<TxHash>, tokio::task::JoinHandle<()>)
 where
     P: Provider + Clone + Send + 'static,
 {
-    let (tx, rx) = mpsc::unbounded_channel();
+    // Channel for pending tx hashes from all sender threads
+    let (pending_tx, pending_rx) = mpsc::unbounded_channel();
 
-    let service = VerificationService::new(provider, config, stats, rx);
-    let handle = tokio::task::spawn_blocking(move || {
+    // Spawn verification service
+    let verification_service = VerificationService::new(provider, stats, pending_rx);
+    let verification_handle = tokio::task::spawn_blocking(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("Failed to build tokio runtime for verification");
 
         rt.block_on(async move {
-            service.run().await;
+            verification_service.run().await;
         });
     });
 
-    (tx, handle)
+    (pending_tx, verification_handle)
 }

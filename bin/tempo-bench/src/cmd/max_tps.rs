@@ -3,7 +3,7 @@ mod tip20;
 mod verification;
 
 use tempo_alloy::TempoNetwork;
-use verification::{spawn_verification_service, VerificationConfig};
+use verification::spawn_verification_service;
 
 use alloy::{
     consensus::BlockHeader,
@@ -328,6 +328,10 @@ fn send_transactions(
         NonZeroU32::new(tps as u32).unwrap(),
     )));
 
+    // Spawn single unified verification service
+    let verification_provider = ProviderBuilder::new().connect_http(target_urls[0].clone());
+    let (verification_tx, _verification_handle) = spawn_verification_service(verification_provider, verification_stats.clone());
+
     let handles: Vec<_> = (0..num_sender_threads)
         .map(|thread_id| {
             if !disable_thread_pinning {
@@ -340,7 +344,7 @@ fn send_transactions(
             let transactions = transactions.clone();
             let target_urls = target_urls.to_vec();
             let tx_counter = tx_counter.clone();
-            let verification_stats = verification_stats.clone();
+            let verification_tx = verification_tx.clone();
             let start = thread_id * chunk_size;
             let end = (start + chunk_size).min(transactions.len());
 
@@ -352,13 +356,8 @@ fn send_transactions(
                     .expect("Failed to build tokio runtime");
 
                 rt.block_on(async {
-                    // Create provider for sending and verification
+                    // Create provider for sending
                     let provider = ProviderBuilder::new().connect_http(target_urls[0].clone());
-
-                    // Spawn verification service for this thread (shares stats with other threads)
-                    let verification_provider = ProviderBuilder::new().connect_http(target_urls[0].clone());
-                    let (verification_tx, verification_handle) =
-                        spawn_verification_service(verification_provider, VerificationConfig::default(), verification_stats.clone());
 
                     // Send transactions
                     for tx_bytes in transactions[start..end].iter() {
@@ -372,17 +371,13 @@ fn send_transactions(
                         {
                             Ok(Ok(pending_tx)) => {
                                 tx_counter.fetch_add(1, Ordering::Relaxed);
-                                // Send tx hash to verification service
+                                // Send tx hash to shared verification service
                                 let _ = verification_tx.send(*pending_tx.tx_hash());
                             }
                             Ok(Err(e)) => eprintln!("Failed to send transaction: {e}"),
                             Err(_) => eprintln!("Tx send timed out"),
                         }
                     }
-
-                    // Close verification channel and wait for it to finish
-                    drop(verification_tx);
-                    let _ = verification_handle.await;
                 })
             })
         })
