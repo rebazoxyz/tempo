@@ -21,7 +21,10 @@ use clap::Parser;
 use commonware_runtime::{Metrics, Runner};
 use eyre::WrapErr as _;
 use futures::{FutureExt as _, future::FusedFuture as _};
-use reth_ethereum::cli::{Cli, Commands};
+use reth_ethereum::{
+    chainspec::EthChainSpec as _,
+    cli::{Cli, Commands},
+};
 use reth_ethereum_cli as _;
 use reth_node_builder::{NodeHandle, WithLaunchContext};
 use std::{sync::Arc, thread};
@@ -36,6 +39,7 @@ use tempo_faucet::{
 };
 use tempo_node::{TempoFullNode, node::TempoNode};
 use tokio::sync::oneshot;
+use tracing::{info, info_span};
 
 // TODO: migrate this to tempo_node eventually.
 #[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
@@ -104,19 +108,25 @@ fn main() -> eyre::Result<()> {
                 Ok(())
             })
         } else {
+            let consensus_storage = &node
+                .config
+                .datadir
+                .clone()
+                .resolve_datadir(node.chain_spec().chain())
+                .data_dir()
+                .join("consensus");
             let runtime_config = commonware_runtime::tokio::Config::default()
                 .with_tcp_nodelay(Some(true))
                 .with_worker_threads(args.consensus.worker_threads)
-                .with_storage_directory(
-                    &node
-                        .config
-                        .datadir
-                        .datadir
-                        .unwrap_or_default()
-                        .as_ref()
-                        .join("consensus"),
-                )
+                .with_storage_directory(&consensus_storage)
                 .with_catch_panics(true);
+
+            info_span!("prepare_consensus").in_scope(|| {
+                info!(
+                    path = %consensus_storage.display(),
+                    "determined directory for consensus data",
+                )
+            });
 
             let runner = commonware_runtime::tokio::Runner::new(runtime_config);
 
