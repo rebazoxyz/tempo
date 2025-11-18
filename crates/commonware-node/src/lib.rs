@@ -21,7 +21,7 @@ use commonware_cryptography::{
 };
 use commonware_p2p::authenticated::lookup;
 use commonware_runtime::Metrics as _;
-use eyre::{WrapErr as _, eyre};
+use eyre::{OptionExt, WrapErr as _, eyre};
 use reth_chainspec::EthChainSpec;
 use tempo_node::TempoFullNode;
 use tracing::info;
@@ -87,11 +87,9 @@ pub async fn run_consensus_stack(
     );
     let subblocks = network.register(SUBBLOCKS_CHANNEL_IDENT, SUBBLOCKS_LIMIT, message_backlog);
 
-    let fee_recipient = config.fee_recipient.unwrap_or_else(|| {
-        // FIXME: outside of root span; put in root span.
-        info!("argument fee-recipient not set; using coinbase set in genesis");
-        execution_node.chain_spec().genesis().coinbase
-    });
+    let fee_recipient = config
+        .fee_recipient
+        .ok_or_eyre("requried argument fee-recipient not set")?;
 
     let consensus_engine = crate::consensus::engine::Builder {
         context: context.with_label("engine"),
