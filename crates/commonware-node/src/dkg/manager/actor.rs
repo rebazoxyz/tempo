@@ -636,7 +636,7 @@ where
         TReceiver: Receiver<PublicKey = PublicKey>,
         TSender: Sender<PublicKey = PublicKey>,
     {
-        let syncers = read_validator_config_with_retry(
+        let syncing_players = read_validator_config_with_retry(
             &self.context,
             &self.config.execution_node,
             self.epoch_state.epoch,
@@ -644,7 +644,7 @@ where
         )
         .await;
 
-        self.all_participants.push(syncers);
+        self.all_participants.push(syncing_players);
         // TODO: report changes between the validators here.
 
         let config = ceremony::Config {
