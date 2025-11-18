@@ -50,18 +50,51 @@ where
     TContext: Clock + commonware_runtime::Metrics + Storage,
     TPeerManager: commonware_p2p::Manager,
 {
+    /// The actor configuration passed in when constructing the actor.
     config: super::Config<TPeerManager>,
+
+    /// The runtime context passed in when constructing the actor.
     context: ContextCell<TContext>,
+
+    /// The channel over which the actor will receive messages.
     mailbox: mpsc::UnboundedReceiver<super::Message>,
 
+    /// Persisted information on the currently running ceremmony and its
+    /// predecessor (epochs i and i-1). This ceremony metadata is updated on
+    /// the last height of en epoch (the height on which the ceremony for the
+    /// next epoch will be started).
     ceremony_metadata: Arc<Mutex<Metadata<ContextCell<TContext>, U64, CeremonyState>>>,
+
+    /// Persisted information on the current epoch (participants, this node's
+    /// share of the private polynomial, the public polynomial). As the ceremony
+    /// is finalized one node before the boundary block, the resulting epoch
+    /// information is also updated then. (remember, for a given epoch length E,
+    /// the first height of epoch i is i×E, and so the boundary block of
+    /// epoch (i-1) is b = i×E-1 and its predecessor b-1.
+    //
+    // FIXME(janis): this means that if the node goes down right after it
+    // updated the state on b-1 but before it saw the boundary block b, on a
+    // restart the old epoch will never be entered again!
     epoch_metadata: Metadata<ContextCell<TContext>, U64, EpochState>,
+
+    /// Information on the peers registered on the p2p peer mamnager for a given
+    /// epoch i and its precursors i-1 and i-2. Peer information is persisted
+    /// on the last height of an epoch.
+    // FIXME(janis): we are not actually deleting the information ever.
     registered_peers_metadata: Metadata<ContextCell<TContext>, U64, PeersRegistered>,
 
+    /// The epoch state of the current epoch. Populated from `epoch_metadata` on
+    /// initialization and updated on every completed ceremony (one before the
+    /// last height of an epoch).
     epoch_state: EpochState,
 
+    /// Tracks all current and potential future validators as read from the
+    /// smart contract. This object is populated from `registered_peers_metadata`
+    /// on init and updated on
     all_participants: Participants,
 
+    /// Handles to the metrics objects that the actor will update during its
+    /// runtime.
     metrics: Metrics,
 }
 
