@@ -305,7 +305,7 @@ impl Decodable for KeyAuthorization {
         let key_id: Address = Decodable::decode(buf)?;
         let signature_bytes: Bytes = Decodable::decode(buf)?;
         let signature =
-            AASignature::from_bytes(&signature_bytes).map_err(|e| alloy_rlp::Error::Custom(e))?;
+            AASignature::from_bytes(&signature_bytes).map_err(alloy_rlp::Error::Custom)?;
 
         let this = Self {
             key_type,
@@ -1141,8 +1141,6 @@ mod compact {
             flags.set_max_fee_per_gas_len(max_fee_per_gas_len as u8);
             let gas_limit_len = self.gas_limit.to_compact(&mut buffer);
             flags.set_gas_limit_len(gas_limit_len as u8);
-            let calls_len = self.calls.to_compact(&mut buffer);
-            let access_list_len = self.access_list.to_compact(&mut buffer);
             let nonce_key_len = self.nonce_key.to_compact(&mut buffer);
             flags.set_nonce_key_len(nonce_key_len as u8);
             let nonce_len = self.nonce.to_compact(&mut buffer);
@@ -1155,7 +1153,6 @@ mod compact {
             flags.set_valid_after_len(valid_after_len as u8);
             let key_authorization_len = self.key_authorization.to_compact(&mut buffer);
             flags.set_key_authorization_len(key_authorization_len as u8);
-            let aa_authorization_list_len = self.aa_authorization_list.to_compact(&mut buffer);
             let flags = flags.into_bytes();
             total_length += flags.len() + buffer.len();
             buf.put_slice(&flags);
