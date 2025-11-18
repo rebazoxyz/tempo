@@ -11516,7 +11516,6 @@ dependencies = [
  "commonware-runtime",
  "commonware-storage",
  "commonware-utils",
- "const-hex",
  "eyre",
  "futures",
  "governor 0.6.3",

@@ -735,7 +735,7 @@ where
         info!(
             epoch = self.epoch_state.epoch,
             participants = ?self.epoch_state.participants,
-            public = const_hex::encode(self.epoch_state.public.encode()),
+            public = alloy_primitives::hex::encode(self.epoch_state.public.encode()),
             "reported new epoch to epoch manager and registered peers",
         );
     }

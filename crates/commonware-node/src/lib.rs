@@ -190,7 +190,8 @@ async fn instantiate_network(
 
 fn read_from_file<T: DecodeExt<X>, X: IsUnit, P: AsRef<Path>>(path: P) -> eyre::Result<T> {
     let raw_bytes = std::fs::read(path).wrap_err("failed reading file")?;
-    let decoded = const_hex::decode(&raw_bytes).wrap_err("failed decoding file contents as hex")?;
+    let decoded = alloy_primitives::hex::decode(&raw_bytes)
+        .wrap_err("failed decoding file contents as hex")?;
     let obj = T::decode(&decoded[..]).wrap_err("failed parsing hex-decoded file contents")?;
     Ok(obj)
 }
