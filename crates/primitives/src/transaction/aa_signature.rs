@@ -511,7 +511,10 @@ impl AASignature {
 
         // Check if this is a Keychain signature (type identifier 0x03)
         // We need to handle this specially before delegating to PrimitiveSignature
-        if data.len() > 1 && data[0] == SIGNATURE_TYPE_KEYCHAIN {
+        if data.len() > 1
+            && data.len() != SECP256K1_SIGNATURE_LENGTH
+            && data[0] == SIGNATURE_TYPE_KEYCHAIN
+        {
             let sig_data = &data[1..];
 
             // Keychain format: user_address (20 bytes) || inner_signature

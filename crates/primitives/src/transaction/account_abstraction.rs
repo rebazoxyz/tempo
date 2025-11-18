@@ -376,7 +376,6 @@ impl<'a> arbitrary::Arbitrary<'a> for KeyAuthorization {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
-#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 #[doc(alias = "AATransaction", alias = "TransactionAA")]
 pub struct TxAA {
     /// EIP-155: Simple replay attack protection
@@ -734,18 +733,15 @@ impl TxAA {
         // Decode optional key_authorization field at the end
         // Check if the next byte looks like it could be a KeyAuthorization (RLP list)
         // KeyAuthorization is encoded as a list, so it would start with 0xc0-0xf7 (short list) or 0xf8-0xff (long list)
-        // If it's a bytes string (0x80-0xbf for short, 0xb8-0xbf for long), it's not a KeyAuthorization
-        let key_authorization = if !buf.is_empty() {
-            if let Some(&first) = buf.first() {
-                // Check if this looks like an RLP list (KeyAuthorization is always a list)
-                if first >= 0xc0 {
-                    // This could be a KeyAuthorization
-                    Some(Decodable::decode(buf)?)
-                } else {
-                    // This is likely not a KeyAuthorization (probably signature bytes in AASigned context)
-                    None
-                }
+        // If it's a bytes string (0x80-0xbf for short, 0xb8-0xbf for long), it's not a
+        // KeyAuthorization and most likely a signature bytes following the AA transaction.
+        let key_authorization = if let Some(&first) = buf.first() {
+            // Check if this looks like an RLP list (KeyAuthorization is always a list)
+            if first >= 0xc0 {
+                // This could be a KeyAuthorization
+                Some(Decodable::decode(buf)?)
             } else {
+                // This is likely not a KeyAuthorization (probably signature bytes in AASigned context)
                 None
             }
         } else {
@@ -954,11 +950,13 @@ impl Decodable for TxAA {
             return Err(alloy_rlp::Error::InputTooShort);
         }
 
-        let this = Self::rlp_decode_fields(buf)?;
+        let mut fields_buf = &buf[..header.payload_length];
+        let this = Self::rlp_decode_fields(&mut fields_buf)?;
 
-        if buf.len() + header.payload_length != remaining {
+        if !fields_buf.is_empty() {
             return Err(alloy_rlp::Error::UnexpectedLength);
         }
+        buf.advance(header.payload_length);
 
         Ok(this)
     }
@@ -1078,6 +1076,174 @@ mod serde_input {
                 "missing `input` or `data` field",
             ))?
             .into_owned())
+    }
+}
+
+#[cfg(feature = "reth-codec")]
+mod compact {
+    use reth_codecs::Compact;
+
+    use super::*;
+    #[derive(reth_codecs::Compact)]
+
+    struct OldTxAA {
+        chain_id: ChainId,
+        fee_token: Option<Address>,
+        max_priority_fee_per_gas: u128,
+        max_fee_per_gas: u128,
+        gas_limit: u64,
+        calls: Vec<Call>,
+        access_list: AccessList,
+        nonce_key: U256,
+        nonce: u64,
+        fee_payer_signature: Option<Signature>,
+        valid_before: Option<u64>,
+        valid_after: Option<u64>,
+        aa_authorization_list: Vec<AASignedAuthorization>,
+    }
+
+    #[derive(reth_codecs::Compact)]
+
+    struct NewTxAA {
+        chain_id: ChainId,
+        fee_token: Option<Address>,
+        max_priority_fee_per_gas: u128,
+        max_fee_per_gas: u128,
+        gas_limit: u64,
+        calls: Vec<Call>,
+        access_list: AccessList,
+        nonce_key: U256,
+        nonce: u64,
+        fee_payer_signature: Option<Signature>,
+        valid_before: Option<u64>,
+        valid_after: Option<u64>,
+        key_authorization: Option<KeyAuthorization>,
+        aa_authorization_list: Vec<AASignedAuthorization>,
+    }
+
+    impl Compact for TxAA {
+        fn to_compact<B>(&self, buf: &mut B) -> usize
+        where
+            B: alloy_rlp::bytes::BufMut + AsMut<[u8]>,
+        {
+            // copy-pasted expansion of NewTxAA
+            let mut flags = NewTxAAFlags::default();
+            let mut total_length = 0;
+            let mut buffer = reth_codecs::__private::bytes::BytesMut::new();
+            let chain_id_len = self.chain_id.to_compact(&mut buffer);
+            flags.set_chain_id_len(chain_id_len as u8);
+            let fee_token_len = self.fee_token.specialized_to_compact(&mut buffer);
+            flags.set_fee_token_len(fee_token_len as u8);
+            let max_priority_fee_per_gas_len =
+                self.max_priority_fee_per_gas.to_compact(&mut buffer);
+            flags.set_max_priority_fee_per_gas_len(max_priority_fee_per_gas_len as u8);
+            let max_fee_per_gas_len = self.max_fee_per_gas.to_compact(&mut buffer);
+            flags.set_max_fee_per_gas_len(max_fee_per_gas_len as u8);
+            let gas_limit_len = self.gas_limit.to_compact(&mut buffer);
+            flags.set_gas_limit_len(gas_limit_len as u8);
+            let calls_len = self.calls.to_compact(&mut buffer);
+            let access_list_len = self.access_list.to_compact(&mut buffer);
+            let nonce_key_len = self.nonce_key.to_compact(&mut buffer);
+            flags.set_nonce_key_len(nonce_key_len as u8);
+            let nonce_len = self.nonce.to_compact(&mut buffer);
+            flags.set_nonce_len(nonce_len as u8);
+            let fee_payer_signature_len = self.fee_payer_signature.to_compact(&mut buffer);
+            flags.set_fee_payer_signature_len(fee_payer_signature_len as u8);
+            let valid_before_len = self.valid_before.to_compact(&mut buffer);
+            flags.set_valid_before_len(valid_before_len as u8);
+            let valid_after_len = self.valid_after.to_compact(&mut buffer);
+            flags.set_valid_after_len(valid_after_len as u8);
+            let key_authorization_len = self.key_authorization.to_compact(&mut buffer);
+            flags.set_key_authorization_len(key_authorization_len as u8);
+            let aa_authorization_list_len = self.aa_authorization_list.to_compact(&mut buffer);
+            let flags = flags.into_bytes();
+            total_length += flags.len() + buffer.len();
+            buf.put_slice(&flags);
+            buf.put(buffer);
+            total_length
+        }
+
+        fn from_compact(buf: &[u8], len: usize) -> (Self, &[u8]) {
+            if buf[4] <= 1 {
+                let (
+                    NewTxAA {
+                        chain_id,
+                        fee_token,
+                        max_priority_fee_per_gas,
+                        max_fee_per_gas,
+                        gas_limit,
+                        calls,
+                        access_list,
+                        nonce_key,
+                        nonce,
+                        fee_payer_signature,
+                        valid_before,
+                        valid_after,
+                        key_authorization,
+                        aa_authorization_list,
+                    },
+                    buf,
+                ) = NewTxAA::from_compact(buf, len);
+                (
+                    Self {
+                        chain_id,
+                        fee_token,
+                        max_priority_fee_per_gas,
+                        max_fee_per_gas,
+                        gas_limit,
+                        calls,
+                        access_list,
+                        nonce_key,
+                        nonce,
+                        fee_payer_signature,
+                        valid_before,
+                        valid_after,
+                        key_authorization,
+                        aa_authorization_list,
+                    },
+                    buf,
+                )
+            } else {
+                let (
+                    OldTxAA {
+                        chain_id,
+                        fee_token,
+                        max_priority_fee_per_gas,
+                        max_fee_per_gas,
+                        gas_limit,
+                        calls,
+                        access_list,
+                        nonce_key,
+                        nonce,
+                        fee_payer_signature,
+                        valid_before,
+                        valid_after,
+                        aa_authorization_list,
+                    },
+                    buf,
+                ) = OldTxAA::from_compact(buf, len);
+
+                (
+                    Self {
+                        chain_id,
+                        fee_token,
+                        max_priority_fee_per_gas,
+                        max_fee_per_gas,
+                        gas_limit,
+                        calls,
+                        access_list,
+                        nonce_key,
+                        nonce,
+                        fee_payer_signature,
+                        valid_before,
+                        valid_after,
+                        key_authorization: None,
+                        aa_authorization_list,
+                    },
+                    buf,
+                )
+            }
+        }
     }
 }
 
