@@ -96,20 +96,6 @@ impl LayoutCtx {
         Self(offset)
     }
 
-    // -- GETTER FUNCTIONS ----------------------------------------------------
-
-    /// Check if this is a full slot layout
-    #[inline]
-    pub const fn is_full(&self) -> bool {
-        self.0 == usize::MAX
-    }
-
-    /// Check if this is a packed layout
-    #[inline]
-    pub const fn is_packed(&self) -> bool {
-        self.0 != usize::MAX
-    }
-
     /// Get the packed offset, returns `None` for `Full`
     #[inline]
     pub const fn packed_offset(&self) -> Option<usize> {
