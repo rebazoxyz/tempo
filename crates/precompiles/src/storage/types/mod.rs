@@ -4,6 +4,9 @@ pub use slot::*;
 pub mod mapping;
 pub use mapping::*;
 
+pub mod transient_mapping;
+pub use transient_mapping::*;
+
 mod bytes_like;
 mod primitives;
 pub mod vec;

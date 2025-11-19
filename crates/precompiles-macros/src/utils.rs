@@ -230,15 +230,15 @@ pub(crate) fn extract_storable_array_sizes(attrs: &[Attribute]) -> syn::Result<O
     Ok(None)
 }
 
-/// Extracts the type parameters from Mapping<K, V>.
+/// Extracts the type parameters from Mapping<K, V> or TransientMapping<K, V>.
 ///
-/// Returns Some((key_type, value_type)) if the type is a Mapping, None otherwise.
+/// Returns Some((key_type, value_type)) if the type is a Mapping or TransientMapping, None otherwise.
 pub(crate) fn extract_mapping_types(ty: &Type) -> Option<(&Type, &Type)> {
     if let Type::Path(type_path) = ty {
         let last_segment = type_path.path.segments.last()?;
 
-        // Check if the type is named "Mapping"
-        if last_segment.ident != "Mapping" {
+        // Check if the type is named "Mapping" or "TransientMapping"
+        if last_segment.ident != "Mapping" && last_segment.ident != "TransientMapping" {
             return None;
         }
 
@@ -340,6 +340,16 @@ pub(crate) fn is_array_type(ty: &Type) -> bool {
 /// Unlike custom structs, mappings do NOT have a SLOT_COUNT constant.
 pub(crate) fn is_mapping_type(ty: &Type) -> bool {
     extract_mapping_types(ty).is_some()
+}
+
+/// Returns true if the type is specifically a TransientMapping.
+pub(crate) fn is_transient_mapping(ty: &Type) -> bool {
+    if let Type::Path(type_path) = ty {
+        if let Some(last_segment) = type_path.path.segments.last() {
+            return last_segment.ident == "TransientMapping";
+        }
+    }
+    false
 }
 
 #[cfg(test)]

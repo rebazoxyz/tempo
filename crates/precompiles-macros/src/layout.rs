@@ -1,7 +1,8 @@
 use crate::{
     FieldInfo, FieldKind,
     utils::{
-        extract_mapping_types, is_array_type, is_custom_struct, is_dynamic_type, to_pascal_case,
+        extract_mapping_types, is_array_type, is_custom_struct, is_dynamic_type,
+        is_transient_mapping, to_pascal_case,
     },
 };
 use alloy::primitives::U256;
@@ -279,31 +280,69 @@ pub(crate) fn gen_getters_and_setters(
             key: key_ty,
             value: value_ty,
         } => {
-            quote! {
-                impl<'a, S: crate::storage::PrecompileStorageProvider> #struct_name<'a, S> {
-                    #[inline]
-                    fn #getter_name(&mut self, key: #key_ty) -> crate::error::Result<#value_ty> {
-                        crate::storage::Mapping::<#key_ty, #value_ty, #slot_id>::read(
-                            self,
-                            key,
-                        )
-                    }
+            // Check if it's a TransientMapping
+            if is_transient_mapping(field_ty) {
+                // Generate methods that use TransientMapping's read/write/delete methods
+                // These internally use tload/tstore
+                quote! {
+                    impl<'a, S: crate::storage::PrecompileStorageProvider> #struct_name<'a, S> {
+                        #[inline]
+                        fn #getter_name(&mut self, key: #key_ty) -> crate::error::Result<#value_ty> {
+                            crate::storage::TransientMapping::<#key_ty, #value_ty, #slot_id>::read(
+                                self.storage,
+                                self.address,
+                                key,
+                            )
+                        }
 
-                    #[inline]
-                    fn #cleaner_name(&mut self, key: #key_ty) -> crate::error::Result<()> {
-                        crate::storage::Mapping::<#key_ty, #value_ty, #slot_id>::delete(
-                            self,
-                            key,
-                        )
-                    }
+                        #[inline]
+                        fn #cleaner_name(&mut self, key: #key_ty) -> crate::error::Result<()> {
+                            crate::storage::TransientMapping::<#key_ty, #value_ty, #slot_id>::delete(
+                                self.storage,
+                                self.address,
+                                key,
+                            )
+                        }
 
-                    #[inline]
-                    fn #setter_name(&mut self, key: #key_ty, value: #value_ty) -> crate::error::Result<()> {
-                        crate::storage::Mapping::<#key_ty, #value_ty, #slot_id>::write(
-                            self,
-                            key,
-                            value,
-                        )
+                        #[inline]
+                        fn #setter_name(&mut self, key: #key_ty, value: #value_ty) -> crate::error::Result<()> {
+                            crate::storage::TransientMapping::<#key_ty, #value_ty, #slot_id>::write(
+                                self.storage,
+                                self.address,
+                                key,
+                                value,
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Standard Mapping - use existing implementation
+                quote! {
+                    impl<'a, S: crate::storage::PrecompileStorageProvider> #struct_name<'a, S> {
+                        #[inline]
+                        fn #getter_name(&mut self, key: #key_ty) -> crate::error::Result<#value_ty> {
+                            crate::storage::Mapping::<#key_ty, #value_ty, #slot_id>::read(
+                                self,
+                                key,
+                            )
+                        }
+
+                        #[inline]
+                        fn #cleaner_name(&mut self, key: #key_ty) -> crate::error::Result<()> {
+                            crate::storage::Mapping::<#key_ty, #value_ty, #slot_id>::delete(
+                                self,
+                                key,
+                            )
+                        }
+
+                        #[inline]
+                        fn #setter_name(&mut self, key: #key_ty, value: #value_ty) -> crate::error::Result<()> {
+                            crate::storage::Mapping::<#key_ty, #value_ty, #slot_id>::write(
+                                self,
+                                key,
+                                value,
+                            )
+                        }
                     }
                 }
             }

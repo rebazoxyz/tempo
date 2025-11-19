@@ -31,7 +31,8 @@ pub struct AccountKeychain {
     // Using a hash of account and keyId as the key to avoid triple nesting
     spending_limits: Mapping<B256, Mapping<Address, U256>>,
     // transactionKey[account] -> keyId (Address::ZERO for main key)
-    transaction_key: Mapping<Address, Address>,
+    // Uses transient storage that automatically clears after transaction
+    transaction_key: TransientMapping<Address, Address>,
 }
 
 impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
