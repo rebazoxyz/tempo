@@ -11,9 +11,9 @@ pub mod tip_account_registrar;
 pub mod tip_fee_manager;
 pub mod validator_config;
 
-pub use common_errors::*;
 pub use account_keychain::*;
 use alloy::primitives::{Address, address};
+pub use common_errors::*;
 pub use linking_usd::*;
 pub use nonce::*;
 pub use stablecoin_exchange::*;
