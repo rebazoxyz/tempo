@@ -25,7 +25,6 @@ use commonware_runtime::{
 };
 use commonware_utils::set::Ordered;
 use eyre::WrapErr as _;
-use futures::future::try_join_all;
 use rand::{CryptoRng, Rng};
 use tempo_node::TempoFullNode;
 
@@ -438,18 +437,20 @@ where
 
         let dkg_manager = self.dkg_manager.start(dkg_channel);
 
-        try_join_all(vec![
+        let handles = vec![
             application,
             broadcast,
             epoch_manager,
             marshal,
             dkg_manager,
             subblocks,
-        ])
-        .await
-        .map(|_| ())
-        // TODO: look into adding error context so that we know which
-        // component failed.
-        .wrap_err("one of the consensus engine's actors failed")
+        ];
+
+        let mut set = crate::util::JoinSet::from_vec(handles);
+        while let Some(res) = set.join_next().await {
+            res.wrap_err("one of the consensus engine's actors failed")?;
+        }
+
+        Ok(())
     }
 }
