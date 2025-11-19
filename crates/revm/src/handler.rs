@@ -614,116 +614,114 @@ where
         // Note: Transaction parameter validation (priority fee, time window) happens in validate_env()
 
         // If the transaction includes a KeyAuthorization, validate and authorize the key
-        if let Some(aa_tx_env) = tx.aa_tx_env.as_ref() {
-            if let Some(key_auth) = &aa_tx_env.key_authorization {
-                // Check if this TX is using a Keychain signature (access key)
-                // Access keys cannot authorize new keys UNLESS it's the same key being authorized (same-tx auth+use)
-                if let tempo_primitives::AASignature::Keychain(keychain_sig) = &aa_tx_env.signature
-                {
-                    // Recover the access key address from the inner signature
-                    let access_key_addr = keychain_sig
-                        .signature
-                        .recover_signer(&aa_tx_env.tx_hash)
-                        .map_err(|_| {
-                            EVMError::Transaction(TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                reason: "Failed to recover access key address from Keychain signature"
-                                    .to_string(),
-                            })
-                        })?;
-
-                    // Only allow if authorizing the same key that's being used (same-tx auth+use)
-                    if access_key_addr != key_auth.key_id {
-                        return Err(EVMError::Transaction(
-                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                reason: "Access keys cannot authorize other keys. Only the root key can authorize new keys.".to_string(),
-                            },
-                        ));
-                    }
-                }
-
-                // Validate that the KeyAuthorization is signed by the root account
-                let root_account = &tx.caller;
-
-                // Compute the message hash for the KeyAuthorization
-                // Message format: keccak256(rlp([key_type, key_id, expiry, limits]))
-                let auth_message_hash = KeyAuthorization::authorization_message_hash(
-                    key_auth.key_type.clone(),
-                    key_auth.key_id,
-                    key_auth.expiry,
-                    &key_auth.limits,
-                );
-
-                // Recover the signer of the KeyAuthorization
-                let auth_signer = key_auth
+        if let Some(aa_tx_env) = tx.aa_tx_env.as_ref()
+            && let Some(key_auth) = &aa_tx_env.key_authorization
+        {
+            // Check if this TX is using a Keychain signature (access key)
+            // Access keys cannot authorize new keys UNLESS it's the same key being authorized (same-tx auth+use)
+            if let tempo_primitives::AASignature::Keychain(keychain_sig) = &aa_tx_env.signature {
+                // Recover the access key address from the inner signature
+                let access_key_addr = keychain_sig
                     .signature
-                    .recover_signer(&auth_message_hash)
+                    .recover_signer(&aa_tx_env.tx_hash)
                     .map_err(|_| {
                         EVMError::Transaction(
                             TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                reason: "Failed to recover signer from KeyAuthorization signature"
-                                    .to_string(),
+                                reason:
+                                    "Failed to recover access key address from Keychain signature"
+                                        .to_string(),
                             },
                         )
                     })?;
 
-                // Verify the KeyAuthorization is signed by the root account
-                if auth_signer != *root_account {
+                // Only allow if authorizing the same key that's being used (same-tx auth+use)
+                if access_key_addr != key_auth.key_id {
                     return Err(EVMError::Transaction(
-                        TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                            reason: format!(
-                                "KeyAuthorization must be signed by root account {}, but was signed by {}",
-                                root_account, auth_signer
-                            ),
-                        },
-                    ));
+                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                                reason: "Access keys cannot authorize other keys. Only the root key can authorize new keys.".to_string(),
+                            },
+                        ));
                 }
-
-                // Now authorize the key in the precompile
-                let internals = EvmInternals::new(journal, block);
-                let mut storage_provider =
-                    EvmPrecompileStorageProvider::new_max_gas(internals, cfg);
-
-                let mut keychain = AccountKeychain::new(&mut storage_provider);
-
-                let access_key_addr = key_auth.key_id;
-
-                // Convert signature type to precompile SignatureType enum
-                // Use the key_type field which specifies the type of key being authorized
-                let signature_type = match key_auth.key_type {
-                    SignatureType::Secp256k1 => PrecompileSignatureType::Secp256k1,
-                    SignatureType::P256 => PrecompileSignatureType::P256,
-                    SignatureType::WebAuthn => PrecompileSignatureType::WebAuthn,
-                };
-
-                // Convert limits to the format expected by the precompile
-                let precompile_limits: Vec<TokenLimit> = key_auth
-                    .limits
-                    .iter()
-                    .map(|limit| TokenLimit {
-                        token: limit.token,
-                        amount: limit.limit,
-                    })
-                    .collect();
-
-                // Create the authorize key call
-                let authorize_call = authorizeKeyCall {
-                    keyId: access_key_addr,
-                    signatureType: signature_type,
-                    expiry: key_auth.expiry,
-                    limits: precompile_limits,
-                };
-
-                // Call precompile to authorize the key (same phase as nonce increment)
-                keychain
-                    .authorize_key(*root_account, authorize_call)
-                    .map_err(|err| match err {
-                        TempoPrecompileError::Fatal(err) => EVMError::Custom(err),
-                        err => TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                            reason: err.to_string(),
-                        }
-                        .into(),
-                    })?;
             }
+
+            // Validate that the KeyAuthorization is signed by the root account
+            let root_account = &tx.caller;
+
+            // Compute the message hash for the KeyAuthorization
+            // Message format: keccak256(rlp([key_type, key_id, expiry, limits]))
+            let auth_message_hash = KeyAuthorization::authorization_message_hash(
+                key_auth.key_type.clone(),
+                key_auth.key_id,
+                key_auth.expiry,
+                &key_auth.limits,
+            );
+
+            // Recover the signer of the KeyAuthorization
+            let auth_signer = key_auth
+                .signature
+                .recover_signer(&auth_message_hash)
+                .map_err(|_| {
+                    EVMError::Transaction(TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                        reason: "Failed to recover signer from KeyAuthorization signature"
+                            .to_string(),
+                    })
+                })?;
+
+            // Verify the KeyAuthorization is signed by the root account
+            if auth_signer != *root_account {
+                return Err(EVMError::Transaction(
+                    TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                        reason: format!(
+                            "KeyAuthorization must be signed by root account {root_account}, but was signed by {auth_signer}",
+                        ),
+                    },
+                ));
+            }
+
+            // Now authorize the key in the precompile
+            let internals = EvmInternals::new(journal, block);
+            let mut storage_provider = EvmPrecompileStorageProvider::new_max_gas(internals, cfg);
+
+            let mut keychain = AccountKeychain::new(&mut storage_provider);
+
+            let access_key_addr = key_auth.key_id;
+
+            // Convert signature type to precompile SignatureType enum
+            // Use the key_type field which specifies the type of key being authorized
+            let signature_type = match key_auth.key_type {
+                SignatureType::Secp256k1 => PrecompileSignatureType::Secp256k1,
+                SignatureType::P256 => PrecompileSignatureType::P256,
+                SignatureType::WebAuthn => PrecompileSignatureType::WebAuthn,
+            };
+
+            // Convert limits to the format expected by the precompile
+            let precompile_limits: Vec<TokenLimit> = key_auth
+                .limits
+                .iter()
+                .map(|limit| TokenLimit {
+                    token: limit.token,
+                    amount: limit.limit,
+                })
+                .collect();
+
+            // Create the authorize key call
+            let authorize_call = authorizeKeyCall {
+                keyId: access_key_addr,
+                signatureType: signature_type,
+                expiry: key_auth.expiry,
+                limits: precompile_limits,
+            };
+
+            // Call precompile to authorize the key (same phase as nonce increment)
+            keychain
+                .authorize_key(*root_account, authorize_call)
+                .map_err(|err| match err {
+                    TempoPrecompileError::Fatal(err) => EVMError::Custom(err),
+                    err => TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                        reason: err.to_string(),
+                    }
+                    .into(),
+                })?;
         }
 
         // Create storage provider wrapper around journal for fee manager
@@ -1365,7 +1363,6 @@ mod tests {
         use tempo_primitives::transaction::{AASignature, Call};
 
         // Test that AA tx with secp256k1 and single call matches normal tx + per-call overhead
-        let spec = SpecId::CANCUN;
         let calldata = Bytes::from(vec![1, 2, 3, 4, 5]); // 5 non-zero bytes
         let to = Address::random();
 
@@ -1421,7 +1418,6 @@ mod tests {
         use revm::interpreter::gas::calculate_initial_tx_gas;
         use tempo_primitives::transaction::{AASignature, Call};
 
-        let spec = SpecId::CANCUN;
         let calldata = Bytes::from(vec![1, 2, 3]); // 3 non-zero bytes
 
         let calls = vec![

@@ -2469,7 +2469,7 @@ async fn test_aa_access_key() -> eyre::Result<()> {
     // Get transaction hash and receipt
     let tx_from_block = &payload.block().body().transactions[0];
     let tx_hash_trie = tx_from_block.trie_hash();
-    println!("Transaction hash from block (trie_hash): {}", tx_hash_trie);
+    println!("Transaction hash from block (trie_hash): {tx_hash_trie}");
 
     // Encode the transaction from the block and compare with what was injected
     let mut block_tx_encoded = Vec::new();
@@ -2510,7 +2510,7 @@ async fn test_aa_access_key() -> eyre::Result<()> {
     let tx_hash_actual = if let TempoTxEnvelope::AA(aa_signed) = tx_from_block {
         let sig_hash = aa_signed.signature_hash();
         println!("\nTransaction in block IS an AA transaction:");
-        println!("  Signature hash from block: {}", sig_hash);
+        println!("  Signature hash from block: {sig_hash}");
         println!("  Nonce from block: {}", aa_signed.tx().nonce);
         println!("  Calls from block: {}", aa_signed.tx().calls.len());
         println!(
@@ -2549,7 +2549,7 @@ async fn test_aa_access_key() -> eyre::Result<()> {
         );
         tx_hash_trie
     };
-    println!("Transaction hash (actual): {}", tx_hash_actual);
+    println!("Transaction hash (actual): {tx_hash_actual}");
 
     // Use raw RPC call to get receipt since Alloy doesn't support custom tx type 0x76
     let receipt_opt: Option<serde_json::Value> = provider
@@ -2577,10 +2577,10 @@ async fn test_aa_access_key() -> eyre::Result<()> {
         .map(|a| a.len())
         .unwrap_or(0);
 
-    println!("Status: {}", status);
-    println!("Gas used: {}", gas_used);
-    println!("Effective gas price: {}", effective_gas_price);
-    println!("Logs count: {}", logs_count);
+    println!("Status: {status}");
+    println!("Gas used: {gas_used}");
+    println!("Effective gas price: {effective_gas_price}");
+    println!("Logs count: {logs_count}");
 
     assert!(status, "Transaction should succeed");
 
@@ -2597,10 +2597,7 @@ async fn test_aa_access_key() -> eyre::Result<()> {
         recipient_balance_after, transfer_amount,
         "Recipient should have received exactly the transfer amount"
     );
-    println!(
-        "✓ Recipient received correct amount: {} tokens",
-        transfer_amount
-    );
+    println!("✓ Recipient received correct amount: {transfer_amount} tokens");
 
     // Verify root key's balance decreased
     let root_balance_after = ITIP20::new(DEFAULT_FEE_TOKEN, provider.clone())
