@@ -103,7 +103,7 @@ impl GenerateDevnet {
             let execution_p2p_port = consensus_p2p_port + 2;
 
             execution_peers.push(format!(
-                "encode://{execution_p2p_identity:x}@{}",
+                "enode://{execution_p2p_identity:x}@{}",
                 validator.net_address.clone().with_port(execution_p2p_port),
             ));
 
