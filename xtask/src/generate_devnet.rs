@@ -99,7 +99,8 @@ impl GenerateDevnet {
             };
 
             let consensus_p2p_port = validator.net_address.port();
-            let execution_p2p_port = consensus_p2p_port + 1;
+            let consensus_metrics_port = consensus_p2p_port + 1;
+            let execution_p2p_port = consensus_p2p_port + 2;
 
             execution_peers.push(format!(
                 "encode://{execution_p2p_identity:x}@{}",
@@ -118,6 +119,7 @@ impl GenerateDevnet {
                     consensus_on_disk_signing_share: validator.encode_bls12381_private_key_share(),
 
                     consensus_p2p_port,
+                    consensus_metrics_port,
                     execution_p2p_port,
 
                     execution_p2p_disc_key: execution_p2p_signing_key.display_secret().to_string(),
@@ -134,13 +136,12 @@ impl GenerateDevnet {
             config.execution_peers = execution_peers.clone();
             let config_json = serde_json::to_string_pretty(&config)
                 .wrap_err("failed to convert config to json")?;
-            let dst = output
-                .join(validator.net_address.to_string())
-                .with_extension("json");
+            // TODO: use Path::with_added_extension once we are on 1.91
+            let dst = output.join(format!("{}.json", validator.net_address));
             std::fs::write(&dst, config_json).wrap_err_with(|| {
                 format!("failed to write deployment config to `{}`", dst.display())
             })?;
-            println!("wrote config for validator `{}`", validator.net_address);
+            println!("wrote config to `{}`", dst.display());
         }
         eprintln!("config files written");
 
@@ -160,6 +161,7 @@ pub(crate) struct ConfigOutput {
     consensus_on_disk_signing_key: String,
     consensus_on_disk_signing_share: String,
     consensus_p2p_port: u16,
+    consensus_metrics_port: u16,
     node_image_tag: String,
     execution_genesis_url: String,
     execution_p2p_port: u16,
