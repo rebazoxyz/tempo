@@ -112,6 +112,7 @@ where
 mod tests {
     use super::*;
     use commonware_runtime::{Runner, Spawner, deterministic};
+    use futures::StreamExt;
 
     #[test]
     fn join_next_returns_completed_task() {
@@ -185,17 +186,17 @@ mod tests {
 
     #[test]
     fn tasks_are_aborted_on_drop() {
-        struct SendOnDrop(tokio::sync::mpsc::UnboundedSender<()>);
+        struct SendOnDrop(futures::channel::mpsc::UnboundedSender<()>);
 
         impl Drop for SendOnDrop {
             fn drop(&mut self) {
-                let _ = self.0.send(());
+                let _ = self.0.unbounded_send(());
             }
         }
 
         let executor = deterministic::Runner::default();
         executor.start(|context| async move {
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let (tx, mut rx) = futures::channel::mpsc::unbounded();
             let mut set = JoinSet::new();
 
             for _ in 0..10 {
@@ -212,7 +213,7 @@ mod tests {
             drop(set);
 
             for _ in 0..10 {
-                rx.recv().await;
+                rx.next().await;
             }
         });
     }
