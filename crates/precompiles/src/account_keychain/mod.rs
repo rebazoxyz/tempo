@@ -11,7 +11,10 @@ pub use tempo_contracts::precompiles::{
 
 use crate::{ACCOUNT_KEYCHAIN_ADDRESS, error::Result, storage::PrecompileStorageProvider};
 use alloy::primitives::{Address, B256, Bytes, IntoLogData, U256};
-use revm::state::Bytecode;
+use revm::{
+    interpreter::instructions::utility::{IntoAddress, IntoU256},
+    state::Bytecode,
+};
 use tempo_precompiles_macros::{Storable, contract};
 
 /// Key information stored in the precompile
@@ -30,9 +33,11 @@ pub struct AccountKeychain {
     // spendingLimits[(account, keyId)][token] -> amount
     // Using a hash of account and keyId as the key to avoid triple nesting
     spending_limits: Mapping<B256, Mapping<Address, U256>>,
-    // transactionKey[account] -> keyId (Address::ZERO for main key)
-    transaction_key: Mapping<Address, Address>,
 }
+
+/// Transient storage slot for the transaction key
+/// Using slot 0 since there's only one transaction key at a time
+const TRANSACTION_KEY_SLOT: U256 = U256::ZERO;
 
 impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
     /// Creates an instance of the precompile.
@@ -40,6 +45,24 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
     /// Caution: This does not initialize the account, see [`Self::initialize`].
     pub fn new(storage: &'a mut S) -> Self {
         Self::_new(ACCOUNT_KEYCHAIN_ADDRESS, storage)
+    }
+
+    /// Load transaction key from transient storage
+    fn tload_transaction_key(&mut self) -> Result<Address> {
+        let value = self
+            .storage
+            .tload(ACCOUNT_KEYCHAIN_ADDRESS, TRANSACTION_KEY_SLOT)?;
+        Ok(value.into_address())
+    }
+
+    /// Store transaction key in transient storage
+    fn tstore_transaction_key(&mut self, key_id: Address) -> Result<()> {
+        self.storage.tstore(
+            ACCOUNT_KEYCHAIN_ADDRESS,
+            TRANSACTION_KEY_SLOT,
+            key_id.into_u256(),
+        )?;
+        Ok(())
     }
 
     /// Create a hash key for spending limits mapping from account and keyId
@@ -65,7 +88,7 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
     /// This can only be called by the account itself (using main key)
     pub fn authorize_key(&mut self, msg_sender: Address, call: authorizeKeyCall) -> Result<()> {
         // Check that the transaction key for this transaction is zero (main key)
-        let transaction_key = self.sload_transaction_key(msg_sender)?;
+        let transaction_key = self.tload_transaction_key()?;
 
         // If transaction_key is not zero, it means a secondary key is being used
         if transaction_key != Address::ZERO {
@@ -126,7 +149,7 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
 
     /// Revoke an authorized key
     pub fn revoke_key(&mut self, msg_sender: Address, call: revokeKeyCall) -> Result<()> {
-        let transaction_key = self.sload_transaction_key(msg_sender)?;
+        let transaction_key = self.tload_transaction_key()?;
 
         if transaction_key != Address::ZERO {
             return Err(AccountKeychainError::unauthorized_caller().into());
@@ -163,7 +186,7 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
         msg_sender: Address,
         call: updateSpendingLimitCall,
     ) -> Result<()> {
-        let transaction_key = self.sload_transaction_key(msg_sender)?;
+        let transaction_key = self.tload_transaction_key()?;
 
         if transaction_key != Address::ZERO {
             return Err(AccountKeychainError::unauthorized_caller().into());
@@ -235,9 +258,9 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
     pub fn get_transaction_key(
         &mut self,
         _call: getTransactionKeyCall,
-        msg_sender: Address,
+        _msg_sender: Address,
     ) -> Result<Address> {
-        self.sload_transaction_key(msg_sender)
+        self.tload_transaction_key()
     }
 
     /// Internal: Set the transaction key (called during transaction validation)
@@ -249,8 +272,9 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
     ///
     /// This creates a secure channel between validation and the precompile to ensure
     /// only the main key can authorize/revoke other keys.
-    pub fn set_transaction_key(&mut self, account: Address, key_id: Address) -> Result<()> {
-        self.sstore_transaction_key(account, key_id)?;
+    /// Uses transient storage, so the key is automatically cleared after the transaction.
+    pub fn set_transaction_key(&mut self, key_id: Address) -> Result<()> {
+        self.tstore_transaction_key(key_id)?;
         Ok(())
     }
 
@@ -314,5 +338,133 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
         self.sstore_spending_limits(limit_key, token, remaining - amount)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::hashmap::HashMapStorageProvider;
+    use alloy::primitives::{Address, U256};
+    use tempo_contracts::precompiles::IAccountKeychain::SignatureType;
+
+    #[test]
+    fn test_transaction_key_transient_storage() {
+        let mut storage = HashMapStorageProvider::new(1); // chain_id = 1 for testing
+        let mut keychain = AccountKeychain::new(&mut storage);
+
+        // Test 1: Initially transaction key should be zero
+        let initial_key = keychain.tload_transaction_key().unwrap();
+        assert_eq!(
+            initial_key,
+            Address::ZERO,
+            "Initial transaction key should be zero"
+        );
+
+        // Test 2: Set transaction key to an access key address
+        let access_key_addr = Address::from([0x01; 20]);
+        keychain.set_transaction_key(access_key_addr).unwrap();
+
+        // Test 3: Verify it was stored
+        let loaded_key = keychain.tload_transaction_key().unwrap();
+        assert_eq!(loaded_key, access_key_addr, "Transaction key should be set");
+
+        // Test 4: Verify getTransactionKey works
+        let get_tx_key_call = getTransactionKeyCall {};
+        let result = keychain
+            .get_transaction_key(get_tx_key_call, Address::ZERO)
+            .unwrap();
+        assert_eq!(
+            result, access_key_addr,
+            "getTransactionKey should return the set key"
+        );
+
+        // Test 5: Clear transaction key
+        keychain.set_transaction_key(Address::ZERO).unwrap();
+        let cleared_key = keychain.tload_transaction_key().unwrap();
+        assert_eq!(
+            cleared_key,
+            Address::ZERO,
+            "Transaction key should be cleared"
+        );
+    }
+
+    #[test]
+    fn test_admin_operations_blocked_with_access_key() {
+        let mut storage = HashMapStorageProvider::new(1); // chain_id = 1 for testing
+        let mut keychain = AccountKeychain::new(&mut storage);
+
+        // Initialize the keychain
+        keychain.initialize().unwrap();
+
+        let msg_sender = Address::from([0x01; 20]);
+        let existing_key = Address::from([0x02; 20]);
+        let access_key = Address::from([0x03; 20]);
+        let token = Address::from([0x04; 20]);
+
+        // First, authorize a key with main key (transaction_key = 0) to set up the test
+        keychain.set_transaction_key(Address::ZERO).unwrap();
+        let setup_call = authorizeKeyCall {
+            keyId: existing_key,
+            signatureType: SignatureType::Secp256k1,
+            expiry: u64::MAX,
+            limits: vec![],
+        };
+        keychain.authorize_key(msg_sender, setup_call).unwrap();
+
+        // Now set transaction key to non-zero (simulating access key usage)
+        keychain.set_transaction_key(access_key).unwrap();
+
+        // Test 1: authorize_key should fail with access key
+        let auth_call = authorizeKeyCall {
+            keyId: Address::from([0x05; 20]),
+            signatureType: SignatureType::P256,
+            expiry: u64::MAX,
+            limits: vec![],
+        };
+        let auth_result = keychain.authorize_key(msg_sender, auth_call);
+        assert!(
+            auth_result.is_err(),
+            "authorize_key should fail when using access key"
+        );
+        assert_unauthorized_error(auth_result.unwrap_err());
+
+        // Test 2: revoke_key should fail with access key
+        let revoke_call = revokeKeyCall {
+            keyId: existing_key,
+        };
+        let revoke_result = keychain.revoke_key(msg_sender, revoke_call);
+        assert!(
+            revoke_result.is_err(),
+            "revoke_key should fail when using access key"
+        );
+        assert_unauthorized_error(revoke_result.unwrap_err());
+
+        // Test 3: update_spending_limit should fail with access key
+        let update_call = updateSpendingLimitCall {
+            keyId: existing_key,
+            token,
+            newLimit: U256::from(1000),
+        };
+        let update_result = keychain.update_spending_limit(msg_sender, update_call);
+        assert!(
+            update_result.is_err(),
+            "update_spending_limit should fail when using access key"
+        );
+        assert_unauthorized_error(update_result.unwrap_err());
+
+        // Helper function to assert unauthorized error
+        fn assert_unauthorized_error(error: crate::error::TempoPrecompileError) {
+            match error {
+                crate::error::TempoPrecompileError::AccountKeychainError(e) => {
+                    assert!(
+                        matches!(e, AccountKeychainError::UnauthorizedCaller(_)),
+                        "Expected UnauthorizedCaller error, got: {:?}",
+                        e
+                    );
+                }
+                _ => panic!("Expected AccountKeychainError, got: {:?}", error),
+            }
+        }
     }
 }
