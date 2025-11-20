@@ -91,6 +91,8 @@ pub struct MaxTpsArgs {
     target_urls: Vec<String>,
 
     /// Total network connections
+    /// A limit of the maximum amount of concurrent requests, prevents issues with too many
+    /// connections open at once.
     #[arg(long, default_value = "100")]
     total_connections: u64,
 
@@ -113,11 +115,6 @@ pub struct MaxTpsArgs {
     /// Benchmark mode for metadata (e.g., "max_tps", "stress_test")
     #[arg(long)]
     benchmark_mode: Option<String>,
-
-    /// A limit of the maximum amount of concurrent requests, prevents issues with too many
-    /// connections open at once.
-    #[arg(long, default_value = "128")]
-    max_concurrent_requests: usize,
 
     /// A number of transaction to send, before waiting for their receipts, that should be likely
     /// safe.
@@ -177,7 +174,7 @@ impl MaxTpsArgs {
                 from_mnemonic_index: self.from_mnemonic_index,
                 chain_id: self.chain_id,
                 rpc_url: target_urls[0].clone(),
-                max_concurrent_requests: self.max_concurrent_requests,
+                max_concurrent_requests: self.total_connections as usize,
                 max_concurrent_transactions: self.max_concurrent_transactions,
                 tip20_weight,
                 place_order_weight,
@@ -536,7 +533,6 @@ struct BenchmarkMetadata {
     build_profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mode: Option<String>,
-    max_concurrent_requests: usize,
     tip20_weight: f64,
     place_order_weight: f64,
     swap_weight: f64,
@@ -609,7 +605,6 @@ pub async fn generate_report(
         node_commit_sha: args.node_commit_sha.clone(),
         build_profile: args.build_profile.clone(),
         mode: args.benchmark_mode.clone(),
-        max_concurrent_requests: args.max_concurrent_requests,
         tip20_weight: args.tip20_weight,
         place_order_weight: args.place_order_weight,
         swap_weight: args.swap_weight,
