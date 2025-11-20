@@ -28,6 +28,7 @@ use tempo_contracts::{
 use tempo_evm::evm::{TempoEvm, TempoEvmFactory};
 use tempo_precompiles::{
     LINKING_USD_ADDRESS,
+    account_keychain::AccountKeychain,
     linking_usd::{LinkingUSD, TRANSFER_ROLE},
     nonce::NonceManager,
     stablecoin_exchange::StablecoinExchange,
@@ -183,6 +184,9 @@ impl GenesisArgs {
 
         println!("Initializing nonce manager");
         initialize_nonce_manager(&mut evm)?;
+
+        println!("Initializing account keychain");
+        initialize_account_keychain(&mut evm)?;
 
         println!("Minting pairwise FeeAMM liquidity");
         mint_pairwise_liquidity(
@@ -513,6 +517,15 @@ fn initialize_nonce_manager(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre::Resul
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
     NonceManager::new(&mut provider).initialize()?;
+
+    Ok(())
+}
+
+fn initialize_account_keychain(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre::Result<()> {
+    let ctx = evm.ctx_mut();
+    let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
+    let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
+    AccountKeychain::new(&mut provider).initialize()?;
 
     Ok(())
 }
