@@ -22,7 +22,10 @@ use eyre::{Context, OptionExt, ensure};
 use futures::{StreamExt, stream};
 use governor::{Quota, RateLimiter};
 use indicatif::{ParallelProgressIterator, ProgressBar};
-use rand::{random, seq::IndexedRandom};
+use rand::{
+    random,
+    seq::{IndexedRandom, IteratorRandom},
+};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rlimit::Resource;
 use serde::Serialize;
@@ -252,7 +255,7 @@ impl MaxTpsArgs {
 fn send_transactions(
     transactions: Arc<Vec<Vec<u8>>>,
     num_workers: usize,
-    _num_connections: u64,
+    num_connections: u64,
     target_urls: Vec<Url>,
     tps: u64,
     disable_thread_pinning: bool,
@@ -305,6 +308,7 @@ fn send_transactions(
                     // }
 
                     let provider = ProviderBuilder::new().connect_http(target_urls[0].clone());
+                    let mut receipts = Vec::with_capacity(end - start);
                     for tx_bytes in transactions[start..end].iter() {
                         rate_limiter.until_ready().await;
 
@@ -314,11 +318,27 @@ fn send_transactions(
                         )
                         .await
                         {
-                            Ok(Ok(_)) => {
+                            Ok(Ok(receipt)) => {
+                                receipts.push(receipt);
                                 tx_counter.fetch_add(1, Ordering::Relaxed);
                             }
                             Ok(Err(e)) => eprintln!("Failed to send transaction: {e}"),
                             Err(_) => eprintln!("Tx send timed out"),
+                        }
+                    }
+                    let mut rng = rand::rng();
+                    let samples = 3;
+                    let mut iter = stream::iter(
+                        receipts
+                            .into_iter()
+                            .map(async |receipt| receipt.get_receipt().await)
+                            .choose_multiple(&mut rng, samples),
+                    )
+                    .buffer_unordered(num_connections as usize / num_workers);
+                    while let Some(receipt) = iter.next().await {
+                        match receipt {
+                            Ok(receipt) => assert!(receipt.status()),
+                            Err(e) => eprintln!("{e}"),
                         }
                     }
                 });
