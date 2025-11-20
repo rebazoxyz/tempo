@@ -142,7 +142,7 @@ impl ValidatorState {
     }
 
     pub(super) fn player_pubkeys(&self) -> Ordered<PublicKey> {
-        self.dealers.keys().clone()
+        self.players.keys().clone()
     }
 
     /// Constructs a peerset to register on the peer manager.
