@@ -437,9 +437,8 @@ mod serde_impl {
             };
 
             // Create a secp256k1 signature
-            let signature = AASignature::Primitive(PrimitiveSignature::Secp256k1(
-                Signature::test_signature(),
-            ));
+            let signature =
+                AASignature::Primitive(PrimitiveSignature::Secp256k1(Signature::test_signature()));
 
             let aa_signed = super::super::AASigned::new_unhashed(tx, signature);
 

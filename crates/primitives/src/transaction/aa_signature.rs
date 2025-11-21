@@ -1146,8 +1146,7 @@ mod tests {
             alloy_primitives::U256::from_be_slice(&s_bytes),
             false,
         );
-        let secp256k1_sig =
-            AASignature::Primitive(PrimitiveSignature::Secp256k1(sig));
+        let secp256k1_sig = AASignature::Primitive(PrimitiveSignature::Secp256k1(sig));
 
         let json = serde_json::to_string(&secp256k1_sig).unwrap();
         let decoded: AASignature = serde_json::from_str(&json).unwrap();
@@ -1181,13 +1180,14 @@ mod tests {
         );
 
         // Test WebAuthn
-        let webauthn_sig = AASignature::Primitive(PrimitiveSignature::WebAuthn(WebAuthnSignature {
-            r: B256::from([5u8; 32]),
-            s: B256::from([6u8; 32]),
-            pub_key_x: B256::from([7u8; 32]),
-            pub_key_y: B256::from([8u8; 32]),
-            webauthn_data: Bytes::from(vec![9u8; 50]),
-        }));
+        let webauthn_sig =
+            AASignature::Primitive(PrimitiveSignature::WebAuthn(WebAuthnSignature {
+                r: B256::from([5u8; 32]),
+                s: B256::from([6u8; 32]),
+                pub_key_x: B256::from([7u8; 32]),
+                pub_key_y: B256::from([8u8; 32]),
+                webauthn_data: Bytes::from(vec![9u8; 50]),
+            }));
 
         let json = serde_json::to_string(&webauthn_sig).unwrap();
         let decoded: AASignature = serde_json::from_str(&json).unwrap();

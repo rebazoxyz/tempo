@@ -1365,13 +1365,14 @@ async fn test_aa_webauthn_signature_negative_cases() -> eyre::Result<()> {
     bad_webauthn_data.extend_from_slice(&bad_auth_data);
     bad_webauthn_data.extend_from_slice(bad_client_data.as_bytes());
 
-    let bad_aa_signature = AASignature::Primitive(PrimitiveSignature::WebAuthn(WebAuthnSignature {
-        webauthn_data: Bytes::from(bad_webauthn_data),
-        r: alloy::primitives::B256::from_slice(&bad_sig_bytes[0..32]),
-        s: alloy::primitives::B256::from_slice(&bad_sig_bytes[32..64]),
-        pub_key_x: correct_pub_key_x,
-        pub_key_y: correct_pub_key_y,
-    }));
+    let bad_aa_signature =
+        AASignature::Primitive(PrimitiveSignature::WebAuthn(WebAuthnSignature {
+            webauthn_data: Bytes::from(bad_webauthn_data),
+            r: alloy::primitives::B256::from_slice(&bad_sig_bytes[0..32]),
+            s: alloy::primitives::B256::from_slice(&bad_sig_bytes[32..64]),
+            pub_key_x: correct_pub_key_x,
+            pub_key_y: correct_pub_key_y,
+        }));
 
     let signed_bad_tx = AASigned::new_unhashed(bad_tx, bad_aa_signature);
     let bad_envelope: TempoTxEnvelope = signed_bad_tx.into();
@@ -2791,8 +2792,12 @@ async fn test_aa_keychain_negative_cases() -> eyre::Result<()> {
     };
     let sig_hash = tx1.signature_hash();
     let signature = root_signer.sign_hash_sync(&sig_hash)?;
-    let _tx_hash =
-        submit_and_mine_aa_tx(&mut setup, tx1, AASignature::Primitive(PrimitiveSignature::Secp256k1(signature))).await?;
+    let _tx_hash = submit_and_mine_aa_tx(
+        &mut setup,
+        tx1,
+        AASignature::Primitive(PrimitiveSignature::Secp256k1(signature)),
+    )
+    .await?;
     nonce += 1;
     println!("  ✓ First authorization succeeded");
 
@@ -2820,7 +2825,10 @@ async fn test_aa_keychain_negative_cases() -> eyre::Result<()> {
     };
     let sig_hash2 = tx2.signature_hash();
     let signature2 = root_signer.sign_hash_sync(&sig_hash2)?;
-    let signed_tx2 = AASigned::new_unhashed(tx2, AASignature::Primitive(PrimitiveSignature::Secp256k1(signature2)));
+    let signed_tx2 = AASigned::new_unhashed(
+        tx2,
+        AASignature::Primitive(PrimitiveSignature::Secp256k1(signature2)),
+    );
     let envelope2: TempoTxEnvelope = signed_tx2.into();
     let mut encoded2 = Vec::new();
     envelope2.encode_2718(&mut encoded2);
@@ -2907,8 +2915,12 @@ async fn test_aa_keychain_negative_cases() -> eyre::Result<()> {
     };
     let sig_hash = tx3.signature_hash();
     let signature = root_signer.sign_hash_sync(&sig_hash)?;
-    let _tx_hash =
-        submit_and_mine_aa_tx(&mut setup, tx3, AASignature::Primitive(PrimitiveSignature::Secp256k1(signature))).await?;
+    let _tx_hash = submit_and_mine_aa_tx(
+        &mut setup,
+        tx3,
+        AASignature::Primitive(PrimitiveSignature::Secp256k1(signature)),
+    )
+    .await?;
     nonce += 1;
 
     // Try to authorize second key using first access key (should fail)
@@ -3047,7 +3059,12 @@ async fn test_transaction_key_authorization_and_spending_limits() -> eyre::Resul
     };
 
     let sig = root_signer.sign_hash_sync(&auth_tx.signature_hash())?;
-    let _tx_hash = submit_and_mine_aa_tx(&mut setup, auth_tx, AASignature::Primitive(PrimitiveSignature::Secp256k1(sig))).await?;
+    let _tx_hash = submit_and_mine_aa_tx(
+        &mut setup,
+        auth_tx,
+        AASignature::Primitive(PrimitiveSignature::Secp256k1(sig)),
+    )
+    .await?;
     nonce += 1;
 
     // Test 2: Try to use access key to call admin functions (must revert)
@@ -3304,13 +3321,14 @@ async fn test_aa_keychain_rpc_validation() -> eyre::Result<()> {
         limit: U256::from(10u64) * U256::from(10).pow(U256::from(18)), // 10 tokens
     }];
 
-    let mock_p256_sig = AASignature::Primitive(PrimitiveSignature::P256(P256SignatureWithPreHash {
-        r: B256::ZERO,
-        s: B256::ZERO,
-        pub_key_x: authorized_pub_key_x,
-        pub_key_y: authorized_pub_key_y,
-        pre_hash: false,
-    }));
+    let mock_p256_sig =
+        AASignature::Primitive(PrimitiveSignature::P256(P256SignatureWithPreHash {
+            r: B256::ZERO,
+            s: B256::ZERO,
+            pub_key_x: authorized_pub_key_x,
+            pub_key_y: authorized_pub_key_y,
+            pre_hash: false,
+        }));
 
     let key_auth = create_key_authorization(
         &root_key_signer,

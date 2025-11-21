@@ -1721,9 +1721,8 @@ mod tests {
             aa_authorization_list: vec![],
         };
 
-        let signature = AASignature::Primitive(PrimitiveSignature::Secp256k1(
-            Signature::test_signature(),
-        ));
+        let signature =
+            AASignature::Primitive(PrimitiveSignature::Secp256k1(Signature::test_signature()));
         let signed = AASigned::new_unhashed(tx, signature);
 
         // Test direct RLP encoding/decoding
@@ -1765,9 +1764,8 @@ mod tests {
             aa_authorization_list: vec![],
         };
 
-        let signature = AASignature::Primitive(PrimitiveSignature::Secp256k1(
-            Signature::test_signature(),
-        ));
+        let signature =
+            AASignature::Primitive(PrimitiveSignature::Secp256k1(Signature::test_signature()));
         let signed = AASigned::new_unhashed(tx, signature);
         let envelope = TempoTxEnvelope::AA(signed);
 
