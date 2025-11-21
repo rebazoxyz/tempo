@@ -1,5 +1,7 @@
 use super::{AccountKeychain, IAccountKeychain};
-use crate::{Precompile, input_cost, mutate_void, storage::PrecompileStorageProvider, view};
+use crate::{
+    Precompile, input_cost, mutate_void, storage::PrecompileStorageProvider, unknown_selector, view,
+};
 use alloy::{primitives::Address, sol_types::SolCall};
 use revm::precompile::{PrecompileError, PrecompileResult};
 
@@ -58,7 +60,7 @@ impl<S: PrecompileStorageProvider> Precompile for AccountKeychain<'_, S> {
                 })
             }
 
-            _ => Err(PrecompileError::Other("Unknown function selector".into())),
+            _ => unknown_selector(selector, self.storage.gas_used(), self.storage.spec()),
         };
 
         result.map(|mut res| {
