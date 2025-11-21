@@ -619,19 +619,27 @@ where
             // Check if this TX is using a Keychain signature (access key)
             // Access keys cannot authorize new keys UNLESS it's the same key being authorized (same-tx auth+use)
             if let tempo_primitives::AASignature::Keychain(keychain_sig) = &aa_tx_env.signature {
-                // Recover the access key address from the inner signature
-                let access_key_addr = keychain_sig
-                    .signature
-                    .recover_signer(&aa_tx_env.signature_hash)
-                    .map_err(|_| {
-                        EVMError::Transaction(
-                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                reason:
-                                    "Failed to recover access key address from Keychain signature"
-                                        .to_string(),
-                            },
-                        )
-                    })?;
+                // Get the cached access key address (recovered during pool validation)
+                // If not cached, recover it now (shouldn't happen in normal flow, but handle gracefully)
+                let access_key_addr = match keychain_sig.cached_key_id.get().copied() {
+                    Some(addr) => addr,
+                    None => {
+                        // Cache miss - recover and cache now
+                        let addr = keychain_sig
+                            .signature
+                            .recover_signer(&aa_tx_env.signature_hash)
+                            .map_err(|_| {
+                                EVMError::Transaction(
+                                    TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                                        reason: "Failed to recover access key address from Keychain signature"
+                                            .to_string(),
+                                    },
+                                )
+                            })?;
+                        let _ = keychain_sig.cached_key_id.set(addr);
+                        addr
+                    }
+                };
 
                 // Only allow if authorizing the same key that's being used (same-tx auth+use)
                 if access_key_addr != key_auth.key_id {
@@ -749,16 +757,28 @@ where
                 ));
             }
 
-            // Recover the access key address from the inner signature
-            let access_key_addr = keychain_sig
-                .signature
-                .recover_signer(&aa_tx_env.signature_hash)
-                .map_err(|_| {
-                    EVMError::Transaction(TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                        reason: "Failed to recover access key address from inner signature"
-                            .to_string(),
-                    })
-                })?;
+            // Get the cached access key address (recovered during pool validation)
+            // If not cached, recover it now (shouldn't happen in normal flow, but handle gracefully)
+            let access_key_addr = match keychain_sig.cached_key_id.get().copied() {
+                Some(addr) => addr,
+                None => {
+                    // Cache miss - recover and cache now
+                    let addr = keychain_sig
+                        .signature
+                        .recover_signer(&aa_tx_env.signature_hash)
+                        .map_err(|_| {
+                            EVMError::Transaction(
+                                TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                                    reason:
+                                        "Failed to recover access key address from inner signature"
+                                            .to_string(),
+                                },
+                            )
+                        })?;
+                    let _ = keychain_sig.cached_key_id.set(addr);
+                    addr
+                }
+            };
 
             // Check if this transaction includes a KeyAuthorization for the same key
             // If so, skip validation here - the key will be authorized during execution
@@ -1358,7 +1378,7 @@ mod tests {
             signature: AASignature::Secp256k1(alloy_primitives::Signature::test_signature()), // dummy secp256k1 sig
             aa_calls: vec![call],
             key_authorization: None,
-            tx_hash: B256::ZERO,
+            signature_hash: B256::ZERO,
             access_key_id: None,
             ..Default::default()
         };
@@ -1423,7 +1443,7 @@ mod tests {
             signature: AASignature::Secp256k1(alloy_primitives::Signature::test_signature()),
             aa_calls: calls.clone(),
             key_authorization: None,
-            tx_hash: B256::ZERO,
+            signature_hash: B256::ZERO,
             access_key_id: None,
             ..Default::default()
         };
@@ -1480,7 +1500,7 @@ mod tests {
             }),
             aa_calls: vec![call],
             key_authorization: None,
-            tx_hash: B256::ZERO,
+            signature_hash: B256::ZERO,
             access_key_id: None,
             ..Default::default()
         };
@@ -1526,7 +1546,7 @@ mod tests {
             signature: AASignature::Secp256k1(alloy_primitives::Signature::test_signature()),
             aa_calls: vec![call],
             key_authorization: None,
-            tx_hash: B256::ZERO,
+            signature_hash: B256::ZERO,
             access_key_id: None,
             ..Default::default()
         };
@@ -1570,7 +1590,7 @@ mod tests {
             signature: AASignature::Secp256k1(alloy_primitives::Signature::test_signature()),
             aa_calls: vec![call],
             key_authorization: None,
-            tx_hash: B256::ZERO,
+            signature_hash: B256::ZERO,
             access_key_id: None,
             ..Default::default()
         };
@@ -1610,7 +1630,7 @@ mod tests {
             signature: AASignature::Secp256k1(alloy_primitives::Signature::test_signature()),
             aa_calls: vec![call],
             key_authorization: None,
-            tx_hash: B256::ZERO,
+            signature_hash: B256::ZERO,
             access_key_id: None,
             ..Default::default()
         };
@@ -1690,7 +1710,7 @@ mod tests {
             signature: AASignature::Secp256k1(alloy_primitives::Signature::test_signature()),
             aa_calls: vec![call],
             key_authorization: None,
-            tx_hash: B256::ZERO,
+            signature_hash: B256::ZERO,
             ..Default::default()
         };
 

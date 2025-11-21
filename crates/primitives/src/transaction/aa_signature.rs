@@ -8,6 +8,7 @@ use p256::{
     ecdsa::{Signature as P256Signature, VerifyingKey, signature::hazmat::PrehashVerifier},
 };
 use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
 
 /// Signature type identifiers
 /// Note: Secp256k1 has no identifier - detected by length (65 bytes)
@@ -72,16 +73,80 @@ pub enum PrimitiveSignature {
 /// The user_address is the root account this transaction is being executed for.
 /// The inner signature proves an authorized access key signed the transaction.
 /// The handler validates that user_address has authorized the access key in the KeyChain precompile.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
-#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
-#[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
 pub struct KeychainSignature {
     /// Root account address that this transaction is being executed for
     pub user_address: Address,
     /// The actual signature from the access key (can be Secp256k1, P256, or WebAuthn, but NOT another Keychain)
     pub signature: PrimitiveSignature,
+    /// Cached access key ID recovered from the inner signature
+    /// This is computed during recover_signer() and cached to avoid re-computing in the EVM handler
+    /// Uses OnceLock for thread-safe interior mutability to allow caching through shared references
+    /// Note: This field is excluded from PartialEq, Eq, Hash, and Compact implementations as it's a cache
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub cached_key_id: OnceLock<Address>,
+}
+
+// Manual implementations of PartialEq, Eq, and Hash that exclude cached_key_id
+// since it's just a cache and doesn't affect the logical equality of signatures
+impl PartialEq for KeychainSignature {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_address == other.user_address && self.signature == other.signature
+    }
+}
+
+impl Eq for KeychainSignature {}
+
+impl core::hash::Hash for KeychainSignature {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.user_address.hash(state);
+        self.signature.hash(state);
+    }
+}
+
+// Manual Compact implementation that excludes cached_key_id (cache field)
+#[cfg(feature = "reth-codec")]
+impl reth_codecs::Compact for KeychainSignature {
+    fn to_compact<B>(&self, buf: &mut B) -> usize
+    where
+        B: alloy_rlp::BufMut + AsMut<[u8]>,
+    {
+        // Only encode user_address and signature, skip cached_key_id
+        let mut written = 0;
+        written += self.user_address.to_compact(buf);
+        written += self.signature.to_compact(buf);
+        written
+    }
+
+    fn from_compact(buf: &[u8], len: usize) -> (Self, &[u8]) {
+        // Decode user_address and signature, initialize cached_key_id as empty
+        let (user_address, rest) = Address::from_compact(buf, len);
+        let remaining_len = len - (buf.len() - rest.len());
+        let (signature, rest) = PrimitiveSignature::from_compact(rest, remaining_len);
+
+        (
+            Self {
+                user_address,
+                signature,
+                cached_key_id: OnceLock::new(),
+            },
+            rest,
+        )
+    }
+}
+
+// Manual Arbitrary implementation that excludes cached_key_id (cache field)
+#[cfg(any(test, feature = "arbitrary"))]
+impl<'a> arbitrary::Arbitrary<'a> for KeychainSignature {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self {
+            user_address: u.arbitrary()?,
+            signature: u.arbitrary()?,
+            cached_key_id: OnceLock::new(), // Always start with empty cache
+        })
+    }
 }
 
 /// AA transaction signature supporting multiple signature schemes
@@ -226,6 +291,7 @@ impl reth_codecs::Compact for AASignature {
                         Self::Keychain(KeychainSignature {
                             user_address,
                             signature: inner_signature,
+                            cached_key_id: OnceLock::new(),
                         })
                     }
                     _ => Self::default(),
@@ -532,6 +598,7 @@ impl AASignature {
             return Ok(Self::Keychain(KeychainSignature {
                 user_address,
                 signature: inner_signature,
+                cached_key_id: OnceLock::new(),
             }));
         }
 
@@ -612,6 +679,10 @@ impl AASignature {
     /// - secp256k1: Uses standard ecrecover (signature verification + address recovery)
     /// - P256: Verifies P256 signature then derives address from public key
     /// - WebAuthn: Parses WebAuthn data, verifies P256 signature, derives address
+    /// - Keychain: Validates inner signature and returns user_address
+    ///
+    /// For Keychain signatures, this performs full validation of the inner signature.
+    /// The access key address is cached in the KeychainSignature for later use.
     pub fn recover_signer(
         &self,
         sig_hash: &B256,
@@ -623,11 +694,42 @@ impl AASignature {
                 PrimitiveSignature::WebAuthn(webauthn_sig.clone()).recover_signer(sig_hash)
             }
             Self::Keychain(keychain_sig) => {
+                // Validate the inner signature by recovering the access key address
+                // This ensures the signature is valid before the transaction enters the pool
+                let key_id = keychain_sig.signature.recover_signer(sig_hash)?;
+
+                // Cache the recovered key_id for later use in the EVM handler
+                let _ = keychain_sig.cached_key_id.set(key_id);
+
                 // Return the user_address - the root account this transaction is for
-                // The handler will validate that the inner signature's recovered address
-                // is authorized for this user_address in the KeyChain precompile
                 Ok(keychain_sig.user_address)
             }
+        }
+    }
+
+    /// For Keychain signatures, recover and cache the access key ID from the inner signature.
+    /// This should be called during transaction pool validation after recover_signer succeeds.
+    /// Uses interior mutability (OnceLock) so it can be called with a shared reference.
+    pub fn recover_and_cache_key_id(
+        &self,
+        sig_hash: &B256,
+    ) -> Result<Option<Address>, alloy_consensus::crypto::RecoveryError> {
+        match self {
+            Self::Keychain(keychain_sig) => {
+                // Recover the access key address from the inner signature and cache it
+                let key_id = keychain_sig.signature.recover_signer(sig_hash)?;
+                let _ = keychain_sig.cached_key_id.set(key_id);
+                Ok(Some(key_id))
+            }
+            _ => Ok(None), // Non-Keychain signatures don't have a key_id
+        }
+    }
+
+    /// Get the cached key ID for Keychain signatures, if available
+    pub fn get_cached_key_id(&self) -> Option<Address> {
+        match self {
+            Self::Keychain(keychain_sig) => keychain_sig.cached_key_id.get().copied(),
+            _ => None,
         }
     }
 }
