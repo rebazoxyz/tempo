@@ -1,6 +1,6 @@
 //! Tests on chain DKG and epoch transition
 
-use std::{net::SocketAddr, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 use commonware_macros::test_traced;
 use commonware_p2p::simulated::Link;
@@ -299,11 +299,45 @@ fn validator_is_added() {
         let pat = format!("{}-", crate::CONSENSUS_NODE_PREFIX);
 
         let mut success = false;
+
+        let mut observed_3_dealers_4_players = false;
         while !success {
             context.sleep(Duration::from_secs(1)).await;
 
             let metrics = context.encode();
 
+            
+            // This exists to ensure that a single validator starts a ceremony
+            // with 3 dealers and 4 players. We can't just check for `_ceremony_dealers`
+            // and `_ceremony_players` without accounting for the validator uid, because
+            // at the moment we read all metrics, there could be one validator that
+            // has not yet started a new ceremony (so we read its old metrics), while
+            // another validator has already started a new ceremony.
+            #[derive(Default)]
+            struct CeremonyParticipants {
+                dealers: u64,
+                players: u64,
+            }
+            #[derive(Default)]
+            struct Observations(HashMap::<String, CeremonyParticipants>);
+            impl Observations {
+                fn observe(&mut self, metric: &str, value: &str) {
+                    if let Some(metric) = metric.strip_suffix("_dkg_manager_ceremony_dealers") {
+                        let value = value.parse::<u64>().unwrap();
+                        self.0.entry(metric.to_string()).or_default().dealers = value;
+                    }
+                    if let Some(metric) = metric.strip_suffix("_dkg_manager_ceremony_players") {
+                        let value = value.parse::<u64>().unwrap();
+                        self.0.entry(metric.to_string()).or_default().players = value;
+                    }
+                }
+                fn had_expected(&self) -> bool {
+                    self.0.values().any(|participants| participants.dealers == 3 && participants.players == 4)
+                }
+            }
+
+            let mut observations = Observations::default();
+            
             'metrics: for line in metrics.lines() {
                 if !line.starts_with(&pat) {
                     continue 'metrics;
@@ -318,18 +352,23 @@ fn validator_is_added() {
                     assert_eq!(value, 0);
                 }
 
+                observations.observe(metric, value);
+
                 if metric.ends_with("_epoch_manager_latest_epoch") {
                     let value = value.parse::<u64>().unwrap();
-                    assert!(value < 5, "the validator should have joined before epoch 5");
+                    assert!(value < 4, "the validator should have joined before epoch 4");
                 }
 
                 if metric.ends_with("_epoch_manager_latest_participants") {
                     let value = value.parse::<u64>().unwrap();
-                    if value > 3 {
+                    if value > 3 && observed_3_dealers_4_players {
                         success = true
+                    } else if value > 3 {
+                        panic!("got more than 3 participants, but never observed a ceremony with 3 dealers and 4 players");
                     }
                 }
             }
+            observed_3_dealers_4_players |= observations.had_expected();
         }
     });
 }

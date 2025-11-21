@@ -32,7 +32,7 @@ use tracing::{Level, info, instrument, warn};
     fields(
         attempt = _attempt,
         for_epoch,
-        last_height_before = last_height_before_epoch(for_epoch, epoch_length),
+        from_block = last_height_before_epoch(for_epoch, epoch_length),
     ),
     err
 )]
@@ -62,7 +62,7 @@ pub(super) async fn read_from_contract(
 
     // XXX: Ensure that evm and internals go out of scope before the await point
     // below.
-    let contract_validators = {
+    let raw_validators = {
         let mut evm = node
             .evm_config
             .evm_for_block(db, block.header())
@@ -78,7 +78,9 @@ pub(super) async fn read_from_contract(
             .wrap_err("failed to query contract for validator config")?
     };
 
-    Ok(decode_from_contract(contract_validators).await)
+    info!(?raw_validators, "read validators from contract",);
+
+    Ok(decode_from_contract(raw_validators).await)
 }
 
 #[instrument(skip_all, fields(validators_to_decode = contract_vals.len()))]
