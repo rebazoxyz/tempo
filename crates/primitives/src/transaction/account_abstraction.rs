@@ -1659,7 +1659,7 @@ mod tests {
         let key_auth = KeyAuthorization {
             key_type: SignatureType::Secp256k1,
             expiry: 1234567890,
-            limits: vec![TokenLimit {
+            limits: vec![crate::transaction::TokenLimit {
                 token: address!("0000000000000000000000000000000000000003"),
                 limit: U256::from(10000),
             }],
