@@ -339,6 +339,82 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
 
         Ok(())
     }
+
+    /// Authorize a token transfer with access key spending limits
+    ///
+    /// This method checks if the transaction is using an access key, and if so,
+    /// verifies and updates the spending limits for that key.
+    /// Should be called before executing a transfer.
+    ///
+    /// # Arguments
+    /// * `account` - The account performing the transfer
+    /// * `token` - The token being transferred
+    /// * `amount` - The amount being transferred
+    ///
+    /// # Returns
+    /// Ok(()) if authorized (either using main key or access key with sufficient limits)
+    /// Err if unauthorized or spending limit exceeded
+    pub fn authorize_transfer(
+        &mut self,
+        account: Address,
+        token: Address,
+        amount: U256,
+    ) -> Result<()> {
+        // Get the transaction key for this account
+        let transaction_key = self.tload_transaction_key()?;
+
+        // If using main key (Address::ZERO), no spending limits apply
+        if transaction_key == Address::ZERO {
+            return Ok(());
+        }
+
+        // Verify and update spending limits for this access key
+        self.verify_and_update_spending(account, transaction_key, token, amount)
+    }
+
+    /// Authorize a token approval with access key spending limits
+    ///
+    /// This method checks if the transaction is using an access key, and if so,
+    /// verifies and updates the spending limits for that key.
+    /// Should be called before executing an approval.
+    ///
+    /// # Arguments
+    /// * `account` - The account performing the approval
+    /// * `token` - The token being approved
+    /// * `old_approval` - The current approval amount
+    /// * `new_approval` - The new approval amount being set
+    ///
+    /// # Returns
+    /// Ok(()) if authorized (either using main key or access key with sufficient limits)
+    /// Err if unauthorized or spending limit exceeded
+    pub fn authorize_approve(
+        &mut self,
+        account: Address,
+        token: Address,
+        old_approval: U256,
+        new_approval: U256,
+    ) -> Result<()> {
+        // Get the transaction key for this account
+        let transaction_key = self.tload_transaction_key()?;
+
+        // If using main key (Address::ZERO), no spending limits apply
+        if transaction_key == Address::ZERO {
+            return Ok(());
+        }
+
+        // Calculate the increase in approval (only deduct if increasing)
+        // If old approval is 100 and new approval is 120, deduct 20 from spending limit
+        // If old approval is 100 and new approval is 80, deduct 0 (decreasing approval is free)
+        let approval_increase = new_approval.saturating_sub(old_approval);
+
+        // Only check spending limits if there's an increase in approval
+        if approval_increase.is_zero() {
+            return Ok(());
+        }
+
+        // Verify and update spending limits for this access key
+        self.verify_and_update_spending(account, transaction_key, token, approval_increase)
+    }
 }
 
 #[cfg(test)]
