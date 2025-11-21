@@ -81,12 +81,12 @@ pub struct KeychainSignature {
     pub user_address: Address,
     /// The actual signature from the access key (can be Secp256k1, P256, or WebAuthn, but NOT another Keychain)
     pub signature: PrimitiveSignature,
-    /// Cached access key ID recovered from the inner signature
-    /// This is computed during recover_signer() and cached to avoid re-computing in the EVM handler
-    /// Uses OnceLock for thread-safe interior mutability to allow caching through shared references
-    /// Note: This field is excluded from PartialEq, Eq, Hash, and Compact implementations as it's a cache
+    /// Cached access key ID recovered from the inner signature.
+    /// This is an implementation detail - use `key_id()` to access.
+    /// Uses OnceLock for thread-safe interior mutability.
+    /// Note: Excluded from PartialEq, Eq, Hash, and Compact as it's a cache.
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub cached_key_id: OnceLock<Address>,
+    cached_key_id: OnceLock<Address>,
 }
 
 // Manual implementations of PartialEq, Eq, and Hash that exclude cached_key_id
@@ -103,6 +103,17 @@ impl core::hash::Hash for KeychainSignature {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.user_address.hash(state);
         self.signature.hash(state);
+    }
+}
+
+impl KeychainSignature {
+    /// Create a new KeychainSignature
+    pub fn new(user_address: Address, signature: PrimitiveSignature) -> Self {
+        Self {
+            user_address,
+            signature,
+            cached_key_id: OnceLock::new(),
+        }
     }
 }
 
@@ -707,29 +718,35 @@ impl AASignature {
         }
     }
 
-    /// For Keychain signatures, recover and cache the access key ID from the inner signature.
-    /// This should be called during transaction pool validation after recover_signer succeeds.
-    /// Uses interior mutability (OnceLock) so it can be called with a shared reference.
-    pub fn recover_and_cache_key_id(
+    /// Check if this is a Keychain signature
+    pub fn is_keychain(&self) -> bool {
+        matches!(self, Self::Keychain(_))
+    }
+
+    /// Get the access key ID for Keychain signatures.
+    ///
+    /// For Keychain signatures, this returns the access key address that signed the transaction.
+    /// The key_id is recovered from the inner signature on first access and cached for
+    /// subsequent calls. Returns None for non-Keychain signatures.
+    ///
+    /// This follows the pattern used in alloy for lazy hash computation.
+    pub fn key_id(
         &self,
         sig_hash: &B256,
     ) -> Result<Option<Address>, alloy_consensus::crypto::RecoveryError> {
         match self {
             Self::Keychain(keychain_sig) => {
-                // Recover the access key address from the inner signature and cache it
+                // Check if already cached
+                if let Some(cached) = keychain_sig.cached_key_id.get() {
+                    return Ok(Some(*cached));
+                }
+
+                // Not cached - recover and cache
                 let key_id = keychain_sig.signature.recover_signer(sig_hash)?;
                 let _ = keychain_sig.cached_key_id.set(key_id);
                 Ok(Some(key_id))
             }
             _ => Ok(None), // Non-Keychain signatures don't have a key_id
-        }
-    }
-
-    /// Get the cached key ID for Keychain signatures, if available
-    pub fn get_cached_key_id(&self) -> Option<Address> {
-        match self {
-            Self::Keychain(keychain_sig) => keychain_sig.cached_key_id.get().copied(),
-            _ => None,
         }
     }
 }

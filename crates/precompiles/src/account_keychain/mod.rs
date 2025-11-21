@@ -49,9 +49,7 @@ impl<'a, S: PrecompileStorageProvider> AccountKeychain<'a, S> {
 
     /// Load transaction key from transient storage
     fn tload_transaction_key(&mut self) -> Result<Address> {
-        let value = self
-            .storage
-            .tload(ACCOUNT_KEYCHAIN_ADDRESS, TRANSACTION_KEY_SLOT)?;
+        let value = self.storage.tload(self.address, TRANSACTION_KEY_SLOT)?;
         Ok(value.into_address())
     }
 

@@ -618,28 +618,28 @@ where
         {
             // Check if this TX is using a Keychain signature (access key)
             // Access keys cannot authorize new keys UNLESS it's the same key being authorized (same-tx auth+use)
-            if let tempo_primitives::AASignature::Keychain(keychain_sig) = &aa_tx_env.signature {
-                // Get the cached access key address (recovered during pool validation)
-                // If not cached, recover it now (shouldn't happen in normal flow, but handle gracefully)
-                let access_key_addr = match keychain_sig.cached_key_id.get().copied() {
-                    Some(addr) => addr,
-                    None => {
-                        // Cache miss - recover and cache now
-                        let addr = keychain_sig
-                            .signature
-                            .recover_signer(&aa_tx_env.signature_hash)
-                            .map_err(|_| {
-                                EVMError::Transaction(
-                                    TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                        reason: "Failed to recover access key address from Keychain signature"
-                                            .to_string(),
-                                    },
-                                )
-                            })?;
-                        let _ = keychain_sig.cached_key_id.set(addr);
-                        addr
-                    }
-                };
+            if aa_tx_env.signature.is_keychain() {
+                // Get the access key address (recovered during pool validation and cached)
+                let access_key_addr = aa_tx_env
+                    .signature
+                    .key_id(&aa_tx_env.signature_hash)
+                    .map_err(|_| {
+                        EVMError::Transaction(
+                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                                reason:
+                                    "Failed to recover access key address from Keychain signature"
+                                        .to_string(),
+                            },
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        EVMError::Transaction(
+                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                                reason: "Expected Keychain signature but got different type"
+                                    .to_string(),
+                            },
+                        )
+                    })?;
 
                 // Only allow if authorizing the same key that's being used (same-tx auth+use)
                 if access_key_addr != key_auth.key_id {
@@ -738,83 +738,81 @@ where
 
         // For Keychain signatures, validate that the keychain is authorized in the precompile
         // UNLESS this transaction also includes a KeyAuthorization (same-tx auth+use case)
-        if let Some(aa_tx_env) = tx.aa_tx_env.as_ref()
-            && let tempo_primitives::AASignature::Keychain(keychain_sig) = &aa_tx_env.signature
-        {
-            // The user_address is the root account this transaction is being executed for
-            // This should match tx.caller (which comes from recover_signer on the outer signature)
-            let user_address = &keychain_sig.user_address;
+        if let Some(aa_tx_env) = tx.aa_tx_env.as_ref() {
+            if let tempo_primitives::AASignature::Keychain(keychain_sig) = &aa_tx_env.signature {
+                // The user_address is the root account this transaction is being executed for
+                // This should match tx.caller (which comes from recover_signer on the outer signature)
+                let user_address = &keychain_sig.user_address;
 
-            // Sanity check: user_address should match tx.caller
-            if *user_address != tx.caller {
-                return Err(EVMError::Transaction(
-                    TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                        reason: format!(
-                            "Keychain user_address {} does not match transaction caller {}",
-                            user_address, tx.caller
-                        ),
-                    },
-                ));
-            }
-
-            // Get the cached access key address (recovered during pool validation)
-            // If not cached, recover it now (shouldn't happen in normal flow, but handle gracefully)
-            let access_key_addr = match keychain_sig.cached_key_id.get().copied() {
-                Some(addr) => addr,
-                None => {
-                    // Cache miss - recover and cache now
-                    let addr = keychain_sig
-                        .signature
-                        .recover_signer(&aa_tx_env.signature_hash)
-                        .map_err(|_| {
-                            EVMError::Transaction(
-                                TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                    reason:
-                                        "Failed to recover access key address from inner signature"
-                                            .to_string(),
-                                },
-                            )
-                        })?;
-                    let _ = keychain_sig.cached_key_id.set(addr);
-                    addr
+                // Sanity check: user_address should match tx.caller
+                if *user_address != tx.caller {
+                    return Err(EVMError::Transaction(
+                        TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                            reason: format!(
+                                "Keychain user_address {} does not match transaction caller {}",
+                                user_address, tx.caller
+                            ),
+                        },
+                    ));
                 }
-            };
 
-            // Check if this transaction includes a KeyAuthorization for the same key
-            // If so, skip validation here - the key will be authorized during execution
-            let is_authorizing_this_key = aa_tx_env
-                .key_authorization
-                .as_ref()
-                .map(|key_auth| key_auth.key_id == access_key_addr)
-                .unwrap_or(false);
-
-            // Always need to set the transaction key for Keychain signatures
-            let mut keychain = AccountKeychain::new(&mut storage_provider);
-
-            if !is_authorizing_this_key {
-                // Not authorizing this key in the same transaction, so validate it exists now
-                // Validate that user_address has authorized this access key in the keychain
-                keychain
-                    .validate_keychain_authorization(
-                        *user_address,
-                        access_key_addr,
-                        block.timestamp().to::<u64>(),
-                    )
-                    .map_err(|e| {
+                // Get the access key address (recovered during pool validation and cached)
+                let access_key_addr = aa_tx_env
+                    .signature
+                    .key_id(&aa_tx_env.signature_hash)
+                    .map_err(|_| {
                         EVMError::Transaction(
                             TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                reason: format!("Keychain validation failed: {e:?}"),
+                                reason: "Failed to recover access key address from inner signature"
+                                    .to_string(),
+                            },
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        EVMError::Transaction(
+                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                                reason: "Expected Keychain signature but got different type"
+                                    .to_string(),
                             },
                         )
                     })?;
-            }
 
-            // Set the transaction key in the keychain precompile
-            // This marks that the current transaction is using an access key
-            // The TIP20 precompile will read this during execution to enforce spending limits
-            keychain
-                .set_transaction_key(access_key_addr)
-                .map_err(|e| EVMError::Custom(e.to_string()))?;
+                // Check if this transaction includes a KeyAuthorization for the same key
+                // If so, skip validation here - the key will be authorized during execution
+                let is_authorizing_this_key = aa_tx_env
+                    .key_authorization
+                    .as_ref()
+                    .map(|key_auth| key_auth.key_id == access_key_addr)
+                    .unwrap_or(false);
+
+                // Always need to set the transaction key for Keychain signatures
+                let mut keychain = AccountKeychain::new(&mut storage_provider);
+
+                if !is_authorizing_this_key {
+                    // Not authorizing this key in the same transaction, so validate it exists now
+                    // Validate that user_address has authorized this access key in the keychain
+                    keychain
+                        .validate_keychain_authorization(
+                            *user_address,
+                            access_key_addr,
+                            block.timestamp().to::<u64>(),
+                        )
+                        .map_err(|e| {
+                            EVMError::Transaction(
+                                TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                                    reason: format!("Keychain validation failed: {e:?}"),
+                                },
+                            )
+                        })?;
+                }
+
+                // Set the transaction key in the keychain precompile
+                // This marks that the current transaction is using an access key
+                // The TIP20 precompile will read this during execution to enforce spending limits
+                keychain
+                    .set_transaction_key(access_key_addr)
+                    .map_err(|e| EVMError::Custom(e.to_string()))?;
+            }
         }
 
         let mut fee_manager = TipFeeManager::new(&mut storage_provider);
