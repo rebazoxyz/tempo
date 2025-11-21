@@ -184,6 +184,12 @@ impl<K1, K2, V> Default for NestedMapping<K1, K2, V> {
     }
 }
 
+impl<K1, K2, V> Default for NestedMapping<K1, K2, V> {
+    fn default() -> Self {
+        Self::new(U256::ZERO)
+    }
+}
+
 // Mappings occupy a full 32-byte slot in the layout (used as a base for hashing),
 // even though they don't store data in that slot directly.
 //
@@ -208,6 +214,14 @@ impl<K1, K2, V> StorableType for NestedMapping<K1, K2, V> {
     fn handle(slot: U256, _ctx: LayoutCtx, address: Rc<Address>) -> Self::Handler {
         Self::new(slot, address)
     }
+}
+
+// Nested mappings occupy a full 32-byte slot in the layout (used as a base for hashing),
+// even though they don't store data in that slot directly.
+//
+// **NOTE:** Necessary to allow it to participate in struct layout calculations.
+impl<K1, K2, V> StorableType for NestedMapping<K1, K2, V> {
+    const LAYOUT: Layout = Layout::Slots(1);
 }
 
 // -- HELPER FUNCTIONS ---------------------------------------------------------
