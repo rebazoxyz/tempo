@@ -209,8 +209,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
             },
         )?;
 
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             TIPFeeAMMEvent::RebalanceSwap(ITIPFeeAMM::RebalanceSwap {
                 userToken: user_token,
                 validatorToken: validator_token,
@@ -345,8 +344,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         )?;
 
         // Emit Mint event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             TIPFeeAMMEvent::Mint(ITIPFeeAMM::Mint {
                 sender: msg_sender,
                 userToken: user_token,
@@ -462,8 +460,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         )?;
 
         // Emit Mint event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             TIPFeeAMMEvent::Mint(ITIPFeeAMM::Mint {
                 sender: msg_sender,
                 userToken: user_token,
@@ -559,8 +556,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         )?;
 
         // Emit Burn event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             TIPFeeAMMEvent::Burn(ITIPFeeAMM::Burn {
                 sender: msg_sender,
                 userToken: user_token,
@@ -645,8 +641,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         self.sstore_pools(pool_id, pool)?;
         self.clear_pending_fee_swap_in(pool_id)?;
 
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             TIPFeeAMMEvent::FeeSwap(ITIPFeeAMM::FeeSwap {
                 userToken: user_token,
                 validatorToken: validator_token,
@@ -771,7 +766,7 @@ mod tests {
         let admin = Address::random();
 
         // Initialize LinkingUSD first
-        initialize_linking_usd(storage, admin).unwrap();
+        initialize_linking_usd(storage).unwrap();
 
         // Create USD tokens for user and validator
         let user_token = token_id_to_address(1);

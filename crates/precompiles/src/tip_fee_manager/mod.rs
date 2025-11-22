@@ -90,8 +90,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         self.sstore_validator_tokens(sender, call.token)?;
 
         // Emit ValidatorTokenSet event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             FeeManagerEvent::ValidatorTokenSet(IFeeManager::ValidatorTokenSet {
                 validator: sender,
                 token: call.token,
@@ -120,8 +119,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         self.sstore_user_tokens(sender, call.token)?;
 
         // Emit UserTokenSet event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             FeeManagerEvent::UserTokenSet(IFeeManager::UserTokenSet {
                 user: sender,
                 token: call.token,
@@ -393,7 +391,7 @@ mod tests {
         let user = Address::random();
 
         // Initialize LinkingUSD first
-        initialize_linking_usd(&mut storage, user).unwrap();
+        initialize_linking_usd(user).unwrap();
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
@@ -420,7 +418,7 @@ mod tests {
         let user = Address::random();
 
         // Initialize LinkingUSD first
-        initialize_linking_usd(&mut storage, user).unwrap();
+        initialize_linking_usd(user).unwrap();
 
         let mut fee_manager = TipFeeManager::new(&mut storage);
 
@@ -447,7 +445,7 @@ mod tests {
         let user = Address::random();
 
         // Initialize LinkingUSD first
-        initialize_linking_usd(&mut storage, user).unwrap();
+        initialize_linking_usd(user).unwrap();
 
         let mut fee_manager = TipFeeManager::new(&mut storage);
 
@@ -470,7 +468,7 @@ mod tests {
         let admin = Address::random();
 
         // Initialize LinkingUSD first
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
@@ -560,7 +558,7 @@ mod tests {
 
         // Initialize token and give fee manager tokens (simulating that collect_fee_pre_tx already happened)
         {
-            initialize_linking_usd(&mut storage, admin).unwrap();
+            initialize_linking_usd(admin).unwrap();
             let mut tip20_token = TIP20Token::from_address(token, &mut storage);
             tip20_token
                 .initialize("TestToken", "TEST", "USD", LINKING_USD_ADDRESS, admin)

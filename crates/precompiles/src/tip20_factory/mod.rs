@@ -128,12 +128,14 @@ mod tests {
         tip20::tests::initialize_linking_usd,
     };
     use tempo_chainspec::hardfork::TempoHardfork;
+    use tempo_contracts::precompiles::LINKING_USD_ADDRESS;
 
     #[test]
     fn test_create_token() {
         let mut storage = HashMapStorageProvider::new(1);
+        let guard = storage.enter().unwrap();
         let sender = Address::random();
-        initialize_linking_usd(&mut storage, sender).unwrap();
+        initialize_linking_usd(sender).unwrap();
 
         let mut factory = TIP20Factory::new();
 
@@ -144,7 +146,7 @@ mod tests {
             name: "Test Token".to_string(),
             symbol: "TEST".to_string(),
             currency: "USD".to_string(),
-            quoteToken: crate::LINKING_USD_ADDRESS,
+            quoteToken: LINKING_USD_ADDRESS,
             admin: sender,
         };
 
@@ -166,7 +168,7 @@ mod tests {
             name: "Test Token".to_string(),
             symbol: "TEST".to_string(),
             currency: "USD".to_string(),
-            quoteToken: crate::LINKING_USD_ADDRESS,
+            quoteToken: LINKING_USD_ADDRESS,
             admin: sender,
         });
         assert_eq!(factory_events[0], expected_event_0.into_log_data());
@@ -178,7 +180,7 @@ mod tests {
             name: "Test Token".to_string(),
             symbol: "TEST".to_string(),
             currency: "USD".to_string(),
-            quoteToken: crate::LINKING_USD_ADDRESS,
+            quoteToken: LINKING_USD_ADDRESS,
             admin: sender,
         });
 
@@ -189,6 +191,7 @@ mod tests {
     fn test_create_token_invalid_quote_token_post_moderato() {
         // Test with Moderato hardfork (validation should be enforced)
         let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Moderato);
+        let _guard = storage.enter().unwrap();
         let mut factory = TIP20Factory::new();
 
         factory
@@ -216,6 +219,7 @@ mod tests {
     fn test_create_token_quote_token_not_deployed_post_moderato() {
         // Test with Moderato hardfork (validation should be enforced)
         let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Moderato);
+        let _guard = storage.enter().unwrap();
         let mut factory = TIP20Factory::new();
 
         factory
@@ -243,8 +247,9 @@ mod tests {
     fn test_create_token_off_by_one_rejected_post_moderato() {
         // Test the off-by-one bug fix: using token_id as quote token should be rejected post-Moderato
         let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Moderato);
+        let _guard = storage.enter().unwrap();
         let sender = Address::random();
-        initialize_linking_usd(&mut storage, sender).unwrap();
+        initialize_linking_usd(sender).unwrap();
 
         let mut factory = TIP20Factory::new();
         factory
@@ -279,8 +284,9 @@ mod tests {
         // Test that pre-Moderato SHOULD still validate that quote tokens exist
         // Using a TIP20 address with ID > current token_id should fail (not yet created)
         let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Adagio);
+        let _guard = storage.enter().unwrap();
         let sender = Address::random();
-        initialize_linking_usd(&mut storage, sender).unwrap();
+        initialize_linking_usd(sender).unwrap();
 
         let mut factory = TIP20Factory::new();
         factory
@@ -322,8 +328,9 @@ mod tests {
     fn test_create_token_off_by_one_allowed_pre_moderato() {
         // Test the off-by-one bug: using token_id as quote token is allowed pre-Moderato (buggy behavior)
         let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Adagio);
+        let _guard = storage.enter().unwrap();
         let sender = Address::random();
-        initialize_linking_usd(&mut storage, sender).unwrap();
+        initialize_linking_usd(sender).unwrap();
 
         let mut factory = TIP20Factory::new();
         factory

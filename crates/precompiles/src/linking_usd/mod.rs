@@ -19,11 +19,11 @@ const NAME: &str = "linkingUSD";
 const SYMBOL: &str = "linkingUSD";
 const CURRENCY: &str = "USD";
 
-pub struct LinkingUSD<'a, S: PrecompileStorageProvider> {
+pub struct LinkingUSD {
     pub token: TIP20Token,
 }
 
-impl<'a, S: PrecompileStorageProvider> LinkingUSD<'a, S> {
+impl LinkingUSD {
     pub fn new() -> Self {
         Self {
             token: TIP20Token::new(0),
@@ -239,10 +239,8 @@ mod tests {
         tip20::{IRolesAuth, ISSUER_ROLE, PAUSE_ROLE, UNPAUSE_ROLE},
     };
 
-    fn transfer_test_setup(
-        storage: &mut HashMapStorageProvider,
-    ) -> (LinkingUSD<'_, HashMapStorageProvider>, Address) {
-        let mut linking_usd = LinkingUSD::new(storage);
+    fn transfer_test_setup() -> (LinkingUSD, Address) {
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
 
         linking_usd
@@ -260,7 +258,7 @@ mod tests {
     #[test]
     fn test_metadata() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let (mut linking_usd, _admin) = transfer_test_setup(&mut storage);
+        let (mut linking_usd, _admin) = transfer_test_setup();
 
         assert_eq!(linking_usd.name()?, "linkingUSD");
         assert_eq!(linking_usd.symbol()?, "linkingUSD");
@@ -271,7 +269,7 @@ mod tests {
     #[test]
     fn test_transfer_reverts() {
         let mut storage = HashMapStorageProvider::new(1);
-        let (mut linking_usd, _admin) = transfer_test_setup(&mut storage);
+        let (mut linking_usd, _admin) = transfer_test_setup();
 
         let result = linking_usd.transfer(
             Address::random(),
@@ -290,7 +288,7 @@ mod tests {
     #[test]
     fn test_transfer_from_reverts() {
         let mut storage = HashMapStorageProvider::new(1);
-        let (mut linking_usd, _admin) = transfer_test_setup(&mut storage);
+        let (mut linking_usd, _admin) = transfer_test_setup();
 
         let result = linking_usd.transfer_from(
             Address::random(),
@@ -309,7 +307,7 @@ mod tests {
     #[test]
     fn test_transfer_with_memo_reverts() {
         let mut storage = HashMapStorageProvider::new(1);
-        let (mut linking_usd, _admin) = transfer_test_setup(&mut storage);
+        let (mut linking_usd, _admin) = transfer_test_setup();
 
         let result = linking_usd.transfer_with_memo(
             Address::random(),
@@ -328,7 +326,7 @@ mod tests {
     #[test]
     fn test_transfer_from_with_memo_reverts() {
         let mut storage = HashMapStorageProvider::new(1);
-        let (mut linking_usd, _admin) = transfer_test_setup(&mut storage);
+        let (mut linking_usd, _admin) = transfer_test_setup();
 
         let result = linking_usd.transfer_from_with_memo(
             Address::random(),
@@ -348,7 +346,7 @@ mod tests {
     #[test]
     fn test_mint() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let (mut linking_usd, admin) = transfer_test_setup(&mut storage);
+        let (mut linking_usd, admin) = transfer_test_setup();
         let recipient = Address::random();
         let amount = U256::from(1000);
 
@@ -372,7 +370,7 @@ mod tests {
     #[test]
     fn test_burn() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let amount = U256::from(1000);
 
@@ -393,7 +391,7 @@ mod tests {
     #[test]
     fn test_approve() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let owner = Address::random();
         let spender = Address::random();
@@ -413,7 +411,7 @@ mod tests {
     #[test]
     fn test_transfer_with_stablecoin_exchange() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let recipient = Address::random();
         let amount = U256::from(1000);
@@ -460,7 +458,7 @@ mod tests {
     #[test]
     fn test_transfer_from_with_stablecoin_exchange() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let from = Address::random();
         let to = Address::random();
@@ -514,7 +512,7 @@ mod tests {
     #[test]
     fn test_transfer_with_transfer_role() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let sender = Address::random();
         let recipient = Address::random();
@@ -556,7 +554,7 @@ mod tests {
     #[test]
     fn test_transfer_with_receive_role_reverts() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let sender = Address::random();
         let recipient = Address::random();
@@ -590,7 +588,7 @@ mod tests {
     #[test]
     fn test_transfer_from_with_transfer_role() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let from = Address::random();
         let to = Address::random();
@@ -638,7 +636,7 @@ mod tests {
     #[test]
     fn test_transfer_from_with_receive_role_reverts() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let from = Address::random();
         let to = Address::random();
@@ -669,7 +667,7 @@ mod tests {
     #[test]
     fn test_transfer_with_memo_with_transfer_role() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let sender = Address::random();
         let recipient = Address::random();
@@ -711,7 +709,7 @@ mod tests {
     #[test]
     fn test_transfer_with_memo_with_receive_role() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let sender = Address::random();
         let recipient = Address::random();
@@ -753,7 +751,7 @@ mod tests {
     #[test]
     fn test_transfer_from_with_memo_with_stablecoin_exchange() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let from = Address::random();
         let to = Address::random();
@@ -809,7 +807,7 @@ mod tests {
     #[test]
     fn test_transfer_from_with_memo_with_transfer_role() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let from = Address::random();
         let to = Address::random();
@@ -863,7 +861,7 @@ mod tests {
     #[test]
     fn test_transfer_from_with_memo_with_receive_role() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let from = Address::random();
         let to = Address::random();
@@ -917,7 +915,7 @@ mod tests {
     #[test]
     fn test_pause_and_unpause() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let pauser = Address::random();
         let unpauser = Address::random();
@@ -948,7 +946,7 @@ mod tests {
     #[test]
     fn test_role_management() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let user = Address::random();
 
@@ -1005,7 +1003,7 @@ mod tests {
     #[test]
     fn test_supply_cap() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let recipient = Address::random();
         let supply_cap = U256::from(1000);
@@ -1046,7 +1044,7 @@ mod tests {
     #[test]
     fn test_invalid_supply_caps() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let recipient = Address::random();
         let supply_cap = U256::from(1000);
@@ -1110,7 +1108,7 @@ mod tests {
     #[test]
     fn test_change_transfer_policy_id() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
         let admin = Address::random();
         let new_policy_id = 42u64;
 

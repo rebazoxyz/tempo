@@ -273,7 +273,7 @@ mod tests {
         let sender = Address::from([1u8; 20]);
         let account = Address::from([2u8; 20]);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token with admin
         token
@@ -326,7 +326,7 @@ mod tests {
         let recipient = Address::from([2u8; 20]);
         let mint_amount = U256::from(500);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token with admin
         token
@@ -378,7 +378,7 @@ mod tests {
         let transfer_amount = U256::from(300);
         let initial_sender_balance = U256::from(1000);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token with admin
         token
@@ -460,7 +460,7 @@ mod tests {
         let transfer_amount = U256::from(300);
         let initial_owner_balance = U256::from(1000);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token with admin
         token
@@ -543,7 +543,7 @@ mod tests {
         let pauser = Address::from([1u8; 20]);
         let unpauser = Address::from([2u8; 20]);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token with admin
         token
@@ -609,7 +609,7 @@ mod tests {
         let initial_balance = U256::from(1000);
         let burn_amount = U256::from(300);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token with admin
         token
@@ -683,7 +683,7 @@ mod tests {
         let admin = Address::from([0u8; 20]);
         let caller = Address::from([1u8; 20]);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token
         token
@@ -744,7 +744,7 @@ mod tests {
         let supply_cap = U256::from(1000);
         let mint_amount = U256::from(1001);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token with admin
         token
@@ -797,7 +797,7 @@ mod tests {
         let user2 = Address::from([2u8; 20]);
         let unauthorized = Address::from([3u8; 20]);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token with admin
         token
@@ -867,7 +867,7 @@ mod tests {
         let transfer_amount = U256::from(100);
         let initial_balance = U256::from(500);
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize and setup
         token
@@ -929,7 +929,7 @@ mod tests {
         let non_admin = Address::from([1u8; 20]);
         let new_policy_id = 42u64;
 
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         let mut token = TIP20Token::new(1);
         // Initialize token
         token
@@ -966,7 +966,7 @@ mod tests {
 
         let mut storage = HashMapStorageProvider::new(1);
 
-        initialize_linking_usd(&mut storage, Address::ZERO).unwrap();
+        initialize_linking_usd(Address::ZERO).unwrap();
         let mut token = TIP20Token::new(1);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, Address::ZERO)

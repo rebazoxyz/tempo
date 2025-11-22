@@ -160,9 +160,14 @@ pub(crate) fn gen_constructor(
             #[inline(always)]
             fn __initialize(&self) -> crate::error::Result<()> {
                 let bytecode = Bytecode::new_legacy(Bytes::from_static(&[0xef]));
-                crate::storage::with_storage_context(|storage| storage.set_code(*self.address, bytecode))?;
+                crate::storage::with_storage(|storage| storage.set_code(*self.address, bytecode))?;
 
                 Ok(())
+            }
+
+            #[inline(always)]
+            fn emit_event(&mut self, event: impl ::alloy::primitives::IntoLogData) -> crate::error::Result<()> {
+                crate::storage::with_storage(|storage| storage.emit_event(*self.address, event.into_log_data()))
             }
         }
     }

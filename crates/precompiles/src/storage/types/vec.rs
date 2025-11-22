@@ -439,18 +439,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{
-        PrecompileStorageProvider, StorageOps, hashmap::HashMapStorageProvider,
-        packing::gen_word_from,
+    use crate::{
+        storage::{PrecompileStorageProvider, StorageOps, packing::gen_word_from},
+        test_util::setup_storage,
     };
     use alloy::primitives::Address;
     use proptest::prelude::*;
     use std::rc::Rc;
     use tempo_precompiles_macros::Storable;
-
-    fn setup_storage() -> (HashMapStorageProvider, Rc<Address>) {
-        (HashMapStorageProvider::new(1), Rc::new(Address::random()))
-    }
 
     // -- TEST HELPERS -------------------------------------------------------------
 
@@ -918,10 +914,9 @@ mod tests {
         }
 
         // Verify there's no data in slot 3 (should be empty)
-        let no_slot_value =
-            U256::handle(data_start + U256::from(3), LayoutCtx::FULL, address)
-                .read()
-                .unwrap();
+        let no_slot_value = U256::handle(data_start + U256::from(3), LayoutCtx::FULL, address)
+            .read()
+            .unwrap();
         assert_eq!(no_slot_value, U256::ZERO, "Slot 3 should be empty");
     }
 

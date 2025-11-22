@@ -74,3 +74,7 @@ pub fn assert_full_coverage(results: impl IntoIterator<Item = Vec<([u8; 4], &'st
         all_unsupported
     );
 }
+
+pub fn setup_storage() -> (HashMapStorageProvider, Rc<Address>) {
+    (HashMapStorageProvider::new(1), Rc::new(Address::random()))
+}

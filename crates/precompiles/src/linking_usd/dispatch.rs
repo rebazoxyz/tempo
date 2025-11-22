@@ -2,7 +2,7 @@ use crate::{
     Precompile, input_cost,
     linking_usd::LinkingUSD,
     metadata, mutate, mutate_void,
-    storage::{ContractStorage, PrecompileStorageProvider},
+    storage::{ContractStorage, PrecompileStorageProvider, with_storage},
     tip20::{IRolesAuth, ITIP20},
     view,
 };
@@ -11,12 +11,13 @@ use alloy::{primitives::Address, sol_types::SolCall};
 use revm::precompile::{PrecompileError, PrecompileResult};
 use tempo_contracts::precompiles::{ILinkingUSD, TIP20Error};
 
-impl<S: PrecompileStorageProvider> Precompile for LinkingUSD<'_, S> {
+impl Precompile for LinkingUSD {
     fn call(&mut self, calldata: &[u8], msg_sender: Address) -> PrecompileResult {
-        self.token
-            .storage()
-            .deduct_gas(input_cost(calldata.len()))
-            .map_err(|_| PrecompileError::OutOfGas)?;
+        with_storage(|storage| {
+            storage
+                .deduct_gas(input_cost(calldata.len()))
+                .map_err(|_| PrecompileError::OutOfGas)
+        })?;
 
         let selector: [u8; 4] = calldata
             .get(..4)
@@ -203,9 +204,9 @@ impl<S: PrecompileStorageProvider> Precompile for LinkingUSD<'_, S> {
 
             _ => Err(PrecompileError::Other("Unknown selector".into())),
         };
-
         result.map(|mut res| {
-            res.gas_used = self.token.storage().gas_used();
+            // safe to unwrap as `gas_used()` is infallible
+            res.gas_used = with_storage(|storage| Ok(storage.gas_used())).unwrap();
             res
         })
     }
@@ -228,7 +229,7 @@ mod tests {
         use crate::test_util::assert_full_coverage;
 
         let mut storage = HashMapStorageProvider::new(1);
-        let mut linking_usd = LinkingUSD::new(&mut storage);
+        let mut linking_usd = LinkingUSD::new();
 
         linking_usd.initialize(Address::ZERO).unwrap();
 
@@ -250,7 +251,7 @@ mod tests {
     #[test]
     fn test_start_reward_disabled() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut token = LinkingUSD::new(&mut storage);
+        let mut token = LinkingUSD::new();
         let sender = Address::from([1u8; 20]);
 
         token
@@ -274,7 +275,7 @@ mod tests {
     #[test]
     fn test_set_reward_recipient_disabled() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut token = LinkingUSD::new(&mut storage);
+        let mut token = LinkingUSD::new();
         let sender = Address::from([1u8; 20]);
         let recipient = Address::from([2u8; 20]);
 
@@ -295,7 +296,7 @@ mod tests {
     #[test]
     fn test_cancel_reward_disabled() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut token = LinkingUSD::new(&mut storage);
+        let mut token = LinkingUSD::new();
         let sender = Address::from([1u8; 20]);
 
         token
@@ -315,7 +316,7 @@ mod tests {
     #[test]
     fn test_claim_rewards_disabled() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut token = LinkingUSD::new(&mut storage);
+        let mut token = LinkingUSD::new();
         let sender = Address::from([1u8; 20]);
 
         token

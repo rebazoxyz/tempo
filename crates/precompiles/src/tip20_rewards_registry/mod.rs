@@ -154,7 +154,7 @@ mod tests {
     fn setup_registry(timestamp: u64) -> (HashMapStorageProvider, Address) {
         let mut storage = HashMapStorageProvider::new(timestamp);
         let admin = Address::random();
-        initialize_linking_usd(&mut storage, admin).unwrap();
+        initialize_linking_usd(admin).unwrap();
         (storage, admin)
     }
 

@@ -402,8 +402,7 @@ impl<'a, S: PrecompileStorageProvider> StablecoinExchange<'a, S> {
         BookKeys::new(slots::BOOK_KEYS).push(self, book_key)?;
 
         // Emit PairCreated event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             StablecoinExchangeEvents::PairCreated(IStablecoinExchange::PairCreated {
                 key: book_key,
                 base,
@@ -488,8 +487,7 @@ impl<'a, S: PrecompileStorageProvider> StablecoinExchange<'a, S> {
         self.sstore_orders(order_id, order)?;
 
         // Emit OrderPlaced event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             StablecoinExchangeEvents::OrderPlaced(IStablecoinExchange::OrderPlaced {
                 orderId: order_id,
                 maker: sender,
@@ -576,8 +574,7 @@ impl<'a, S: PrecompileStorageProvider> StablecoinExchange<'a, S> {
         self.sstore_orders(order_id, order)?;
 
         // Emit FlipOrderPlaced event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             StablecoinExchangeEvents::FlipOrderPlaced(IStablecoinExchange::FlipOrderPlaced {
                 orderId: order_id,
                 maker: sender,
@@ -708,8 +705,7 @@ impl<'a, S: PrecompileStorageProvider> StablecoinExchange<'a, S> {
         Orderbook::write_tick_level(self, order.book_key(), order.is_bid(), order.tick(), *level)?;
 
         // Emit OrderFilled event for partial fill
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             StablecoinExchangeEvents::OrderFilled(IStablecoinExchange::OrderFilled {
                 orderId: order.order_id(),
                 maker: order.maker(),
@@ -750,8 +746,7 @@ impl<'a, S: PrecompileStorageProvider> StablecoinExchange<'a, S> {
         };
 
         // Emit OrderFilled event for complete fill
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             StablecoinExchangeEvents::OrderFilled(IStablecoinExchange::OrderFilled {
                 orderId: order.order_id(),
                 maker: order.maker(),
@@ -1168,8 +1163,7 @@ impl<'a, S: PrecompileStorageProvider> StablecoinExchange<'a, S> {
         self.clear_orders(order.order_id())?;
 
         // Emit OrderCancelled event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             StablecoinExchangeEvents::OrderCancelled(IStablecoinExchange::OrderCancelled {
                 orderId: order.order_id(),
             })
@@ -1230,8 +1224,7 @@ impl<'a, S: PrecompileStorageProvider> StablecoinExchange<'a, S> {
         self.clear_orders(order.order_id())?;
 
         // Emit OrderCancelled event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             StablecoinExchangeEvents::OrderCancelled(IStablecoinExchange::OrderCancelled {
                 orderId: order.order_id(),
             })

@@ -3,7 +3,7 @@ use std::{marker::PhantomData, rc::Rc};
 
 use crate::{
     error::Result,
-    storage::{FieldLocation, LayoutCtx, Storable, StorageOps, thread_local::with_storage_context},
+    storage::{FieldLocation, LayoutCtx, Storable, StorageOps, thread_local::with_storage},
 };
 
 /// Type-safe wrapper for a single EVM storage slot.
@@ -189,19 +189,20 @@ impl<T> Slot<T> {
 
 impl<T> StorageOps for Slot<T> {
     fn sload(&self, slot: U256) -> Result<U256> {
-        with_storage_context(|storage| storage.sload(*self.address, slot))
+        with_storage(|storage| storage.sload(*self.address, slot))
     }
 
     fn sstore(&mut self, slot: U256, value: U256) -> Result<()> {
-        with_storage_context(|storage| storage.sstore(*self.address, slot, value))
+        with_storage(|storage| storage.sstore(*self.address, slot, value))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{
-        PrecompileStorageProvider, hashmap::HashMapStorageProvider, mapping_slot,
+    use crate::{
+        storage::{PrecompileStorageProvider, mapping_slot},
+        test_util::setup_storage,
     };
     use alloy::primitives::{Address, B256};
     use proptest::prelude::*;
@@ -213,10 +214,6 @@ mod tests {
 
     fn arb_u256() -> impl Strategy<Value = U256> {
         any::<[u64; 4]>().prop_map(U256::from_limbs)
-    }
-
-    fn setup_storage() -> (HashMapStorageProvider, Rc<Address>) {
-        (HashMapStorageProvider::new(1), Rc::new(Address::random()))
     }
 
     // -- BASIC TESTS -----------------------------------------------------------

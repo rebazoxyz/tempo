@@ -1,8 +1,8 @@
-// pub mod evm;
+pub mod evm;
 pub mod hashmap;
 
 mod thread_local;
-pub use thread_local::{StorageGuard, with_storage_context};
+pub use thread_local::{StorageGuard, with_storage};
 
 mod types;
 pub use types::*;

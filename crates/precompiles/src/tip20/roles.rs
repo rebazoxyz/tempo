@@ -38,8 +38,7 @@ impl TIP20Token {
         self.check_role_internal(msg_sender, admin_role)?;
         self.grant_role_internal(call.account, call.role)?;
 
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             RolesAuthEvent::RoleMembershipUpdated(IRolesAuth::RoleMembershipUpdated {
                 role: call.role,
                 account: call.account,
@@ -59,8 +58,7 @@ impl TIP20Token {
         self.check_role_internal(msg_sender, admin_role)?;
         self.revoke_role_internal(call.account, call.role)?;
 
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             RolesAuthEvent::RoleMembershipUpdated(IRolesAuth::RoleMembershipUpdated {
                 role: call.role,
                 account: call.account,
@@ -79,8 +77,7 @@ impl TIP20Token {
         self.check_role_internal(msg_sender, call.role)?;
         self.revoke_role_internal(msg_sender, call.role)?;
 
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             RolesAuthEvent::RoleMembershipUpdated(IRolesAuth::RoleMembershipUpdated {
                 role: call.role,
                 account: msg_sender,
@@ -101,8 +98,7 @@ impl TIP20Token {
 
         self.set_role_admin_internal(call.role, call.adminRole)?;
 
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             RolesAuthEvent::RoleAdminUpdated(IRolesAuth::RoleAdminUpdated {
                 role: call.role,
                 newAdminRole: call.adminRole,

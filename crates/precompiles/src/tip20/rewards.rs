@@ -260,8 +260,7 @@ impl TIP20Token {
         self.user_reward_info.at(msg_sender).write(info)?;
 
         // Emit reward recipient set event
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             TIP20Event::RewardRecipientSet(ITIP20::RewardRecipientSet {
                 holder: msg_sender,
                 recipient: call.recipient,
@@ -379,8 +378,7 @@ impl TIP20Token {
             actual_refund = refund;
         }
 
-        self.storage.emit_event(
-            self.address,
+        self.emit_event(
             TIP20Event::RewardCanceled(ITIP20::RewardCanceled {
                 funder: stream.funder,
                 id: stream_id,
@@ -682,7 +680,7 @@ mod tests {
         let current_time = storage.timestamp().to::<u64>();
         let admin = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -732,7 +730,7 @@ mod tests {
         let admin = Address::random();
         let alice = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -768,7 +766,7 @@ mod tests {
         let mut storage = HashMapStorageProvider::new(1);
         let admin = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -819,7 +817,7 @@ mod tests {
         let admin = Address::random();
         let alice = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -869,7 +867,7 @@ mod tests {
         let admin = Address::random();
         let alice = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -932,7 +930,7 @@ mod tests {
         let admin = Address::random();
         let alice = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -997,7 +995,7 @@ mod tests {
         let admin = Address::random();
         let alice = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -1048,7 +1046,7 @@ mod tests {
         let admin = Address::random();
         let alice = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -1120,7 +1118,7 @@ mod tests {
         let alice = Address::random();
         let funder = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
         let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
@@ -1180,7 +1178,7 @@ mod tests {
         let mut storage = HashMapStorageProvider::new(1);
         let admin = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
 
         // Setup and start stream in a scope to release the borrow
         let (stream_id, end_time) = {
@@ -1247,7 +1245,7 @@ mod tests {
         let mut storage = HashMapStorageProvider::new(1);
         let admin = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
 
         // Setup and start stream in a scope to release the borrow
         let (stream_id, end_time) = {
@@ -1310,7 +1308,7 @@ mod tests {
         let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Moderato);
         let admin = Address::random();
 
-        initialize_linking_usd(&mut storage, admin)?;
+        initialize_linking_usd(admin)?;
 
         let mut token = TIP20Token::new(1);
         token.initialize("TestToken", "TEST", "USD", LINKING_USD_ADDRESS, admin)?;

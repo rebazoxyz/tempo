@@ -12,7 +12,7 @@ use revm::{
     interpreter::interpreter::EthInterpreter,
 };
 use tempo_chainspec::hardfork::TempoHardfork;
-// use tempo_precompiles::extend_tempo_precompiles;
+use tempo_precompiles::extend_tempo_precompiles;
 
 /// The Tempo EVM context type.
 pub type TempoContext<DB> = Context<TempoBlockEnv, TempoTxEnv, CfgEnv<TempoHardfork>, DB>;
@@ -39,7 +39,7 @@ impl<DB: Database, I> TempoEvm<DB, I> {
     /// Create a new Tempo EVM.
     pub fn new(ctx: TempoContext<DB>, inspector: I) -> Self {
         let mut precompiles = PrecompilesMap::from_static(EthPrecompiles::default().precompiles);
-        // extend_tempo_precompiles(&mut precompiles, &ctx.cfg);
+        extend_tempo_precompiles(&mut precompiles, &ctx.cfg);
 
         Self::new_inner(Evm {
             ctx,

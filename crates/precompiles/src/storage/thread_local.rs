@@ -59,7 +59,7 @@ impl Drop for StorageGuard<'_> {
 }
 
 /// Execute a function with access to the current thread-local storage provider.
-pub(crate) fn with_storage_context<F, R>(f: F) -> Result<R>
+pub fn with_storage<F, R>(f: F) -> Result<R>
 where
     F: FnOnce(&mut dyn PrecompileStorageProvider) -> Result<R>,
 {

@@ -184,10 +184,6 @@ mod tests {
         })
     }
 
-    fn setup_storage() -> (HashMapStorageProvider, Rc<Address>) {
-        (HashMapStorageProvider::new(1), Rc::new(Address::random()))
-    }
-
     #[test]
     fn test_array_u8_32_single_slot() {
         let (mut storage, address) = setup_storage();
