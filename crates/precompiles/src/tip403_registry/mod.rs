@@ -25,27 +25,22 @@ pub struct PolicyData {
     pub admin: Address,
 }
 
-impl<'a, S: PrecompileStorageProvider> TIP403Registry<'a, S> {
+impl TIP403Registry {
     /// Creates an instance of the precompile.
     ///
     /// Caution: This does not initialize the account, see [`Self::initialize`].
-    pub fn new(storage: &'a mut S) -> Self {
-        Self::_new(TIP403_REGISTRY_ADDRESS, storage)
+    pub fn new() -> Self {
+        Self::__new(TIP403_REGISTRY_ADDRESS)
     }
 
     /// Initializes the registry contract.
     pub fn initialize(&mut self) -> Result<()> {
-        self.storage.set_code(
-            TIP403_REGISTRY_ADDRESS,
-            Bytecode::new_legacy(Bytes::from_static(&[0xef])),
-        )?;
-
-        Ok(())
+        Self::__initialize()
     }
 
     // View functions
     pub fn policy_id_counter(&mut self) -> Result<u64> {
-        let counter_val = self.sload_policy_id_counter()?;
+        let counter_val = self.policy_id_counter.read()?;
         // Initialize policy ID counter to 2 if it's 0 (skip special policies)
         Ok(counter_val.max(2))
     }
@@ -77,20 +72,17 @@ impl<'a, S: PrecompileStorageProvider> TIP403Registry<'a, S> {
         let new_policy_id = self.policy_id_counter()?;
 
         // Increment counter
-        self.sstore_policy_id_counter(
+        self.policy_id_counter.write(
             new_policy_id
                 .checked_add(1)
                 .ok_or(TempoPrecompileError::under_overflow())?,
         )?;
 
         // Store policy data
-        self.sstore_policy_data(
-            new_policy_id,
-            PolicyData {
-                policy_type: call.policyType as u8,
-                admin: call.admin,
-            },
-        )?;
+        self.policy_data.at(new_policy_id).write(PolicyData {
+            policy_type: call.policyType as u8,
+            admin: call.admin,
+        })?;
 
         // Emit events
         self.storage.emit_event(
@@ -125,7 +117,7 @@ impl<'a, S: PrecompileStorageProvider> TIP403Registry<'a, S> {
         let new_policy_id = self.policy_id_counter()?;
 
         // Increment counter
-        self.sstore_policy_id_counter(
+        self.policy_id_counter.write(
             new_policy_id
                 .checked_add(1)
                 .ok_or(TempoPrecompileError::under_overflow())?,
@@ -295,15 +287,15 @@ impl<'a, S: PrecompileStorageProvider> TIP403Registry<'a, S> {
 
     // Internal helper functions
     fn get_policy_data(&mut self, policy_id: u64) -> Result<PolicyData> {
-        self.sload_policy_data(policy_id)
+        self.policy_data.at(policy_id).read()
     }
 
     fn set_policy_data(&mut self, policy_id: u64, data: PolicyData) -> Result<()> {
-        self.sstore_policy_data(policy_id, data)
+        self.policy_data.at(policy_id).write(data)
     }
 
     fn set_policy_set(&mut self, policy_id: u64, account: Address, value: bool) -> Result<()> {
-        self.sstore_policy_set(policy_id, account, value)
+        self.policy_set.at(policy_id).at(account).write(value)
     }
 
     fn is_authorized_internal(&mut self, policy_id: u64, user: Address) -> Result<bool> {
@@ -315,7 +307,7 @@ impl<'a, S: PrecompileStorageProvider> TIP403Registry<'a, S> {
         }
 
         let data = self.get_policy_data(policy_id)?;
-        let is_in_set = self.sload_policy_set(policy_id, user)?;
+        let is_in_set = self.policy_set.at(policy_id).at(user).read()?;
 
         let auth = match data
             .policy_type
@@ -340,7 +332,7 @@ mod tests {
     #[test]
     fn test_create_policy() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut registry = TIP403Registry::new(&mut storage);
+        let mut registry = TIP403Registry::new();
         let admin = Address::from([1u8; 20]);
 
         // Initial counter should be 2 (skipping special policies)
@@ -370,7 +362,7 @@ mod tests {
     #[test]
     fn test_is_authorized_special_policies() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut registry = TIP403Registry::new(&mut storage);
+        let mut registry = TIP403Registry::new();
         let user = Address::from([1u8; 20]);
 
         // Policy 0 should always reject
@@ -384,7 +376,7 @@ mod tests {
     #[test]
     fn test_whitelist_policy() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut registry = TIP403Registry::new(&mut storage);
+        let mut registry = TIP403Registry::new();
         let admin = Address::from([1u8; 20]);
         let user = Address::from([2u8; 20]);
 
@@ -425,7 +417,7 @@ mod tests {
     #[test]
     fn test_blacklist_policy() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut registry = TIP403Registry::new(&mut storage);
+        let mut registry = TIP403Registry::new();
         let admin = Address::from([1u8; 20]);
         let user = Address::from([2u8; 20]);
 

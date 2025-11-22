@@ -142,7 +142,7 @@ pub(crate) fn gen_constructor(
     quote! {
         impl #name {
             #[inline(always)]
-            fn _new(address: ::alloy::primitives::Address) -> Self {
+            fn __new(address: ::alloy::primitives::Address) -> Self {
                 // Run collision detection checks in debug builds
                 #[cfg(debug_assertions)]
                 {
@@ -155,6 +155,14 @@ pub(crate) fn gen_constructor(
                     #(#field_inits,)*
                     address: address_rc,
                 }
+            }
+
+            #[inline(always)]
+            fn __initialize(&self) -> crate::error::Result<()> {
+                let bytecode = Bytecode::new_legacy(Bytes::from_static(&[0xef]));
+                crate::storage::with_storage_context(|storage| storage.set_code(*self.address, bytecode))?;
+
+                Ok(())
             }
         }
     }

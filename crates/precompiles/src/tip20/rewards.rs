@@ -11,7 +11,7 @@ use tempo_precompiles_macros::Storable;
 
 pub const ACC_PRECISION: U256 = uint!(1000000000000000000_U256);
 
-impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
+impl TIP20Token {
     /// Starts a new reward stream for the token contract.
     ///
     /// This function allows an authorized user to fund a reward stream that distributes
@@ -90,16 +90,13 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
                 .checked_add(call.secs as u128)
                 .ok_or(TempoPrecompileError::under_overflow())?;
 
-            self.sstore_streams(
-                stream_id,
-                RewardStream::new(
-                    msg_sender,
-                    current_time as u64,
-                    end_time as u64,
-                    rate,
-                    call.amount,
-                ),
-            )?;
+            self.streams.at(stream_id).write(RewardStream::new(
+                msg_sender,
+                current_time as u64,
+                end_time as u64,
+                rate,
+                call.amount,
+            ))?;
 
             let current_decrease = self.get_scheduled_rate_decrease_at(end_time)?;
             let new_decrease = current_decrease
@@ -174,7 +171,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     /// Rewards are accumulated in the delegated recipient's rewardBalance.
     /// Returns the holder's delegated recipient address.
     pub fn update_rewards(&mut self, holder: Address) -> Result<Address> {
-        let mut info = self.sload_user_reward_info(holder)?;
+        let mut info = self.user_reward_info.at(holder).read()?;
 
         let cached_delegate = info.reward_recipient;
 
@@ -198,16 +195,18 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
                         .checked_add(reward)
                         .ok_or(TempoPrecompileError::under_overflow())?;
                 } else {
-                    let mut delegate_info = self.sload_user_reward_info(cached_delegate)?;
+                    let mut delegate_info = self.user_reward_info.at(cached_delegate).read()?;
                     delegate_info.reward_balance = delegate_info
                         .reward_balance
                         .checked_add(reward)
                         .ok_or(TempoPrecompileError::under_overflow())?;
-                    self.sstore_user_reward_info(cached_delegate, delegate_info)?;
+                    self.user_reward_info
+                        .at(cached_delegate)
+                        .write(delegate_info)?;
                 }
             }
             info.reward_per_token = global_reward_per_token;
-            self.sstore_user_reward_info(holder, info)?;
+            self.user_reward_info.at(holder).write(info)?;
         }
 
         Ok(cached_delegate)
@@ -256,9 +255,9 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
             )?;
         }
 
-        let mut info = self.sload_user_reward_info(msg_sender)?;
+        let mut info = self.user_reward_info.at(msg_sender).read()?;
         info.reward_recipient = call.recipient;
-        self.sstore_user_reward_info(msg_sender, info)?;
+        self.user_reward_info.at(msg_sender).write(info)?;
 
         // Emit reward recipient set event
         self.storage.emit_event(
@@ -283,7 +282,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         call: ITIP20::cancelRewardCall,
     ) -> Result<U256> {
         let stream_id = call.id;
-        let stream = self.sload_streams(stream_id)?;
+        let stream = self.streams.at(stream_id).read()?;
 
         if stream.funder.is_zero() {
             return Err(TIP20Error::stream_inactive().into());
@@ -433,7 +432,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         self.accrue(timestamp)?;
         self.update_rewards(msg_sender)?;
 
-        let mut info = self.sload_user_reward_info(msg_sender)?;
+        let mut info = self.user_reward_info.at(msg_sender).read()?;
         let amount = info.reward_balance;
         let contract_address = self.address;
         let contract_balance = self.get_balance(contract_address)?;
@@ -443,7 +442,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         info.reward_balance = amount
             .checked_sub(max_amount)
             .ok_or(TempoPrecompileError::under_overflow())?;
-        self.sstore_user_reward_info(msg_sender, info)?;
+        self.user_reward_info.at(msg_sender).write(info)?;
 
         if max_amount > U256::ZERO {
             let new_contract_balance = contract_balance
@@ -484,7 +483,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     /// Gets the next available stream ID (minimum 1).
     pub fn get_next_stream_id(&mut self) -> Result<u64> {
-        let id = self.sload_next_stream_id()?;
+        let id = self.next_stream_id.read()?;
 
         Ok(id.max(1))
     }
@@ -496,7 +495,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     /// Gets the accumulated global reward per token.
     fn get_global_reward_per_token(&mut self) -> Result<U256> {
-        self.sload_global_reward_per_token()
+        self.global_reward_per_token().read()
     }
 
     /// Sets the accumulated global reward per token in storage.
@@ -506,7 +505,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     /// Gets the timestamp of the last reward update from storage.
     fn get_last_update_time(&mut self) -> Result<u64> {
-        self.sload_last_update_time()
+        self.last_update_time().read()
     }
 
     /// Sets the timestamp of the last reward update in storage.
@@ -516,7 +515,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     /// Gets the total supply of tokens opted into rewards from storage.
     pub fn get_opted_in_supply(&mut self) -> Result<u128> {
-        self.sload_opted_in_supply()
+        self.opted_in_supply().read()
     }
 
     /// Sets the total supply of tokens opted into rewards in storage.
@@ -526,7 +525,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     /// Gets the scheduled rate decrease at a specific time from storage.
     fn get_scheduled_rate_decrease_at(&mut self, end_time: u128) -> Result<U256> {
-        self.sload_scheduled_rate_decrease(end_time)
+        self.scheduled_rate_decrease.at(end_time).read()
     }
 
     /// Sets the scheduled rate decrease at a specific time in storage.
@@ -536,12 +535,12 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     /// Gets the total reward per second rate from storage.
     pub fn get_total_reward_per_second(&mut self) -> Result<U256> {
-        self.sload_total_reward_per_second()
+        self.total_reward_per_second().read()
     }
 
     /// Sets the total reward per second rate in storage.
     fn set_total_reward_per_second(&mut self, value: U256) -> Result<()> {
-        self.sstore_total_reward_per_second(value)
+        self.total_reward_per_second.write(value)
     }
 
     /// Handles reward accounting for both sender and receiver during token transfers.
@@ -599,12 +598,12 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     /// Retrieves a reward stream by its ID.
     pub fn get_stream(&mut self, stream_id: u64) -> Result<RewardStream> {
-        self.sload_streams(stream_id)
+        self.streams.at(stream_id).read()
     }
 
     /// Retrieves user reward information for a given account.
     pub fn get_user_reward_info(&mut self, account: Address) -> Result<UserRewardInfo> {
-        self.sload_user_reward_info(account)
+        self.user_reward_info.at(account).read()
     }
 }
 
@@ -684,7 +683,7 @@ mod tests {
         let admin = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -734,7 +733,7 @@ mod tests {
         let alice = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -744,7 +743,7 @@ mod tests {
 
         token.set_reward_recipient(alice, ITIP20::setRewardRecipientCall { recipient: alice })?;
 
-        let info = token.sload_user_reward_info(alice)?;
+        let info = token.user_reward_infoa.at(alice).read()?;
         assert_eq!(info.reward_recipient, alice);
         assert_eq!(token.get_opted_in_supply()?, amount.to::<u128>());
         assert_eq!(info.reward_per_token, U256::ZERO);
@@ -756,7 +755,7 @@ mod tests {
             },
         )?;
 
-        let info = token.sload_user_reward_info(alice)?;
+        let info = token.user_reward_info.at(alice).read()?;
         assert_eq!(info.reward_recipient, Address::ZERO);
         assert_eq!(token.get_opted_in_supply()?, 0u128);
         assert_eq!(info.reward_per_token, U256::ZERO);
@@ -770,7 +769,7 @@ mod tests {
         let admin = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -821,7 +820,7 @@ mod tests {
         let alice = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -856,7 +855,7 @@ mod tests {
         )?;
 
         token.update_rewards(alice)?;
-        let info_after = token.sload_user_reward_info(alice)?;
+        let info_after = token.user_reward_info.at(alice).read()?;
         let global_rpt_after = token.get_global_reward_per_token()?;
 
         assert_eq!(info_after.reward_per_token, global_rpt_after);
@@ -871,7 +870,7 @@ mod tests {
         let alice = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -921,7 +920,7 @@ mod tests {
         assert_eq!(total_reward_per_second, expected_rate);
 
         assert_eq!(token.get_opted_in_supply()?, mint_amount.to::<u128>());
-        let info = token.sload_user_reward_info(alice)?;
+        let info = token.user_reward_info.at(alice).read()?;
         assert_eq!(info.reward_per_token, U256::ZERO);
         Ok(())
     }
@@ -934,7 +933,7 @@ mod tests {
         let alice = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -986,7 +985,7 @@ mod tests {
         assert!(global_rpt > U256::ZERO);
 
         token.update_rewards(alice)?;
-        let info = token.sload_user_reward_info(alice)?;
+        let info = token.user_reward_info.at(alice).read()?;
         assert_eq!(info.reward_per_token, global_rpt);
 
         Ok(())
@@ -999,7 +998,7 @@ mod tests {
         let alice = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -1050,7 +1049,7 @@ mod tests {
         let alice = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -1122,7 +1121,7 @@ mod tests {
         let funder = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;
@@ -1168,7 +1167,7 @@ mod tests {
             alice_balance_before_claim + claimed_amount
         );
 
-        let alice_info = token.sload_user_reward_info(alice)?;
+        let alice_info = token.user_reward_info.at(alice).read()?;
         assert_eq!(alice_info.reward_balance, U256::ZERO);
 
         Ok(())
@@ -1185,7 +1184,7 @@ mod tests {
 
         // Setup and start stream in a scope to release the borrow
         let (stream_id, end_time) = {
-            let mut token = TIP20Token::new(1, &mut storage);
+            let mut token = TIP20Token::new(1);
             token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
@@ -1224,7 +1223,7 @@ mod tests {
 
         // Cancel the stream
         {
-            let mut token = TIP20Token::new(1, &mut storage);
+            let mut token = TIP20Token::new(1);
             token.cancel_reward(admin, ITIP20::cancelRewardCall { id: stream_id })?;
         }
 
@@ -1252,7 +1251,7 @@ mod tests {
 
         // Setup and start stream in a scope to release the borrow
         let (stream_id, end_time) = {
-            let mut token = TIP20Token::new(1, &mut storage);
+            let mut token = TIP20Token::new(1);
             token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
@@ -1289,7 +1288,7 @@ mod tests {
 
         // Cancel the stream
         {
-            let mut token = TIP20Token::new(1, &mut storage);
+            let mut token = TIP20Token::new(1);
             token.cancel_reward(admin, ITIP20::cancelRewardCall { id: stream_id })?;
         }
 
@@ -1313,7 +1312,7 @@ mod tests {
 
         initialize_linking_usd(&mut storage, admin)?;
 
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("TestToken", "TEST", "USD", LINKING_USD_ADDRESS, admin)?;
 
         token.grant_role_internal(admin, *ISSUER_ROLE)?;

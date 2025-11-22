@@ -255,7 +255,7 @@ mod tests {
 
         // Initialize base token
         let quote_address = quote.token.address();
-        let mut base = TIP20Token::new(1, quote.token.storage());
+        let mut base = TIP20Token::new(1);
         base.initialize("BASE", "BASE", "USD", quote_address, admin)
             .unwrap();
 

@@ -7,7 +7,7 @@ use crate::{
     tip20_factory::{ITIP20Factory, TIP20Factory},
 };
 
-impl<'a, S: PrecompileStorageProvider> Precompile for TIP20Factory<'a, S> {
+impl Precompile for TIP20Factory {
     fn call(&mut self, calldata: &[u8], msg_sender: Address) -> PrecompileResult {
         self.storage
             .deduct_gas(input_cost(calldata.len()))
@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn tip20_factory_test_selector_coverage() {
         let mut storage = HashMapStorageProvider::new(1);
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
 
         let unsupported = check_selector_coverage(
             &mut factory,

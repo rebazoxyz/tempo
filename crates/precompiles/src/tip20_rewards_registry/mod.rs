@@ -299,7 +299,7 @@ mod tests {
         let (mut storage, admin) = setup_registry(1500);
 
         // Create a TIP20 token and start a reward stream
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)?;
         let token_addr = token.address();
 

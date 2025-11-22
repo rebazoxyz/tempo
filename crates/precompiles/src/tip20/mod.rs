@@ -105,7 +105,7 @@ pub fn validate_usd_currency<S: PrecompileStorageProvider>(
         return Err(FeeManagerError::invalid_token().into());
     }
 
-    let mut tip20_token = TIP20Token::from_address(token, storage);
+    let mut tip20_token = TIP20Token::from_address(token);
     let currency = tip20_token.currency()?;
     if currency != USD_CURRENCY {
         return Err(TIP20Error::invalid_currency().into());
@@ -113,13 +113,13 @@ pub fn validate_usd_currency<S: PrecompileStorageProvider>(
     Ok(())
 }
 
-impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
+impl TIP20Token {
     pub fn name(&mut self) -> Result<String> {
-        self.sload_name()
+        self.name.read()
     }
 
     pub fn symbol(&mut self) -> Result<String> {
-        self.sload_symbol()
+        self.symbol.read()
     }
 
     pub fn decimals(&mut self) -> Result<u8> {
@@ -127,31 +127,31 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     }
 
     pub fn currency(&mut self) -> Result<String> {
-        self.sload_currency()
+        self.currency.read()
     }
 
     pub fn total_supply(&mut self) -> Result<U256> {
-        self.sload_total_supply()
+        self.total_supply.read()
     }
 
     pub fn quote_token(&mut self) -> Result<Address> {
-        self.sload_quote_token()
+        self.quote_token.read()
     }
 
     pub fn next_quote_token(&mut self) -> Result<Address> {
-        self.sload_next_quote_token()
+        self.next_quote_token.read()
     }
 
     pub fn supply_cap(&mut self) -> Result<U256> {
-        self.sload_supply_cap()
+        self.supply_cap.read()
     }
 
     pub fn paused(&mut self) -> Result<bool> {
-        self.sload_paused()
+        self.paused.read()
     }
 
     pub fn transfer_policy_id(&mut self) -> Result<u64> {
-        self.sload_transfer_policy_id()
+        self.transfer_policy_id.read()
     }
 
     /// Returns the PAUSE_ROLE constant
@@ -188,11 +188,11 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     // View functions
     pub fn balance_of(&mut self, call: ITIP20::balanceOfCall) -> Result<U256> {
-        self.sload_balances(call.account)
+        self.balances.at(call.account).read()
     }
 
     pub fn allowance(&mut self, call: ITIP20::allowanceCall) -> Result<U256> {
-        self.sload_allowances(call.owner, call.spender)
+        self.allowances.at(call.owner).at(call.spender).read()
     }
 
     // Admin functions
@@ -202,7 +202,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         call: ITIP20::changeTransferPolicyIdCall,
     ) -> Result<()> {
         self.check_role(msg_sender, DEFAULT_ADMIN_ROLE)?;
-        self.sstore_transfer_policy_id(call.newPolicyId)?;
+        self.transfer_policy_id.write(call.newPolicyId)?;
 
         self.storage.emit_event(
             self.address,
@@ -228,7 +228,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
             return Err(TIP20Error::supply_cap_exceeded().into());
         }
 
-        self.sstore_supply_cap(call.newSupplyCap)?;
+        self.supply_cap.write(call.newSupplyCap)?;
 
         self.storage.emit_event(
             self.address,
@@ -242,7 +242,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     pub fn pause(&mut self, msg_sender: Address, _call: ITIP20::pauseCall) -> Result<()> {
         self.check_role(msg_sender, *PAUSE_ROLE)?;
-        self.sstore_paused(true)?;
+        self.paused.write(true)?;
 
         self.storage.emit_event(
             self.address,
@@ -256,7 +256,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     pub fn unpause(&mut self, msg_sender: Address, _call: ITIP20::unpauseCall) -> Result<()> {
         self.check_role(msg_sender, *UNPAUSE_ROLE)?;
-        self.sstore_paused(false)?;
+        self.paused.write(false)?;
 
         self.storage.emit_event(
             self.address,
@@ -283,8 +283,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         // Check if the currency is USD, if so then the quote token's currency MUST also be USD
         let currency = self.currency()?;
         if currency == USD_CURRENCY {
-            let quote_token_currency =
-                TIP20Token::from_address(call.newQuoteToken, self.storage).currency()?;
+            let quote_token_currency = TIP20Token::from_address(call.newQuoteToken).currency()?;
             if quote_token_currency != USD_CURRENCY {
                 return Err(TIP20Error::invalid_quote_token().into());
             }
@@ -300,7 +299,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
             return Err(TIP20Error::invalid_quote_token().into());
         }
 
-        self.sstore_next_quote_token(call.newQuoteToken)?;
+        self.next_quote_token.write(call.newQuoteToken)?;
 
         self.storage.emit_event(
             self.address,
@@ -319,7 +318,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     ) -> Result<()> {
         self.check_role(msg_sender, DEFAULT_ADMIN_ROLE)?;
 
-        let next_quote_token = self.next_quote_token()?;
+        let next_quote_token = self.next_quote_token.read()?;
 
         // Check that this does not create a loop
         // Loop through quote tokens until we reach the root (LinkingUSD)
@@ -329,11 +328,11 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
                 return Err(TIP20Error::invalid_quote_token().into());
             }
 
-            current = TIP20Token::from_address(current, self.storage).quote_token()?;
+            current = TIP20Token::from_address(current).quote_token()?;
         }
 
         // Update the quote token
-        self.sstore_quote_token(next_quote_token)?;
+        self.quote_token.write(next_quote_token)?;
 
         self.storage.emit_event(
             self.address,
@@ -647,16 +646,16 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 }
 
 // Utility functions
-impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
-    pub fn new(token_id: u64, storage: &'a mut S) -> Self {
+impl TIP20Token {
+    pub fn new(token_id: u64) -> Self {
         let token_address = token_id_to_address(token_id);
-        Self::_new(token_address, storage)
+        Self::__new(token_address)
     }
 
     /// Create a TIP20Token from an address
-    pub fn from_address(address: Address, storage: &'a mut S) -> Self {
+    pub fn from_address(address: Address) -> Self {
         let token_id = address_to_token_id_unchecked(address);
-        Self::new(token_id, storage)
+        Self::new(token_id)
     }
 
     /// Only called internally from the factory, which won't try to re-initialize a token.
@@ -671,35 +670,31 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
         trace!(%name, address=%self.address, "Initializing token");
 
         // must ensure the account is not empty, by setting some code
-        self.storage.set_code(
-            self.address,
-            Bytecode::new_legacy(Bytes::from_static(&[0xef])),
-        )?;
+        self.__initialize();
 
-        self.sstore_name(name.to_string())?;
-        self.sstore_symbol(symbol.to_string())?;
-        self.sstore_currency(currency.to_string())?;
+        self.name.write(name.to_string())?;
+        self.symbol.write(symbol.to_string())?;
+        self.currency.write(currency.to_string())?;
 
         // If the currency is USD, the quote token must also be USD
         if currency == USD_CURRENCY {
-            let quote_token_currency =
-                TIP20Token::from_address(quote_token, self.storage).currency()?;
+            let quote_token_currency = TIP20Token::from_address(quote_token).currency()?;
             if quote_token_currency != USD_CURRENCY {
                 return Err(TIP20Error::invalid_quote_token().into());
             }
         }
 
-        self.sstore_quote_token(quote_token)?;
+        self.quote_token.write(quote_token)?;
         // Initialize nextQuoteToken to the same value as quoteToken
-        self.sstore_next_quote_token(quote_token)?;
+        self.next_quote_token.write(quote_token)?;
 
         // Set default values
         if self.storage.spec().is_moderato() {
-            self.sstore_supply_cap(U256::from(u128::MAX))?;
+            self.supply_cap.write(U256::from(u128::MAX))?;
         } else {
-            self.sstore_supply_cap(U256::MAX)?;
+            self.supply_cap.write(U256::MAX)?;
         }
-        self.sstore_transfer_policy_id(1)?;
+        self.transfer_policy_id.write(1)?;
 
         // Initialize roles system and grant admin role
         self.initialize_roles()?;
@@ -707,23 +702,23 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     }
 
     fn get_balance(&mut self, account: Address) -> Result<U256> {
-        self.sload_balances(account)
+        self.balances.at(account).read()
     }
 
     fn set_balance(&mut self, account: Address, amount: U256) -> Result<()> {
-        self.sstore_balances(account, amount)
+        self.balances.at(account).write(amount)
     }
 
     fn get_allowance(&mut self, owner: Address, spender: Address) -> Result<U256> {
-        self.sload_allowances(owner, spender)
+        self.allowances.at(owner).at(spender).read()
     }
 
     fn set_allowance(&mut self, owner: Address, spender: Address, amount: U256) -> Result<()> {
-        self.sstore_allowances(owner, spender, amount)
+        self.allowances.at(owner).at(spender).write(amount)
     }
 
     fn set_total_supply(&mut self, amount: U256) -> Result<()> {
-        self.sstore_total_supply(amount)
+        self.total_supply.write(amount)
     }
 
     fn check_not_paused(&mut self) -> Result<()> {
@@ -942,7 +937,7 @@ pub(crate) mod tests {
         storage: &mut HashMapStorageProvider,
         admin: Address,
     ) -> Result<()> {
-        let mut linking_usd = TIP20Token::from_address(LINKING_USD_ADDRESS, storage);
+        let mut linking_usd = TIP20Token::from_address(LINKING_USD_ADDRESS);
         linking_usd.initialize("LinkingUSD", "LUSD", "USD", Address::ZERO, admin)
     }
 
@@ -1085,7 +1080,7 @@ pub(crate) mod tests {
         let token_id = 1;
         {
             initialize_linking_usd(&mut storage, admin).unwrap();
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             // Initialize with admin
             token
                 .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
@@ -1129,7 +1124,7 @@ pub(crate) mod tests {
         let token_id = 1;
         {
             initialize_linking_usd(&mut storage, admin).unwrap();
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token
                 .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
                 .unwrap();
@@ -1173,7 +1168,7 @@ pub(crate) mod tests {
         let mut storage = HashMapStorageProvider::new(1);
         let admin = Address::from([0u8; 20]);
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1198,7 +1193,7 @@ pub(crate) mod tests {
         let admin = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1250,7 +1245,7 @@ pub(crate) mod tests {
         let admin = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1288,7 +1283,7 @@ pub(crate) mod tests {
         let admin = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1326,7 +1321,7 @@ pub(crate) mod tests {
         let admin = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1385,7 +1380,7 @@ pub(crate) mod tests {
         let admin = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1452,7 +1447,7 @@ pub(crate) mod tests {
         let admin = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1508,7 +1503,7 @@ pub(crate) mod tests {
         let admin = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1565,7 +1560,7 @@ pub(crate) mod tests {
         let user = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1595,7 +1590,7 @@ pub(crate) mod tests {
         let user = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1617,7 +1612,7 @@ pub(crate) mod tests {
         let user = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1658,7 +1653,7 @@ pub(crate) mod tests {
         let amount = U256::from(100);
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1689,7 +1684,7 @@ pub(crate) mod tests {
         let amount = U256::from(100);
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1717,7 +1712,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         let token_id = setup_factory_with_token(&mut storage, admin, "Test", "TST");
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
 
         // Verify both quoteToken and nextQuoteToken are set to the same value
         assert_eq!(token.quote_token()?, LINKING_USD_ADDRESS);
@@ -1734,7 +1729,7 @@ pub(crate) mod tests {
         let (token_id, quote_token_id) = setup_token_with_custom_quote_token(&mut storage, admin);
         let quote_token_address = token_id_to_address(quote_token_id);
 
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
 
         // Set next quote token
         token
@@ -1770,7 +1765,7 @@ pub(crate) mod tests {
         let non_admin = Address::random();
         let token_id = 1;
         initialize_linking_usd(&mut storage, admin).unwrap();
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token
             .initialize("Test", "TST", "USD", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1801,7 +1796,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         let token_id = setup_factory_with_token(&mut storage, admin, "Test", "TST");
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
 
         // Try to set a non-TIP20 address (random address that doesn't match TIP20 pattern)
         let non_tip20_address = Address::random();
@@ -1828,7 +1823,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         let token_id = setup_factory_with_token(&mut storage, admin, "Test", "TST");
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
 
         // Try to set a TIP20 address that hasn't been deployed yet (token_id = 999)
         // This has the correct TIP20 address pattern but hasn't been created
@@ -1858,7 +1853,7 @@ pub(crate) mod tests {
         let (token_id, quote_token_id) = setup_token_with_custom_quote_token(&mut storage, admin);
         let quote_token_address = token_id_to_address(quote_token_id);
 
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
 
         // Set next quote token
         token
@@ -1898,7 +1893,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
         factory.initialize().unwrap();
 
         // Create token_b first (links to LINKING_USD)
@@ -1912,7 +1907,7 @@ pub(crate) mod tests {
         let token_a_address = token_id_to_address(token_a_id);
 
         // Now try to set token_a as the next quote token for token_b (would create A -> B -> A loop)
-        let mut token_b = TIP20Token::new(token_b_id, &mut storage);
+        let mut token_b = TIP20Token::new(token_b_id);
         token_b
             .set_next_quote_token(
                 admin,
@@ -1945,7 +1940,7 @@ pub(crate) mod tests {
         let (token_id, quote_token_id) = setup_token_with_custom_quote_token(&mut storage, admin);
         let quote_token_address = token_id_to_address(quote_token_id);
 
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
 
         // Set next quote token as admin
         token.set_next_quote_token(
@@ -1986,7 +1981,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         for _ in 0..50 {
-            let mut token = TIP20Token::new(1, &mut storage);
+            let mut token = TIP20Token::new(1);
 
             let currency: String = thread_rng()
                 .sample_iter(&Alphanumeric)
@@ -2013,7 +2008,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         for _ in 0..10 {
-            let mut token = TIP20Token::new(1, &mut storage);
+            let mut token = TIP20Token::new(1);
 
             let currency: String = thread_rng()
                 .sample_iter(&Alphanumeric)
@@ -2042,12 +2037,12 @@ pub(crate) mod tests {
 
         // Test from_address creates same instance as new()
         let addr_via_new = {
-            let token = TIP20Token::new(token_id, &mut storage);
+            let token = TIP20Token::new(token_id);
             token.address
         };
 
         let addr_via_from_address = {
-            let token = TIP20Token::from_address(token_address, &mut storage);
+            let token = TIP20Token::from_address(token_address);
             token.address
         };
 
@@ -2072,12 +2067,12 @@ pub(crate) mod tests {
             .map(char::from)
             .collect();
 
-        let mut token = TIP20Token::new(1, &mut storage);
+        let mut token = TIP20Token::new(1);
         token.initialize("Token", "T", &currency, LINKING_USD_ADDRESS, admin)?;
 
         // Try to create a new USD token with the arbitrary token as the quote token, this should fail
         let token_address = token.address;
-        let mut usd_token = TIP20Token::new(2, &mut storage);
+        let mut usd_token = TIP20Token::new(2);
         let result = usd_token.initialize("USD Token", "USDT", USD_CURRENCY, token_address, admin);
 
         assert!(matches!(
@@ -2096,7 +2091,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         initialize_linking_usd(&mut storage, admin)?;
-        let mut usd_token1 = TIP20Token::new(1, &mut storage);
+        let mut usd_token1 = TIP20Token::new(1);
         usd_token1.initialize(
             "USD Token",
             "USDT",
@@ -2107,7 +2102,7 @@ pub(crate) mod tests {
 
         // USD token with USD token as quote
         let usd_token1_address = token_id_to_address(1);
-        let mut usd_token2 = TIP20Token::new(2, &mut storage);
+        let mut usd_token2 = TIP20Token::new(2);
         let result = usd_token2.initialize(
             "USD Token 2",
             "USD2",
@@ -2124,7 +2119,7 @@ pub(crate) mod tests {
             .map(char::from)
             .collect();
 
-        let mut token_1 = TIP20Token::new(3, &mut storage);
+        let mut token_1 = TIP20Token::new(3);
         token_1.initialize("Token 1", "TK1", &currency_1, LINKING_USD_ADDRESS, admin)?;
 
         // Create a non USD token with non USD quote token
@@ -2135,7 +2130,7 @@ pub(crate) mod tests {
             .collect();
 
         let token_1_address = token_id_to_address(3);
-        let mut token_2 = TIP20Token::new(4, &mut storage);
+        let mut token_2 = TIP20Token::new(4);
         let result = token_2.initialize("Token 2", "TK2", &currency_2, token_1_address, admin);
         assert!(result.is_ok());
 
@@ -2155,11 +2150,11 @@ pub(crate) mod tests {
             .map(char::from)
             .collect();
 
-        let mut token_1 = TIP20Token::new(1, &mut storage);
+        let mut token_1 = TIP20Token::new(1);
         token_1.initialize("Token 1", "TK1", &currency, LINKING_USD_ADDRESS, admin)?;
 
         // Create a new USD token
-        let mut usd_token = TIP20Token::new(2, &mut storage);
+        let mut usd_token = TIP20Token::new(2);
         usd_token.initialize(
             "USD Token",
             "USDT",
@@ -2193,7 +2188,7 @@ pub(crate) mod tests {
         let sender = Address::random();
         initialize_linking_usd(&mut storage, sender).unwrap();
 
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
 
         factory
             .initialize()
@@ -2238,7 +2233,7 @@ pub(crate) mod tests {
 
         // Transfer fee from user
         let fee_amount = U256::from(100e18);
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token.transfer_fee_pre_tx(user, fee_amount)?;
 
         // After transfer_fee_pre_tx, the opted-in supply should be decreased
@@ -2250,7 +2245,7 @@ pub(crate) mod tests {
         );
 
         // User should have accumulated rewards (verify rewards were updated)
-        let user_info = token.sload_user_reward_info(user)?;
+        let user_info = token.user_reward_info.at(user).read()?;
         assert!(
             user_info.reward_balance > U256::ZERO,
             "user should have accumulated rewards"
@@ -2275,7 +2270,7 @@ pub(crate) mod tests {
 
         // Transfer fee from user
         let fee_amount = U256::from(100e18);
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
         token.transfer_fee_pre_tx(user, fee_amount)?;
 
         // Pre-Moderato: opted-in supply should NOT be decreased (rewards not handled)
@@ -2286,7 +2281,7 @@ pub(crate) mod tests {
         );
 
         // User should NOT have accumulated rewards (rewards not handled)
-        let user_info = token.sload_user_reward_info(user)?;
+        let user_info = token.user_reward_info.at(user).read()?;
         assert_eq!(
             user_info.reward_balance,
             U256::ZERO,
@@ -2315,13 +2310,13 @@ pub(crate) mod tests {
         // Simulate fee transfer: first take fee from user
         let fee_amount = U256::from(100e18);
         {
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token.transfer_fee_pre_tx(user, fee_amount)?;
         }
 
         // Get opted-in supply after pre_tx
         let opted_in_after_pre = {
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token.get_opted_in_supply()?
         };
 
@@ -2329,13 +2324,13 @@ pub(crate) mod tests {
         let refund_amount = U256::from(40e18);
         let actual_used = U256::from(60e18);
         {
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token.transfer_fee_post_tx(user, refund_amount, actual_used)?;
         }
 
         // After transfer_fee_post_tx, the opted-in supply should increase by refund amount
         let final_opted_in = {
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token.get_opted_in_supply()?
         };
 
@@ -2347,8 +2342,8 @@ pub(crate) mod tests {
 
         // User should have accumulated rewards
         let user_info = {
-            let mut token = TIP20Token::new(token_id, &mut storage);
-            token.sload_user_reward_info(user)?
+            let mut token = TIP20Token::new(token_id);
+            token.user_reward_info.at(user).read()?
         };
         assert!(
             user_info.reward_balance > U256::ZERO,
@@ -2375,13 +2370,13 @@ pub(crate) mod tests {
         // Simulate fee transfer: first take fee from user
         let fee_amount = U256::from(100e18);
         {
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token.transfer_fee_pre_tx(user, fee_amount)?;
         }
 
         // Get opted-in supply after pre_tx (should be unchanged pre-Moderato)
         let opted_in_after_pre = {
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token.get_opted_in_supply()?
         };
         assert_eq!(
@@ -2393,13 +2388,13 @@ pub(crate) mod tests {
         let refund_amount = U256::from(40e18);
         let actual_used = U256::from(60e18);
         {
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token.transfer_fee_post_tx(user, refund_amount, actual_used)?;
         }
 
         // After transfer_fee_post_tx, the opted-in supply should still be unchanged (rewards not handled)
         let final_opted_in = {
-            let mut token = TIP20Token::new(token_id, &mut storage);
+            let mut token = TIP20Token::new(token_id);
             token.get_opted_in_supply()?
         };
 
@@ -2410,8 +2405,8 @@ pub(crate) mod tests {
 
         // User should NOT have accumulated rewards
         let user_info = {
-            let mut token = TIP20Token::new(token_id, &mut storage);
-            token.sload_user_reward_info(user)?
+            let mut token = TIP20Token::new(token_id);
+            token.user_reward_info.at(user).read()?
         };
         assert_eq!(
             user_info.reward_balance,
@@ -2428,7 +2423,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         let token_id = setup_factory_with_token(&mut storage, admin, "Test", "TST");
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
 
         let supply_cap = token.supply_cap()?;
         assert_eq!(supply_cap, U256::from(u128::MAX),);
@@ -2442,7 +2437,7 @@ pub(crate) mod tests {
         let admin = Address::random();
 
         let token_id = setup_factory_with_token(&mut storage, admin, "Test", "TST");
-        let mut token = TIP20Token::new(token_id, &mut storage);
+        let mut token = TIP20Token::new(token_id);
 
         let supply_cap = token.supply_cap()?;
         assert_eq!(supply_cap, U256::MAX,);

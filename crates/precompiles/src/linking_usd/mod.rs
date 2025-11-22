@@ -20,13 +20,13 @@ const SYMBOL: &str = "linkingUSD";
 const CURRENCY: &str = "USD";
 
 pub struct LinkingUSD<'a, S: PrecompileStorageProvider> {
-    pub token: TIP20Token<'a, S>,
+    pub token: TIP20Token,
 }
 
 impl<'a, S: PrecompileStorageProvider> LinkingUSD<'a, S> {
-    pub fn new(storage: &'a mut S) -> Self {
+    pub fn new() -> Self {
         Self {
-            token: TIP20Token::new(0, storage),
+            token: TIP20Token::new(0),
         }
     }
 
@@ -182,7 +182,7 @@ impl<'a, S: PrecompileStorageProvider> LinkingUSD<'a, S> {
     /// This role identifier grants permission to pause the token contract.
     /// The role is computed as `keccak256("PAUSE_ROLE")`.
     pub fn pause_role() -> B256 {
-        TIP20Token::<S>::pause_role()
+        TIP20Token::pause_role()
     }
 
     /// Returns the UNPAUSE_ROLE constant
@@ -190,7 +190,7 @@ impl<'a, S: PrecompileStorageProvider> LinkingUSD<'a, S> {
     /// This role identifier grants permission to unpause the token contract.
     /// The role is computed as `keccak256("UNPAUSE_ROLE")`.
     pub fn unpause_role() -> B256 {
-        TIP20Token::<S>::unpause_role()
+        TIP20Token::pause_role()
     }
 
     /// Returns the ISSUER_ROLE constant
@@ -198,7 +198,7 @@ impl<'a, S: PrecompileStorageProvider> LinkingUSD<'a, S> {
     /// This role identifier grants permission to mint and burn tokens.
     /// The role is computed as `keccak256("ISSUER_ROLE")`.
     pub fn issuer_role() -> B256 {
-        TIP20Token::<S>::issuer_role()
+        TIP20Token::issuer_role()
     }
 
     /// Returns the BURN_BLOCKED_ROLE constant
@@ -206,7 +206,7 @@ impl<'a, S: PrecompileStorageProvider> LinkingUSD<'a, S> {
     /// This role identifier grants permission to burn tokens from blocked accounts.
     /// The role is computed as `keccak256("BURN_BLOCKED_ROLE")`.
     pub fn burn_blocked_role() -> B256 {
-        TIP20Token::<S>::burn_blocked_role()
+        TIP20Token::burn_blocked_role()
     }
 
     /// Returns the TRANSFER_ROLE constant

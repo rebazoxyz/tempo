@@ -16,18 +16,18 @@ use tracing::trace;
 
 #[contract]
 pub struct TIP20Factory {
-    // TODO: It would be nice to have a `#[initial_value=`n`]` macro
+    // TODO(rusowsky): It would be nice to have a `#[initial_value=`n`]` macro
     // to mimic setting an initial value in solidity
     token_id_counter: U256,
 }
 
 // Precompile functions
-impl<'a, S: PrecompileStorageProvider> TIP20Factory<'a, S> {
+impl TIP20Factory {
     /// Creates an instance of the precompile.
     ///
     /// Caution: This does not initialize the account, see [`Self::initialize`].
-    pub fn new(storage: &'a mut S) -> Self {
-        Self::_new(TIP20_FACTORY_ADDRESS, storage)
+    pub fn new() -> Self {
+        Self::_new(TIP20_FACTORY_ADDRESS)
     }
 
     /// Initializes the TIP20 factory contract.
@@ -75,7 +75,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Factory<'a, S> {
             }
         }
 
-        TIP20Token::new(token_id, self.storage).initialize(
+        TIP20Token::new(token_id).initialize(
             &call.name,
             &call.symbol,
             &call.currency,
@@ -100,7 +100,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Factory<'a, S> {
         )?;
 
         // increase the token counter
-        self.sstore_token_id_counter(
+        self.token_id_counter.write(
             token_id
                 .checked_add(U256::ONE)
                 .ok_or(TempoPrecompileError::under_overflow())?,
@@ -110,7 +110,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Factory<'a, S> {
     }
 
     pub fn token_id_counter(&mut self) -> Result<U256> {
-        let counter = self.sload_token_id_counter()?;
+        let counter = self.token_id_counter.read()?;
 
         if counter.is_zero() {
             Ok(U256::ONE)
@@ -135,7 +135,7 @@ mod tests {
         let sender = Address::random();
         initialize_linking_usd(&mut storage, sender).unwrap();
 
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
 
         factory
             .initialize()
@@ -189,7 +189,7 @@ mod tests {
     fn test_create_token_invalid_quote_token_post_moderato() {
         // Test with Moderato hardfork (validation should be enforced)
         let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Moderato);
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
 
         factory
             .initialize()
@@ -216,7 +216,7 @@ mod tests {
     fn test_create_token_quote_token_not_deployed_post_moderato() {
         // Test with Moderato hardfork (validation should be enforced)
         let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Moderato);
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
 
         factory
             .initialize()
@@ -246,7 +246,7 @@ mod tests {
         let sender = Address::random();
         initialize_linking_usd(&mut storage, sender).unwrap();
 
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
         factory
             .initialize()
             .expect("Factory initialization should succeed");
@@ -282,7 +282,7 @@ mod tests {
         let sender = Address::random();
         initialize_linking_usd(&mut storage, sender).unwrap();
 
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
         factory
             .initialize()
             .expect("Factory initialization should succeed");
@@ -325,7 +325,7 @@ mod tests {
         let sender = Address::random();
         initialize_linking_usd(&mut storage, sender).unwrap();
 
-        let mut factory = TIP20Factory::new(&mut storage);
+        let mut factory = TIP20Factory::new();
         factory
             .initialize()
             .expect("Factory initialization should succeed");

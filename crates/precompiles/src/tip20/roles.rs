@@ -9,7 +9,7 @@ use crate::{
 pub const DEFAULT_ADMIN_ROLE: B256 = B256::ZERO;
 pub const UNGRANTABLE_ROLE: B256 = B256::new([0xff; 32]);
 
-impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
+impl TIP20Token {
     /// Initialize the UNGRANTABLE_ROLE to be self-administered
     pub fn initialize_roles(&mut self) -> Result<()> {
         self.set_role_admin_internal(UNGRANTABLE_ROLE, UNGRANTABLE_ROLE)
@@ -119,24 +119,24 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
     // Internal implementation functions
     pub fn has_role_internal(&mut self, account: Address, role: B256) -> Result<bool> {
-        self.sload_roles(account, role)
+        self.roles.at(account).at(role)
     }
 
     pub fn grant_role_internal(&mut self, account: Address, role: B256) -> Result<()> {
-        self.sstore_roles(account, role, true)
+        self.roles.at(account).at(role).write(true)
     }
 
     fn revoke_role_internal(&mut self, account: Address, role: B256) -> Result<()> {
-        self.sstore_roles(account, role, false)
+        self.rolesi.at(account).at(role).write(false)
     }
 
     /// If sloads 0, will be equal to DEFAULT_ADMIN_ROLE
     fn get_role_admin_internal(&mut self, role: B256) -> Result<B256> {
-        self.sload_role_admins(role)
+        self.role_admins.at(role)
     }
 
     fn set_role_admin_internal(&mut self, role: B256, admin_role: B256) -> Result<()> {
-        self.sstore_role_admins(role, admin_role)
+        self.role_admins.at(role).at(admin_role)
     }
 
     fn check_role_internal(&mut self, account: Address, role: B256) -> Result<()> {

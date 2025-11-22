@@ -1140,7 +1140,7 @@ mod tests {
             .initialize("LinkingUSD", "LUSD", "USD", Address::ZERO, admin)
             .unwrap();
 
-        let mut user_token = TIP20Token::new(1, &mut storage);
+        let mut user_token = TIP20Token::new(1)
         user_token
             .initialize("TestToken", "TEST", "EUR", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1197,7 +1197,7 @@ mod tests {
             .initialize("LinkingUSD", "LUSD", "USD", Address::ZERO, admin)
             .unwrap();
 
-        let mut user_token = TIP20Token::new(1, &mut storage);
+        let mut user_token = TIP20Token::new(1)
         user_token
             .initialize("TestToken", "TEST", "EUR", LINKING_USD_ADDRESS, admin)
             .unwrap();
@@ -1252,7 +1252,7 @@ mod tests {
             .initialize("LinkingUSD", "LUSD", "USD", Address::ZERO, admin)
             .unwrap();
 
-        let mut user_token = TIP20Token::new(1, &mut storage);
+        let mut user_token = TIP20Token::new(1)
         user_token
             .initialize("TestToken", "TEST", "EUR", LINKING_USD_ADDRESS, admin)
             .unwrap();

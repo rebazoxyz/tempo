@@ -7,7 +7,7 @@ use crate::{
     tip403_registry::{ITIP403Registry, TIP403Registry},
 };
 
-impl<'a, S: PrecompileStorageProvider> Precompile for TIP403Registry<'a, S> {
+impl Precompile for TIP403Registry {
     fn call(&mut self, calldata: &[u8], msg_sender: Address) -> PrecompileResult {
         self.storage
             .deduct_gas(input_cost(calldata.len()))
