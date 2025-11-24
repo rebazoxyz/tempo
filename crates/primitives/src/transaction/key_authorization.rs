@@ -61,6 +61,19 @@ impl KeyAuthorization {
             payload_length,
         }
     }
+    /// Computes the authorization message hash for this key authorization.
+    ///
+    /// This is a convenience method that calls [`Self::authorization_message_hash`]
+    /// with this instance's fields.
+    pub fn sig_hash(&self) -> B256 {
+        Self::authorization_message_hash(
+            self.key_type.clone(),
+            self.key_id,
+            self.expiry,
+            &self.limits,
+        )
+    }
+
     /// Computes the authorization message hash to be signed by the root key.
     ///
     /// The message format is: `keccak256(rlp([key_type, key_id, expiry, limits]))`

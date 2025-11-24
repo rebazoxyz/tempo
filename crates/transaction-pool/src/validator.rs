@@ -130,13 +130,7 @@ where
             // The KeyAuthorization MUST be signed by the root account
             if let Some(key_auth) = aa_signed.tx().key_authorization.as_ref() {
                 // Compute the message hash for the KeyAuthorization
-                let auth_message_hash =
-                    tempo_primitives::transaction::KeyAuthorization::authorization_message_hash(
-                        key_auth.key_type.clone(),
-                        key_auth.key_id,
-                        key_auth.expiry,
-                        &key_auth.limits,
-                    );
+                let auth_message_hash = key_auth.sig_hash();
 
                 // Recover the signer of the KeyAuthorization
                 match key_auth.signature.recover_signer(&auth_message_hash) {

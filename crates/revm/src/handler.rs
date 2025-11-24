@@ -43,7 +43,7 @@ use tempo_precompiles::{
     tip20::{self},
 };
 use tempo_primitives::transaction::{
-    AASignature, KeyAuthorization, PrimitiveSignature, SignatureType, calc_gas_balance_spending,
+    AASignature, PrimitiveSignature, SignatureType, calc_gas_balance_spending,
 };
 
 use crate::{TempoEvm, TempoInvalidTransaction, common::TempoStateAccess, evm::TempoContext};
@@ -651,12 +651,7 @@ where
 
             // Compute the message hash for the KeyAuthorization
             // Message format: keccak256(rlp([key_type, key_id, expiry, limits]))
-            let auth_message_hash = KeyAuthorization::authorization_message_hash(
-                key_auth.key_type.clone(),
-                key_auth.key_id,
-                key_auth.expiry,
-                &key_auth.limits,
-            );
+            let auth_message_hash = key_auth.sig_hash();
 
             // Recover the signer of the KeyAuthorization
             let auth_signer = key_auth
