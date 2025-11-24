@@ -103,9 +103,16 @@ where
         let sig_hash = aa_signed.signature_hash();
 
         // Recover and validate the access key ID
-        let access_key_addr = match aa_signed.signature().key_id(&sig_hash).ok().flatten() {
-            Some(addr) => addr,
-            None => return ValidationResult::Skip,
+        let Ok(opt_addr) = aa_signed.signature().key_id(&sig_hash) else {
+            // Failed to recover signature - invalid signature
+            return ValidationResult::Reject(
+                "Failed to recover access key ID from Keychain signature".to_string(),
+            );
+        };
+
+        let Some(access_key_addr) = opt_addr else {
+            // This shouldn't happen as we've already verified it's a Keychain signature
+            return ValidationResult::Skip;
         };
 
         // Sanity check: user_address should match transaction sender
