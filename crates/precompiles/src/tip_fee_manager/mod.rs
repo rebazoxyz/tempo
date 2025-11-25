@@ -232,19 +232,18 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
 
             // If FeeManager or validator are blacklisted, we are not transferring any fees
             if token.is_transfer_authorized(self.address, beneficiary)? {
-                // Use minimum of accounting value and actual balance to prevent reverts
-                let actual_balance = token.balance_of(ITIP20::balanceOfCall {
+                // Bound fee transfer to contract balance
+                let balance = token.balance_of(ITIP20::balanceOfCall {
                     account: self.address,
                 })?;
-                let transfer_amount = collected_fees.min(actual_balance);
 
-                if !transfer_amount.is_zero() {
+                if !balance.is_zero() {
                     token
                         .transfer(
                             self.address,
                             ITIP20::transferCall {
                                 to: beneficiary,
-                                amount: transfer_amount,
+                                amount: collected_fees.min(balance),
                             },
                         )
                         .map_err(|_| {
@@ -655,9 +654,7 @@ mod tests {
     }
 
     #[test]
-
-    // https://github.com/tempoxyz/tempo/issues/1014
-    fn test_audit_issue_1014() -> eyre::Result<()> {
+    fn test_prevent_insufficient_balance_transfer() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
         let admin = Address::random();
         let validator = Address::random();
@@ -665,7 +662,7 @@ mod tests {
 
         // Manually set collected fees to 1000 and actual balance to 500 to simulate the attack.
         let collected_fees = U256::from(1000);
-        let actual_balance = U256::from(500);
+        let balance = U256::from(500);
 
         {
             // Initialize token
@@ -674,12 +671,12 @@ mod tests {
             tip20_token.initialize("TestToken", "TEST", "USD", PATH_USD_ADDRESS, admin)?;
             tip20_token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            // Mint tokens simulating collected fees - attack burn
+            // Mint tokens simulating `collected fees - attack burn`
             tip20_token.mint(
                 admin,
                 ITIP20::mintCall {
                     to: TIP_FEE_MANAGER_ADDRESS,
-                    amount: actual_balance,
+                    amount: balance,
                 },
             )?;
         }
@@ -709,7 +706,7 @@ mod tests {
         let mut tip20_token = TIP20Token::from_address(token, &mut storage);
         let validator_balance =
             tip20_token.balance_of(ITIP20::balanceOfCall { account: validator })?;
-        assert_eq!(validator_balance, actual_balance);
+        assert_eq!(validator_balance, balance);
 
         let fee_manager_balance = tip20_token.balance_of(ITIP20::balanceOfCall {
             account: TIP_FEE_MANAGER_ADDRESS,
