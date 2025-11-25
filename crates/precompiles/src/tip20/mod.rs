@@ -2,7 +2,7 @@ pub mod dispatch;
 pub mod rewards;
 pub mod roles;
 
-use tempo_contracts::precompiles::FeeManagerError;
+use tempo_contracts::precompiles::{FeeManagerError, STABLECOIN_EXCHANGE_ADDRESS};
 pub use tempo_contracts::precompiles::{
     IRolesAuth, ITIP20, RolesAuthError, RolesAuthEvent, TIP20Error, TIP20Event,
 };
@@ -453,8 +453,11 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     ) -> Result<()> {
         self.check_role(msg_sender, *BURN_BLOCKED_ROLE)?;
 
-        // Prevent burning from `FeeManager` to protect fee accounting invariants
-        if call.from == TIP_FEE_MANAGER_ADDRESS {
+        // Prevent burning from `FeeManager` and `StablecoinExchanfe` to protect accounting invariants
+        if matches!(
+            call.from,
+            TIP_FEE_MANAGER_ADDRESS | STABLECOIN_EXCHANGE_ADDRESS
+        ) {
             return Err(TIP20Error::protected_address().into());
         }
 
@@ -2444,7 +2447,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_unable_to_burn_blocked_fee_manager() -> eyre::Result<()> {
+    fn test_unable_to_burn_blocked_from_protected_address() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
         let admin = Address::random();
         let burner = Address::random();
@@ -2483,6 +2486,35 @@ pub(crate) mod tests {
         // Verify FeeManager balance is unchanged
         let balance = token.balance_of(ITIP20::balanceOfCall {
             account: TIP_FEE_MANAGER_ADDRESS,
+        })?;
+        assert_eq!(balance, U256::from(1000));
+
+        // Mint tokens to StablecoinExchange
+        token.mint(
+            admin,
+            ITIP20::mintCall {
+                to: STABLECOIN_EXCHANGE_ADDRESS,
+                amount: U256::from(1000),
+            },
+        )?;
+
+        // Attempt to burn from StablecoinExchange
+        let result = token.burn_blocked(
+            burner,
+            ITIP20::burnBlockedCall {
+                from: STABLECOIN_EXCHANGE_ADDRESS,
+                amount: U256::from(500),
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(TempoPrecompileError::TIP20(TIP20Error::ProtectedAddress(_)))
+        ));
+
+        // Verify StablecoinExchange balance is unchanged
+        let balance = token.balance_of(ITIP20::balanceOfCall {
+            account: STABLECOIN_EXCHANGE_ADDRESS,
         })?;
         assert_eq!(balance, U256::from(1000));
 
