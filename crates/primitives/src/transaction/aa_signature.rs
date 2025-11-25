@@ -315,7 +315,49 @@ fn verify_p256_signature_internal(
         .map_err(|_| "P256 signature verification failed")
 }
 
+/// Parse authenticatorData length when AT flag is set.
+/// ref: <https://www.w3.org/TR/webauthn-2/#attested-credential-data>
+///
+/// When the AT (Attested Credential) flag is set, authenticatorData contains:
+/// - 37 bytes base (rpIdHash + flags + signCount)
+/// - 16 bytes aaguid
+/// - 2 bytes credentialIdLength (big-endian u16)
+/// - credentialId (variable, up to credentialIdLength bytes)
+/// - credentialPublicKey (CBOR-encoded COSE_Key, variable)
+fn parse_auth_data_length_with_at(webauthn_data: &[u8]) -> Result<usize, &'static str> {
+    // Minimum with AT flag: 37 base + 16 aaguid + 2 credIdLen = 55 bytes
+    const MIN_AT_LEN: usize = 55;
+
+    if webauthn_data.len() < MIN_AT_LEN {
+        return Err("AuthenticatorData too short for AT flag");
+    }
+
+    // Read `credentialIdLength`
+    let cred_id_len = u16::from_be_bytes([webauthn_data[53], webauthn_data[54]]) as usize;
+
+    if cred_id_len > 1024 {
+        return Err("credentialIdLength exceeds maximum");
+    }
+
+    // Position where `credentialPublicKey` (CBOR) starts
+    let cose_key_start = MIN_AT_LEN + cred_id_len;
+    if cose_key_start >= webauthn_data.len() {
+        return Err("AuthenticatorData too short for credentialId");
+    }
+
+    // Parse CBOR public key length
+    let mut decoder = minicbor::Decoder::new(&webauthn_data[cose_key_start..]);
+    decoder
+        .skip()
+        .map_err(|_| "Invalid CBOR data in credentialPublicKey")?;
+    let cose_key_len = decoder.position();
+
+    // Total length
+    Ok(cose_key_start + cose_key_len)
+}
+
 /// Parses and validates WebAuthn data, returning the message hash for P256 verification
+/// ref: <https://www.w3.org/TR/webauthn-2/#sctn-authenticator-data>
 ///
 /// According to the spec, this:
 /// 1. Parses authenticatorData and clientDataJSON
@@ -327,62 +369,34 @@ fn verify_webauthn_data_internal(
     tx_hash: &B256,
 ) -> Result<B256, &'static str> {
     // Minimum authenticatorData is 37 bytes (32 rpIdHash + 1 flags + 4 signCount)
-    if webauthn_data.len() < 37 {
+    const MIN_AUTH_DATA_LEN: usize = 37;
+
+    if webauthn_data.len() < MIN_AUTH_DATA_LEN {
         return Err("WebAuthn data too short");
     }
-
-    // Find the split between authenticatorData and clientDataJSON
-    // Strategy: Try to parse as JSON from different split points
-    // authenticatorData is minimum 37 bytes, so start searching from there
-    let mut auth_data_len = 37;
-    let mut client_data_json = None;
 
     // Check if AT flag (bit 6) is set in flags byte (byte 32)
     let flags = webauthn_data[32];
     let at_flag_set = (flags & 0x40) != 0;
 
-    if !at_flag_set {
-        // Simple case: authenticatorData is exactly 37 bytes
-        if webauthn_data.len() > 37 {
-            let potential_json = &webauthn_data[37..];
-            if let Ok(json_str) = core::str::from_utf8(potential_json)
-                && json_str.starts_with('{')
-                && json_str.ends_with('}')
-            {
-                client_data_json = Some(potential_json);
-                auth_data_len = 37;
-            }
-        }
+    // Determine authenticatorData length
+    let auth_data_len = if at_flag_set {
+        // Complex case: AT flag is set, need to parse CBOR data
+        parse_auth_data_length_with_at(webauthn_data)?
     } else {
-        // AT flag is set, need to parse CBOR data (complex)
-        // For now, try multiple split points and validate JSON
-        for split_point in 37..webauthn_data.len().saturating_sub(20) {
-            let potential_json = &webauthn_data[split_point..];
-            if let Ok(json_str) = core::str::from_utf8(potential_json)
-                && json_str.starts_with('{')
-                && json_str.ends_with('}')
-            {
-                // Basic JSON validation - check for required fields
-                if json_str.contains("\"type\"") && json_str.contains("\"challenge\"") {
-                    client_data_json = Some(potential_json);
-                    auth_data_len = split_point;
-                    break;
-                }
-            }
-        }
+        // Simple case: authenticatorData is exactly 37 bytes
+        MIN_AUTH_DATA_LEN
+    };
+
+    // Validate we have clientDataJSON after authenticatorData
+    if auth_data_len >= webauthn_data.len() {
+        return Err("No clientDataJSON after authenticatorData");
     }
 
-    let client_data_json =
-        client_data_json.ok_or("Failed to parse clientDataJSON from WebAuthn data")?;
     let authenticator_data = &webauthn_data[..auth_data_len];
-
-    // Validate authenticatorData
-    if authenticator_data.len() < 37 {
-        return Err("AuthenticatorData too short");
-    }
+    let client_data_json = &webauthn_data[auth_data_len..];
 
     // Check UP flag (bit 0) is set
-    let flags = authenticator_data[32];
     if (flags & 0x01) == 0 {
         return Err("User Presence (UP) flag not set in authenticatorData");
     }
@@ -390,6 +404,11 @@ fn verify_webauthn_data_internal(
     // Validate clientDataJSON
     let json_str =
         core::str::from_utf8(client_data_json).map_err(|_| "clientDataJSON is not valid UTF-8")?;
+
+    // Basic JSON structure validation
+    if !json_str.starts_with('{') || !json_str.ends_with('}') {
+        return Err("clientDataJSON is not valid JSON");
+    }
 
     // Check for required type field
     if !json_str.contains("\"type\":\"webauthn.get\"") {
@@ -831,6 +850,37 @@ mod tests {
         assert!(
             json.contains("\"webauthnData\""),
             "Should use camelCase for webauthnData"
+        );
+    }
+
+    #[test]
+    fn test_webauthn_with_at_flag_validation() {
+        // Build base auth data with AT flag set: rpIdHash + flags + signCount + aaguid
+        fn base_auth_data_with_at_flag() -> Vec<u8> {
+            let mut data = vec![0u8; 32];
+            data.push(0x41);
+            data.extend_from_slice(&[0u8; 4]);
+            data.extend_from_slice(&[0u8; 16]);
+            data
+        }
+
+        // Verify invalid CBOR is rejected
+        let mut auth_data = base_auth_data_with_at_flag();
+        auth_data.extend_from_slice(&[0x00, 0x04]); // credentialIdLength = 4
+        auth_data.extend_from_slice(&[0xAA; 4]); // credentialId
+        auth_data.push(0x1F); // invalid CBOR (reserved additional info for type 0)
+
+        let result = verify_webauthn_data_internal(&auth_data, &B256::ZERO);
+        assert!(result.is_err(), "Should reject invalid CBOR");
+
+        // Verify excessive credentialIdLength is rejected
+        let mut auth_data = base_auth_data_with_at_flag();
+        auth_data.extend_from_slice(&[0xFF, 0xFF]); // credentialIdLength = 65535 (> 1024)
+
+        let result = verify_webauthn_data_internal(&auth_data, &B256::ZERO);
+        assert!(
+            result.is_err_and(|err| err.contains("exceeds max")),
+            "Should reject excessive credentialIdLength"
         );
     }
 }
