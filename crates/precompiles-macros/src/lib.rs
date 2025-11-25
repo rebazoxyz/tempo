@@ -92,14 +92,8 @@ struct FieldInfo {
 enum FieldKind<'a> {
     /// Fields with a direct slot allocation, either single or multi (`Slot<V>`).
     Direct(&'a Type),
-    /// Single-level mapping (`Mapping<K, V>`)
+    /// Mapping fields. Handles all nesting levels via recursive types.
     Mapping { key: &'a Type, value: &'a Type },
-    /// Nested mapping (`Mapping<K1, Mapping<K2, V>>`)
-    NestedMapping {
-        key1: &'a Type,
-        key2: &'a Type,
-        value: &'a Type,
-    },
 }
 
 fn parse_fields(input: DeriveInput) -> syn::Result<Vec<FieldInfo>> {

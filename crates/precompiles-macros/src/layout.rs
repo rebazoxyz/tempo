@@ -15,9 +15,6 @@ pub(crate) fn gen_handler_field_decl(field: &LayoutField<'_>) -> proc_macro2::To
         FieldKind::Mapping { key, value } => {
             quote! { <crate::storage::Mapping<#key, #value> as crate::storage::StorableType>::Handler }
         }
-        FieldKind::NestedMapping { key1, key2, value } => {
-            quote! { <crate::storage::NestedMapping<#key1, #key2, #value> as crate::storage::StorableType>::Handler }
-        }
     };
 
     quote! {
@@ -97,13 +94,6 @@ pub(crate) fn gen_handler_field_init(
         FieldKind::Mapping { key, value } => {
             quote! {
                 #field_name: <crate::storage::Mapping<#key, #value> as crate::storage::StorableType>::handle(
-                    #slot_expr, crate::storage::LayoutCtx::FULL, ::std::rc::Rc::clone(&address_rc)
-                )
-            }
-        }
-        FieldKind::NestedMapping { key1, key2, value } => {
-            quote! {
-                #field_name: <crate::storage::NestedMapping<#key1, #key2, #value> as crate::storage::StorableType>::handle(
                     #slot_expr, crate::storage::LayoutCtx::FULL, ::std::rc::Rc::clone(&address_rc)
                 )
             }
