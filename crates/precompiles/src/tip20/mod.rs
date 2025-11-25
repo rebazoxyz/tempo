@@ -455,7 +455,7 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
 
         // Prevent burning from `FeeManager` to protect fee accounting invariants
         if call.from == TIP_FEE_MANAGER_ADDRESS {
-            return Err(FeeManagerError::protected_address().into());
+            return Err(TIP20Error::protected_address().into());
         }
 
         // Check if the address is blocked from transferring
@@ -2445,8 +2445,6 @@ pub(crate) mod tests {
 
     #[test]
     fn test_unable_to_burn_blocked_fee_manager() -> eyre::Result<()> {
-        use tempo_contracts::precompiles::FeeManagerError;
-
         let mut storage = HashMapStorageProvider::new(1);
         let admin = Address::random();
         let burner = Address::random();
@@ -2479,9 +2477,7 @@ pub(crate) mod tests {
 
         assert!(matches!(
             result,
-            Err(TempoPrecompileError::FeeManagerError(
-                FeeManagerError::ProtectedAddress(_)
-            ))
+            Err(TempoPrecompileError::TIP20(TIP20Error::ProtectedAddress(_)))
         ));
 
         // Verify FeeManager balance is unchanged

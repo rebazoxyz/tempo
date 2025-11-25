@@ -48,7 +48,6 @@ sol! {
         error InternalError();
         error CannotChangeWithinBlock();
         error TokenPolicyForbids();
-        error ProtectedAddress();
     }
 
     /// TIPFeeAMM interface defining the base AMM functionality for stablecoin pools.
@@ -168,11 +167,6 @@ impl FeeManagerError {
     /// Creates an error for token policy forbids.
     pub const fn token_policy_forbids() -> Self {
         Self::TokenPolicyForbids(IFeeManager::TokenPolicyForbids {})
-    }
-
-    /// Creates an error for protected address (e.g., FeeManager).
-    pub const fn protected_address() -> Self {
-        Self::ProtectedAddress(IFeeManager::ProtectedAddress {})
     }
 }
 
