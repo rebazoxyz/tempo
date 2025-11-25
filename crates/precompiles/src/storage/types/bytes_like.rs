@@ -7,11 +7,11 @@
 //! - Bytes 0..len: UTF-8 string data (left-aligned)
 //! - Byte 31 (LSB): length * 2 (bit 0 = 0 indicates short string)
 //!
-//! **Long strings (≥32 bytes)** use keccak256-based storage:
+//! **Long strings (≥32 bytes)** use blake3-based storage:
 //! - Base slot: stores `length * 2 + 1` (bit 0 = 1 indicates long string)
-//! - Data slots: stored at `keccak256(main_slot) + i` for each 32-byte chunk
+//! - Data slots: stored at `blake3(main_slot) + i` for each 32-byte chunk
 
-use alloy::primitives::{Bytes, U256, keccak256};
+use alloy::primitives::{Bytes, U256};
 
 use crate::{
     error::{Result, TempoPrecompileError},
@@ -106,7 +106,7 @@ where
     let length = calc_string_length(base_value, is_long);
 
     if is_long {
-        // Long string: read data from keccak256(base_slot) + i
+        // Long string: read data from blake3(base_slot) + i
         let slot_start = calc_data_slot(base_slot);
         let chunks = calc_chunks(length);
         let mut data = Vec::with_capacity(length);
@@ -143,7 +143,7 @@ fn store_bytes_like<S: StorageOps>(bytes: &[u8], storage: &mut S, base_slot: U25
     } else {
         storage.sstore(base_slot, encode_long_string_length(length))?;
 
-        // Store data in chunks at keccak256(base_slot) + i
+        // Store data in chunks at blake3(base_slot) + i
         let slot_start = calc_data_slot(base_slot);
         let chunks = calc_chunks(length);
 
@@ -166,7 +166,7 @@ fn store_bytes_like<S: StorageOps>(bytes: &[u8], storage: &mut S, base_slot: U25
 
 /// Generic delete implementation for byte-like types (String, Bytes) using Solidity's encoding.
 ///
-/// Clears both the main slot and any keccak256-addressed data slots for long strings.
+/// Clears both the main slot and any blake3-addressed data slots for long strings.
 #[inline]
 fn delete_bytes_like<S: StorageOps>(storage: &mut S, base_slot: U256) -> Result<()> {
     let base_value = storage.sload(base_slot)?;
@@ -197,7 +197,7 @@ fn to_evm_words_bytes_like(bytes: &[u8]) -> Result<[U256; 1]> {
     if length <= 31 {
         Ok([encode_short_string(bytes)])
     } else {
-        // Note: actual string data is in keccak256-addressed slots (not included here)
+        // Note: actual string data is in blake3-addressed slots (not included here)
         Ok([encode_long_string_length(length)])
     }
 }
@@ -213,7 +213,7 @@ where
     let is_long = is_long_string(slot_value);
 
     if is_long {
-        // Long string: cannot reconstruct without storage access to keccak256-addressed data
+        // Long string: cannot reconstruct without storage access to blake3-addressed data
         Err(TempoPrecompileError::Fatal(
             "Cannot reconstruct long string from single word. Use load() instead.".into(),
         ))
@@ -227,10 +227,10 @@ where
 
 /// Compute the storage slot where long string data begins.
 ///
-/// For long strings (≥32 bytes), data is stored starting at `keccak256(base_slot)`.
+/// For long strings (≥32 bytes), data is stored starting at `blake3(base_slot)`.
 #[inline]
 fn calc_data_slot(base_slot: U256) -> U256 {
-    U256::from_be_bytes(keccak256(base_slot.to_be_bytes::<32>()).0)
+    U256::from_be_bytes(blake3::hash(&base_slot.to_be_bytes::<32>()).into())
 }
 
 /// Check if a storage slot value represents a long string.
@@ -430,12 +430,12 @@ mod tests {
             // Calculate how many data slots were used
             let chunks = calc_chunks(s.len());
 
-            // Verify delete works (clears both main slot and keccak256-addressed data)
+            // Verify delete works (clears both main slot and blake3-addressed data)
             String::delete(&mut contract, base_slot)?;
             let after_delete = String::load(&mut contract, base_slot)?;
             assert_eq!(after_delete, String::new(), "Long string not empty after delete");
 
-            // Verify all keccak256-addressed data slots are actually zero
+            // Verify all blake3-addressed data slots are actually zero
             let data_slot_start = calc_data_slot(base_slot);
             for i in 0..chunks {
                 let slot = data_slot_start + U256::from(i);

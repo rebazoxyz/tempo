@@ -8,7 +8,7 @@ use crate::{
     tip20::{TIP20Token, address_to_token_id_unchecked},
 };
 use alloy::{
-    primitives::{Address, B256, Bytes, U256, keccak256},
+    primitives::{Address, B256, Bytes, U256},
     sol_types::SolValue,
 };
 use revm::state::Bytecode;
@@ -48,7 +48,9 @@ impl<'a, S: PrecompileStorageProvider> TIP20RewardsRegistry<'a, S> {
 
     /// Add a token to the registry for a given stream end time
     pub fn add_stream(&mut self, token: Address, end_time: u128) -> Result<()> {
-        let stream_key = keccak256((token, end_time).abi_encode());
+        let stream_key = B256::from(<[u8; 32]>::from(blake3::hash(
+            &(token, end_time).abi_encode(),
+        )));
         let length = StreamEndingAt::len(self, end_time)?;
 
         self.sstore_stream_index(stream_key, U256::from(length))?;
@@ -57,7 +59,9 @@ impl<'a, S: PrecompileStorageProvider> TIP20RewardsRegistry<'a, S> {
 
     /// Remove stream before it is finalized
     pub fn remove_stream(&mut self, token: Address, end_time: u128) -> Result<()> {
-        let stream_key = keccak256((token, end_time).abi_encode());
+        let stream_key = B256::from(<[u8; 32]>::from(blake3::hash(
+            &(token, end_time).abi_encode(),
+        )));
         let index = self.sload_stream_index(stream_key)?.to::<usize>();
 
         let length = StreamEndingAt::len(self, end_time)?;
@@ -71,7 +75,9 @@ impl<'a, S: PrecompileStorageProvider> TIP20RewardsRegistry<'a, S> {
             StreamEndingAt::write_at(self, end_time, index, last_token)?;
 
             // Update stream_index for the moved element
-            let last_stream_key = keccak256((last_token, end_time).abi_encode());
+            let last_stream_key = B256::from(<[u8; 32]>::from(blake3::hash(
+                &(last_token, end_time).abi_encode(),
+            )));
             self.sstore_stream_index(last_stream_key, U256::from(index))?;
         }
 
@@ -111,7 +117,9 @@ impl<'a, S: PrecompileStorageProvider> TIP20RewardsRegistry<'a, S> {
                 let mut tip20_token = TIP20Token::new(token_id, self.storage);
                 tip20_token.finalize_streams(self.address, next_timestamp)?;
 
-                let stream_key = keccak256((token, next_timestamp).abi_encode());
+                let stream_key = B256::from(<[u8; 32]>::from(blake3::hash(
+                    &(token, next_timestamp).abi_encode(),
+                )));
                 self.clear_stream_index(stream_key)?;
             }
 
@@ -169,7 +177,9 @@ mod tests {
         assert_eq!(streams.len(), 1);
         assert_eq!(streams[0], token_addr);
 
-        let stream_key = keccak256((token_addr, end_time).abi_encode());
+        let stream_key = B256::from(<[u8; 32]>::from(blake3::hash(
+            &(token_addr, end_time).abi_encode(),
+        )));
         let index = registry.sload_stream_index(stream_key)?;
         assert_eq!(index, U256::ZERO);
 
@@ -181,7 +191,9 @@ mod tests {
         assert!(streams.contains(&token_addr));
         assert!(streams.contains(&token_addr2));
 
-        let stream_key2 = keccak256((token_addr2, end_time).abi_encode());
+        let stream_key2 = B256::from(<[u8; 32]>::from(blake3::hash(
+            &(token_addr2, end_time).abi_encode(),
+        )));
         let index2 = registry.sload_stream_index(stream_key2)?;
         assert_eq!(index2, U256::ONE);
 
@@ -218,9 +230,15 @@ mod tests {
         assert_eq!(streams[1], token3);
 
         // Verify indices are updated correctly
-        let stream_key1 = keccak256((token1, end_time).abi_encode());
-        let stream_key2 = keccak256((token2, end_time).abi_encode());
-        let stream_key3 = keccak256((token3, end_time).abi_encode());
+        let stream_key1 = B256::from(<[u8; 32]>::from(blake3::hash(
+            &(token1, end_time).abi_encode(),
+        )));
+        let stream_key2 = B256::from(<[u8; 32]>::from(blake3::hash(
+            &(token2, end_time).abi_encode(),
+        )));
+        let stream_key3 = B256::from(<[u8; 32]>::from(blake3::hash(
+            &(token3, end_time).abi_encode(),
+        )));
 
         let index1 = registry.sload_stream_index(stream_key1)?;
         let index2 = registry.sload_stream_index(stream_key2)?;

@@ -26,6 +26,7 @@ fqdn = { version = "0.4.6", features = [
   "domain-label-length-limited-to-63",
   "domain-name-length-limited-to-255",
 ] }
+blake3 = "1.8.2"
 
 [dev-dependencies]
 criterion.workspace = true

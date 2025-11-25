@@ -5,7 +5,7 @@ use crate::{
     tip20::{ITIP20, TIP20Token, validate_usd_currency},
 };
 use alloy::{
-    primitives::{Address, B256, IntoLogData, U256, keccak256, uint},
+    primitives::{Address, B256, IntoLogData, U256, uint},
     sol_types::SolValue,
 };
 use tempo_precompiles_macros::Storable;
@@ -50,9 +50,11 @@ impl PoolKey {
     }
 
     /// Generates a unique pool ID by hashing the token pair addresses.
-    /// Uses keccak256 to create a deterministic identifier for this pool.
+    /// Uses blake3 to create a deterministic identifier for this pool.
     pub fn get_id(&self) -> B256 {
-        keccak256((self.user_token, self.validator_token).abi_encode())
+        B256::from(<[u8; 32]>::from(blake3::hash(
+            &(self.user_token, self.validator_token).abi_encode(),
+        )))
     }
 }
 

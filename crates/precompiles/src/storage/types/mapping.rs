@@ -1,6 +1,6 @@
 //! Type-safe wrapper for EVM storage mappings (hash-based key-value storage).
 
-use alloy::primitives::{U256, keccak256};
+use alloy::primitives::U256;
 use std::marker::PhantomData;
 
 use crate::{
@@ -624,7 +624,7 @@ pub fn mapping_slot<T: AsRef<[u8]>>(key: T, mapping_slot: U256) -> U256 {
     let mut buf = [0u8; 64];
     buf[..32].copy_from_slice(&left_pad_to_32(key.as_ref()));
     buf[32..].copy_from_slice(&mapping_slot.to_be_bytes::<32>());
-    U256::from_be_bytes(keccak256(buf).0)
+    U256::from_be_bytes(blake3::hash(&buf).into())
 }
 
 /// Compute storage slot for a double mapping (mapping\[key1\]\[key2\])
@@ -638,7 +638,7 @@ pub fn double_mapping_slot<T: AsRef<[u8]>, U: AsRef<[u8]>>(
     let mut buf = [0u8; 64];
     buf[..32].copy_from_slice(&left_pad_to_32(key2.as_ref()));
     buf[32..].copy_from_slice(&intermediate_slot.to_be_bytes::<32>());
-    U256::from_be_bytes(keccak256(buf).0)
+    U256::from_be_bytes(blake3::hash(&buf).into())
 }
 
 #[cfg(test)]
@@ -791,7 +791,7 @@ mod tests {
         // Slot in big-endian
         buf[32..].copy_from_slice(&base_slot.to_be_bytes::<32>());
 
-        let expected = U256::from_be_bytes(keccak256(buf).0);
+        let expected = U256::from_be_bytes(blake3::hash(&buf).into());
         let computed = mapping_slot(key, base_slot);
 
         assert_eq!(computed, expected, "mapping_slot encoding mismatch");

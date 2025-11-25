@@ -214,7 +214,7 @@ fn test_string_literal_slots() {
     layout.sstore_field(U256::ONE).unwrap();
 
     // Verify
-    let slot: U256 = keccak256("id").into();
+    let slot = U256::from_be_bytes(blake3::hash(b"id").into());
     assert_eq!(s.storage.sload(s.address, slot), Ok(U256::ONE)); // field
     assert_eq!(slots::FIELD, slot);
 }

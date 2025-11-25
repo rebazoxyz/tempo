@@ -11627,6 +11627,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-signer",
  "alloy-signer-local",
+ "blake3",
  "criterion",
  "derive_more",
  "eyre",
@@ -11649,6 +11650,7 @@ name = "tempo-precompiles-macros"
 version = "0.5.3"
 dependencies = [
  "alloy",
+ "blake3",
  "proc-macro2",
  "proptest",
  "quote",

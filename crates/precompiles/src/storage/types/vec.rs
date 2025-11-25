@@ -253,10 +253,10 @@ where
 
 /// Calculate the starting slot for dynamic array data.
 ///
-/// For Solidity compatibility, dynamic array data is stored at `keccak256(base_slot)`.
+/// Dynamic array data is stored at `blake3(base_slot)`.
 #[inline]
 pub(crate) fn calc_data_slot(base_slot: U256) -> U256 {
-    U256::from_be_bytes(alloy::primitives::keccak256(base_slot.to_be_bytes::<32>()).0)
+    U256::from_be_bytes(blake3::hash(&base_slot.to_be_bytes::<32>()).into())
 }
 
 /// Load packed elements from storage.

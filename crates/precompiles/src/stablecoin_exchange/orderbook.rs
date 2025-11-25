@@ -5,7 +5,7 @@ use crate::{
     stablecoin_exchange::IStablecoinExchange,
     storage::{DummySlot, Mapping, Slot, SlotId, StorageOps, slots::mapping_slot},
 };
-use alloy::primitives::{Address, B256, U256, keccak256};
+use alloy::primitives::{Address, B256, U256};
 use tempo_contracts::precompiles::StablecoinExchangeError;
 use tempo_precompiles_macros::Storable;
 
@@ -456,11 +456,11 @@ pub fn compute_book_key(token_a: Address, token_b: Address) -> B256 {
         (token_b, token_a)
     };
 
-    // Compute keccak256(abi.encodePacked(tokenA, tokenB))
+    // Compute blake3(abi.encodePacked(tokenA, tokenB))
     let mut buf = [0u8; 40];
     buf[..20].copy_from_slice(token_a.as_slice());
     buf[20..].copy_from_slice(token_b.as_slice());
-    keccak256(buf)
+    B256::from(<[u8; 32]>::from(blake3::hash(&buf)))
 }
 
 /// Convert relative tick to scaled price
@@ -626,11 +626,11 @@ mod tests {
         let mut buf = [0u8; 40];
         buf[..20].copy_from_slice(token_a.as_slice());
         buf[20..].copy_from_slice(token_b.as_slice());
-        let expected_hash = keccak256(buf);
+        let expected_hash = B256::from(<[u8; 32]>::from(blake3::hash(&buf)));
 
         assert_eq!(
             key_ab, expected_hash,
-            "Book key should match manual keccak256 computation"
+            "Book key should match manual blake3 computation"
         );
     }
 
