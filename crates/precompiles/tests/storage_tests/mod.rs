@@ -1,7 +1,7 @@
 //! Shared test utilities for storage testing.
 
 use crate::storage::{
-    Handler, LayoutCtx, PrecompileStorageProvider, Slot, Storable, StorableOps,
+    Handler, LayoutCtx, PrecompileStorageProvider, Slot, Storable, StorableValue,
     hashmap::HashMapStorageProvider, packing::extract_field,
 };
 use alloy::primitives::{Address, U256, keccak256};
@@ -78,7 +78,7 @@ pub(crate) fn test_store_load<T>(
     original: &T,
 ) -> error::Result<()>
 where
-    T: StorableOps + Clone + PartialEq + std::fmt::Debug,
+    T: StorableValue + Clone + PartialEq + std::fmt::Debug,
 {
     // Create a slot and use it for storage operations
     let mut slot = Slot::<T>::new(base_slot, address.clone());
@@ -98,7 +98,7 @@ pub(crate) fn test_update<T>(
     updated: &T,
 ) -> error::Result<()>
 where
-    T: StorableOps + Clone + PartialEq + std::fmt::Debug,
+    T: StorableValue + Clone + PartialEq + std::fmt::Debug,
 {
     // Create a slot and use it for storage operations
     let mut slot = Slot::<T>::new(base_slot, address.clone());
@@ -118,7 +118,7 @@ where
 /// Helper to test delete operation
 pub(crate) fn test_delete<T>(address: &Rc<Address>, base_slot: U256, data: &T) -> error::Result<()>
 where
-    T: StorableOps + Clone + PartialEq + Default + std::fmt::Debug,
+    T: StorableValue + Clone + PartialEq + Default + std::fmt::Debug,
 {
     // Create a slot and use it for storage operations
     let mut slot = Slot::<T>::new(base_slot, address.clone());

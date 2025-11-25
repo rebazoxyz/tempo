@@ -158,8 +158,8 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
             }
         }
 
-        // impl `StorableOps` to enable `Storable<N>` for `Handler<T>`
-        impl #impl_generics crate::storage::StorableOps for #strukt #ty_generics #where_clause {
+        // impl `StorableValue` to enable `Storable<N>` for `Handler<T>`
+        impl #impl_generics crate::storage::StorableValue for #strukt #ty_generics #where_clause {
             #[inline]
             fn s_load<S: crate::storage::StorageOps>(
                 storage: &S,

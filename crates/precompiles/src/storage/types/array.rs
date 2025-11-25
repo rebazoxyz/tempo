@@ -17,7 +17,7 @@ use tempo_precompiles_macros;
 
 use crate::{
     error::Result,
-    storage::{Handler, LayoutCtx, Storable, StorableOps, StorableType, packing, types::Slot},
+    storage::{Handler, LayoutCtx, Storable, StorableType, StorableValue, packing, types::Slot},
 };
 
 // fixed-size arrays: [T; N] for primitive types T and sizes 1-32
@@ -94,7 +94,7 @@ where
     #[inline]
     pub fn read(&self) -> Result<[T; N]>
     where
-        [T; N]: StorableOps,
+        [T; N]: StorableValue,
     {
         self.as_slot().read()
     }
@@ -103,7 +103,7 @@ where
     #[inline]
     pub fn write(&mut self, value: [T; N]) -> Result<()>
     where
-        [T; N]: StorableOps,
+        [T; N]: StorableValue,
     {
         self.as_slot().write(value)
     }
@@ -112,7 +112,7 @@ where
     #[inline]
     pub fn delete(&mut self) -> Result<()>
     where
-        [T; N]: StorableOps,
+        [T; N]: StorableValue,
     {
         self.as_slot().delete()
     }
@@ -151,7 +151,10 @@ where
                 LayoutCtx::packed(location.offset_bytes),
             )
         } else {
-            (self.base_slot + U256::from(index * T::SLOTS), LayoutCtx::FULL)
+            (
+                self.base_slot + U256::from(index * T::SLOTS),
+                LayoutCtx::FULL,
+            )
         };
 
         Some(T::handle(base_slot, layout_ctx, Rc::clone(&self.address)))
@@ -161,7 +164,7 @@ where
 impl<T, const N: usize> Handler<[T; N]> for ArrayHandler<T, N>
 where
     T: StorableType,
-    [T; N]: StorableOps,
+    [T; N]: StorableValue,
 {
     /// Reads the entire array from storage.
     #[inline]

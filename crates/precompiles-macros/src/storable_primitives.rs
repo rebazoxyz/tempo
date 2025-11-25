@@ -39,7 +39,7 @@ struct TypeConfig {
 // -- IMPLEMENTATION GENERATORS ------------------------------------------------
 
 /// Generate a `StorableType` implementation
-fn gen_storable_type_impl(type_path: &TokenStream, byte_count: usize) -> TokenStream {
+fn gen_storable_layout_impl(type_path: &TokenStream, byte_count: usize) -> TokenStream {
     quote! {
         impl StorableType for #type_path {
             const LAYOUT: Layout = Layout::Bytes(#byte_count);
@@ -71,10 +71,10 @@ fn gen_storage_key_impl(type_path: &TokenStream, strategy: &StorageKeyStrategy) 
     }
 }
 
-/// Generate a `StorableOps` implementation for primitives (always Storable<1> types).
+/// Generate a `StorableValue` implementation for primitives (always Storable<1> types).
 fn gen_storable_ops_impl(type_path: &TokenStream) -> TokenStream {
     quote! {
-        impl StorableOps for #type_path {
+        impl StorableValue for #type_path {
             #[inline]
             fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
                 <Self as Storable<1>>::load(storage, slot, ctx)
@@ -355,7 +355,7 @@ fn gen_storable_impl(
 
 /// Generate all storage-related impls for a type
 fn gen_complete_impl_set(config: &TypeConfig) -> TokenStream {
-    let storable_type_impl = gen_storable_type_impl(&config.type_path, config.byte_count);
+    let storable_type_impl = gen_storable_layout_impl(&config.type_path, config.byte_count);
     let storable_impl = gen_storable_impl(
         &config.type_path,
         config.byte_count,
@@ -582,8 +582,8 @@ fn gen_array_impl(config: &ArrayConfig) -> TokenStream {
             }
         }
 
-        // impl `StorableOps` to enable `Storable<N>` for `Handler<T>`
-        impl crate::storage::StorableOps for [#elem_type; #array_size] {
+        // impl `StorableValue` to enable `Storable<N>` for `Handler<T>`
+        impl crate::storage::StorableValue for [#elem_type; #array_size] {
             #[inline]
             fn s_load<S: crate::storage::StorageOps>(storage: &S, slot: ::alloy::primitives::U256, ctx: crate::storage::LayoutCtx) -> crate::error::Result<Self> {
                 <Self as crate::storage::Storable<{ #slot_count }>>::load(storage, slot, ctx)
@@ -983,8 +983,8 @@ fn gen_struct_array_impl(struct_type: &TokenStream, array_size: usize) -> TokenS
             }
         }
 
-        // impl `StorableOps` to enable `Storable<N>` for `Handler<T>`
-        impl crate::storage::StorableOps for [#struct_type; #array_size] {
+        // impl `StorableValue` to enable `Storable<N>` for `Handler<T>`
+        impl crate::storage::StorableValue for [#struct_type; #array_size] {
             #[inline]
             fn s_load<S: crate::storage::StorageOps>(storage: &S, slot: ::alloy::primitives::U256, ctx: crate::storage::LayoutCtx) -> crate::error::Result<Self> {
                 <Self as crate::storage::Storable<{ #mod_ident::SLOT_COUNT }>>::load(storage, slot, ctx)

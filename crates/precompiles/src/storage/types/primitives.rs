@@ -121,7 +121,7 @@ impl StorageKey for Address {
 
 // -- STORABLE OPS IMPLEMENTATIONS FOR PRIMITIVES --------------------------------
 
-impl StorableOps for bool {
+impl StorableValue for bool {
     #[inline]
     fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
         <Self as Storable<1>>::load(storage, slot, ctx)
@@ -148,7 +148,7 @@ impl StorableOps for bool {
     }
 }
 
-impl StorableOps for Address {
+impl StorableValue for Address {
     #[inline]
     fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
         <Self as Storable<1>>::load(storage, slot, ctx)

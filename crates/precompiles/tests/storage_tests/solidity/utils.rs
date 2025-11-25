@@ -14,12 +14,12 @@ struct SolcOutput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ContractOutput {
     #[serde(rename = "storage-layout")]
-    storage_layout: StorageLayout,
+    storage_layout: StorableType,
 }
 
 /// Represents the storage layout for a contract.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub(super) struct StorageLayout {
+pub(super) struct StorableType {
     pub(super) storage: Vec<StorageVariable>,
     pub(super) types: HashMap<String, TypeDefinition>,
 }
@@ -67,7 +67,7 @@ pub(super) struct TypeDefinition {
 /// Loads a storage layout from a Solidity source file by running solc.
 ///
 /// **NOTE:** assumes 1 contract per file.
-pub(super) fn load_solc_layout(sol_file: &Path) -> StorageLayout {
+pub(super) fn load_solc_layout(sol_file: &Path) -> StorableType {
     if sol_file.extension().and_then(|s| s.to_str()) != Some("sol") {
         panic!("expected .sol file, got: {}", sol_file.display());
     }
@@ -135,7 +135,7 @@ pub(super) fn parse_slot(slot_str: &str) -> Result<U256, String> {
 
 /// Compares two storage layouts and returns detailed differences.
 pub(super) fn compare_layouts(
-    solc_layout: &StorageLayout,
+    solc_layout: &StorableType,
     rust_fields: &[RustStorageField],
 ) -> Result<(), Vec<String>> {
     let mut errors = Vec::new();
@@ -212,7 +212,7 @@ pub(super) fn compare_layouts(
 /// This verifies that struct members have the correct relative offsets
 /// from the base slot of the struct.
 pub(super) fn compare_struct_members(
-    solc_layout: &StorageLayout,
+    solc_layout: &StorableType,
     struct_field_name: &str,
     rust_member_slots: &[RustStorageField],
 ) -> Result<(), Vec<String>> {

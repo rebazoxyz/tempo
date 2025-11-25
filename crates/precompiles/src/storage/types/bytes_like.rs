@@ -107,7 +107,7 @@ impl Storable<1> for String {
 
 // -- STORABLE OPS IMPLEMENTATIONS ---------------------------------------------
 
-impl StorableOps for Bytes {
+impl StorableValue for Bytes {
     #[inline]
     fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
         <Self as Storable<1>>::load(storage, slot, ctx)
@@ -140,7 +140,7 @@ impl StorableOps for Bytes {
     }
 }
 
-impl StorableOps for String {
+impl StorableValue for String {
     #[inline]
     fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
         <Self as Storable<1>>::load(storage, slot, ctx)

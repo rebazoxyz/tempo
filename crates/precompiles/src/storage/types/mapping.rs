@@ -345,10 +345,8 @@ mod tests {
 
         // Nested mappings use recursive `Mapping<K, Mapping<K2, V>>` type
         let field_slot = struct_base_slot + U256::from(3); // nested mapping at field offset 3
-        let nested_mapping = Mapping::<Address, Mapping<Address, U256>>::new(
-            field_slot,
-            Rc::new(Address::random()),
-        );
+        let nested_mapping =
+            Mapping::<Address, Mapping<Address, U256>>::new(field_slot, Rc::new(Address::random()));
 
         // Verify double-hash computation is correct
         let final_slot = nested_mapping.at(owner).at(spender);

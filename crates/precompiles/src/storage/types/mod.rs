@@ -119,8 +119,11 @@ impl LayoutCtx {
 
 /// Helper trait to access storage layout information without requiring const generic parameter.
 ///
-/// This trait exists to allow the derive macro to query the layout and size of field types
-/// during layout computation, before the slot count is known.
+/// This trait provides compile-time layout information (slot count, byte size, packability)
+/// and a factory method for creating handlers. It enables the derive macro to compute
+/// struct layouts before the final slot count is known.
+///
+/// **NOTE:** Don't need to implement the trait manually. Use `#[derive(Storable)]` instead.
 pub trait StorableType {
     /// Describes how this type is laid out in storage.
     ///
@@ -149,8 +152,8 @@ pub trait StorableType {
     fn handle(slot: U256, ctx: LayoutCtx, address: Rc<Address>) -> Self::Handler;
 }
 
-/// Abstracts reading, writing, and deleting values for [`StorableOps`] types.
-pub trait Handler<T: StorableOps> {
+/// Abstracts reading, writing, and deleting values for [`StorableValue`] types.
+pub trait Handler<T: StorableValue> {
     /// Reads the value from storage.
     fn read(&self) -> Result<T>;
 
@@ -167,9 +170,9 @@ pub trait Handler<T: StorableOps> {
 /// for compile-time array sizing, and [`Handler<T>`], which needs to work uniformly
 /// across all types without knowing `N`.
 ///
-/// Each type implementing `StorableOps` knows its own slot count internally and
+/// Each type implementing `StorableValue` knows its own slot count internally and
 /// delegates to the appropriate `Storable<N>` methods.
-pub trait StorableOps: StorableType + Sized {
+pub trait StorableValue: StorableType + Sized {
     /// Load this type from storage at the given slot.
     fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self>;
 

@@ -17,7 +17,7 @@ use std::{marker::PhantomData, rc::Rc};
 use crate::{
     error::{Result, TempoPrecompileError},
     storage::{
-        Handler, Layout, LayoutCtx, Storable, StorableOps, StorableType, StorageOps,
+        Handler, Layout, LayoutCtx, Storable, StorableType, StorableValue, StorageOps,
         packing::{
             calc_element_loc, calc_packed_slot_count, extract_packed_value, insert_packed_value,
         },
@@ -27,7 +27,7 @@ use crate::{
 
 impl<T> StorableType for Vec<T>
 where
-    T: StorableOps,
+    T: StorableValue,
 {
     /// Vec base slot occupies one full storage slot (stores length).
     const LAYOUT: Layout = Layout::Slots(1);
@@ -40,7 +40,7 @@ where
 
 impl<T> Storable<1> for Vec<T>
 where
-    T: StorableOps,
+    T: StorableValue,
 {
     fn load<S: StorageOps>(
         storage: &S,
@@ -135,9 +135,9 @@ where
     }
 }
 
-impl<T> StorableOps for Vec<T>
+impl<T> StorableValue for Vec<T>
 where
-    T: StorableOps,
+    T: StorableValue,
 {
     #[inline]
     fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
@@ -193,7 +193,7 @@ where
 /// ```
 pub struct VecHandler<T>
 where
-    T: StorableOps,
+    T: StorableValue,
 {
     len_slot: U256,
     address: Rc<Address>,
@@ -202,7 +202,7 @@ where
 
 impl<T> Handler<Vec<T>> for VecHandler<T>
 where
-    T: StorableOps,
+    T: StorableValue,
 {
     /// Reads the entire vector from storage.
     #[inline]
@@ -225,7 +225,7 @@ where
 
 impl<T> VecHandler<T>
 where
-    T: StorableOps,
+    T: StorableValue,
 {
     /// Creates a new handler for the vector at the given base slot and address.
     #[inline]
@@ -298,7 +298,7 @@ where
     #[inline]
     pub fn push(&self, value: T) -> Result<()>
     where
-        T: StorableOps,
+        T: StorableValue,
         T::Handler: Handler<T>,
     {
         // Read current length
@@ -320,7 +320,7 @@ where
     #[inline]
     pub fn pop(&self) -> Result<Option<T>>
     where
-        T: StorableOps,
+        T: StorableValue,
         T::Handler: Handler<T>,
     {
         // Read current length
@@ -363,10 +363,13 @@ fn load_packed_elements<T, S>(
     byte_count: usize,
 ) -> Result<Vec<T>>
 where
-    T: StorableOps,
+    T: StorableValue,
     S: StorageOps,
 {
-    debug_assert!(T::BYTES <= 16, "load_packed_elements requires T::BYTES <= 16");
+    debug_assert!(
+        T::BYTES <= 16,
+        "load_packed_elements requires T::BYTES <= 16"
+    );
     let elements_per_slot = 32 / byte_count;
     let slot_count = calc_packed_slot_count(length, byte_count);
 
@@ -415,10 +418,13 @@ fn store_packed_elements<T, S>(
     byte_count: usize,
 ) -> Result<()>
 where
-    T: StorableOps,
+    T: StorableValue,
     S: StorageOps,
 {
-    debug_assert!(T::BYTES <= 16, "store_packed_elements requires T::BYTES <= 16");
+    debug_assert!(
+        T::BYTES <= 16,
+        "store_packed_elements requires T::BYTES <= 16"
+    );
     let elements_per_slot = 32 / byte_count;
     let slot_count = calc_packed_slot_count(elements.len(), byte_count);
 
@@ -439,7 +445,7 @@ where
 /// Takes a slice of elements and packs them into a single U256 word.
 fn build_packed_slot<T>(elements: &[T], byte_count: usize) -> Result<U256>
 where
-    T: StorableOps,
+    T: StorableValue,
 {
     debug_assert!(T::BYTES <= 16, "build_packed_slot requires T::BYTES <= 16");
     let mut slot_value = U256::ZERO;
@@ -460,7 +466,7 @@ where
 /// Each element occupies `T::SLOTS` consecutive slots.
 fn load_unpacked_elements<T, S>(storage: &S, data_start: U256, length: usize) -> Result<Vec<T>>
 where
-    T: StorableOps,
+    T: StorableValue,
     S: StorageOps,
 {
     let mut result = Vec::with_capacity(length);
@@ -478,7 +484,7 @@ where
 /// Each element uses `T::SLOTS` consecutive slots.
 fn store_unpacked_elements<T, S>(elements: &[T], storage: &mut S, data_start: U256) -> Result<()>
 where
-    T: StorableOps,
+    T: StorableValue,
     S: StorageOps,
 {
     for (elem_idx, elem) in elements.iter().enumerate() {

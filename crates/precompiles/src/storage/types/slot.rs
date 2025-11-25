@@ -4,7 +4,7 @@ use std::{marker::PhantomData, rc::Rc};
 use crate::{
     error::Result,
     storage::{
-        FieldLocation, Handler, LayoutCtx, Storable, StorableOps, StorageOps,
+        FieldLocation, Handler, LayoutCtx, StorableType, StorableValue, StorageOps,
         thread_local::with_storage_context,
     },
 };
@@ -13,7 +13,7 @@ use crate::{
 ///
 /// # Type Parameters
 ///
-/// - `T`: The Rust type stored in this slot (must implement `Storable<N>`)
+/// - `T`: The Rust type stored in this slot (must implement `StorableValue`)
 ///
 /// # Example
 ///
@@ -90,13 +90,9 @@ impl<T> Slot<T> {
     ///
     /// This method should only be used with packable types (size < 32 bytes).
     #[inline]
-    pub fn new_at_loc<const N: usize>(
-        base_slot: U256,
-        loc: FieldLocation,
-        address: Rc<Address>,
-    ) -> Self
+    pub fn new_at_loc(base_slot: U256, loc: FieldLocation, address: Rc<Address>) -> Self
     where
-        T: Storable<N>,
+        T: StorableType,
     {
         debug_assert!(
             T::IS_PACKABLE,
@@ -127,10 +123,10 @@ impl<T> Slot<T> {
     }
 }
 
-impl<T: StorableOps> Handler<T> for Slot<T> {
+impl<T: StorableValue> Handler<T> for Slot<T> {
     /// Reads a value from storage at this slot.
     ///
-    /// This method delegates to the `StorableOps::s_load` implementation,
+    /// This method delegates to the `StorableValue::s_load` implementation,
     /// which may read one or more consecutive slots depending on the type.
     ///
     /// Uses thread-local storage context initialized by [`StorageGuard`].
@@ -148,7 +144,7 @@ impl<T: StorableOps> Handler<T> for Slot<T> {
 
     /// Writes a value to storage at this slot.
     ///
-    /// This method delegates to the `StorableOps::s_store` implementation,
+    /// This method delegates to the `StorableValue::s_store` implementation,
     /// which may write one or more consecutive slots depending on the type.
     ///
     /// Uses thread-local storage context initialized by [`StorageGuard`].
@@ -166,7 +162,7 @@ impl<T: StorableOps> Handler<T> for Slot<T> {
 
     /// Deletes the value at this slot (sets all slots to zero).
     ///
-    /// This method delegates to the `StorableOps::s_delete` implementation,
+    /// This method delegates to the `StorableValue::s_delete` implementation,
     /// which sets the appropriate slots to zero.
     ///
     /// Uses thread-local storage context initialized by [`StorageGuard`].
