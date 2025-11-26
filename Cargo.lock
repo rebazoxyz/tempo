@@ -10627,6 +10627,7 @@ dependencies = [
  "eyre",
  "hex",
  "serde_json",
+ "tempo-alloy",
  "tempo-primitives",
  "tokio",
 ]

@@ -1,10 +1,11 @@
 use alloy::{
-    network::EthereumWallet,
+    network::ReceiptResponse,
     primitives::{Address, Bytes, TxKind, U256},
     providers::{Provider, ProviderBuilder},
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use alloy_eips::eip2718::Encodable2718;
+use tempo_alloy::TempoNetwork;
 use tempo_primitives::{
     transaction::{
         aa_signature::{AASignature, PrimitiveSignature},
@@ -15,7 +16,6 @@ use tempo_primitives::{
     TempoTxEnvelope,
 };
 
-const RPC_URL: &str = "<RPC_URL>";
 const CHAIN_ID: u64 = 42427; // 0xa5bb - devnet chain ID
 const BASE_FEE: u128 = 10_000_000_000; // 10 gwei
 
@@ -30,11 +30,10 @@ async fn main() -> eyre::Result<()> {
 
     println!("Sender address: {}", sender_addr);
 
-    // Create provider
-    let wallet = EthereumWallet::from(signer.clone());
-    let provider = ProviderBuilder::new()
-        .wallet(wallet)
-        .connect_http(RPC_URL.parse()?);
+    // Create provider with TempoNetwork for proper AA tx type handling
+    let provider = ProviderBuilder::new_with_network::<TempoNetwork>()
+        .connect(&std::env::var("RPC_URL").expect("RPC_URL environment variable not set"))
+        .await?;
 
     // Fund the sender address using the faucet
     println!("\n💰 Requesting funds from faucet...");

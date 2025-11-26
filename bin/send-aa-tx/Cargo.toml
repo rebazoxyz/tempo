@@ -17,6 +17,7 @@ alloy-eips = { workspace = true }
 alloy-primitives = { workspace = true }
 
 # Tempo dependencies
+tempo-alloy = { workspace = true }
 tempo-primitives = { workspace = true }
 
 # Async runtime
