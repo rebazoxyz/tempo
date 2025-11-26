@@ -7,18 +7,21 @@ use alloy::{
 use alloy_eips::eip2718::Encodable2718;
 use tempo_primitives::{
     transaction::{
-        aa_signature::AASignature, aa_signed::AASigned, account_abstraction::Call, TxAA,
+        aa_signature::{AASignature, PrimitiveSignature},
+        aa_signed::AASigned,
+        account_abstraction::Call,
+        TxAA,
     },
     TempoTxEnvelope,
 };
 
 const RPC_URL: &str = "http://<RPC_URL>";
-const CHAIN_ID: u64 = 42429;
+const CHAIN_ID: u64 = 42427; // 0xa5bb - devnet chain ID
 const BASE_FEE: u128 = 10_000_000_000; // 10 gwei
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    println!("🚀 Sending AA Transaction to Andante Devnet\n");
+    println!("🚀 Sending AA Transaction to Devnet\n");
     println!("Chain ID: {}\n", CHAIN_ID);
 
     // Generate a random private key for this test
@@ -76,7 +79,8 @@ async fn main() -> eyre::Result<()> {
         valid_before: Some(u64::MAX),
         valid_after: None,
         access_list: Default::default(),
-        aa_authorization_list: vec![], // Explicitly empty - no EIP-7702 delegations
+        key_authorization: None,       // No key provisioning
+        aa_authorization_list: vec![], // No EIP-7702 delegations
     };
 
     println!("\n✍️  Signing transaction...");
@@ -84,7 +88,7 @@ async fn main() -> eyre::Result<()> {
     // Sign the transaction with secp256k1
     let sig_hash = tx.signature_hash();
     let signature = signer.sign_hash_sync(&sig_hash)?;
-    let aa_signature = AASignature::Secp256k1(signature);
+    let aa_signature = AASignature::Primitive(PrimitiveSignature::Secp256k1(signature));
     let signed_tx = AASigned::new_unhashed(tx, aa_signature);
 
     // Convert to envelope and encode
@@ -108,26 +112,38 @@ async fn main() -> eyre::Result<()> {
     println!("  Transaction hash: {}", tx_hash);
 
     // Wait for the transaction to be mined
+    // Note: Standard alloy provider can't deserialize AA tx type (0x76) in receipts,
+    // so we use a raw RPC call and parse the response manually
     println!("\n⏳ Waiting for confirmation...");
-    let receipt = provider.get_transaction_receipt(tx_hash).await?;
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
-    if let Some(receipt) = receipt {
+    let receipt: serde_json::Value = provider
+        .raw_request(
+            "eth_getTransactionReceipt".into(),
+            [format!("{:#x}", tx_hash)],
+        )
+        .await?;
+
+    if receipt.is_null() {
+        println!("⚠️  Transaction not yet confirmed (check later)");
+    } else {
+        let status = receipt["status"].as_str().unwrap_or("0x0");
+        let block_number = receipt["blockNumber"].as_str().unwrap_or("0x0");
+        let gas_used = receipt["gasUsed"].as_str().unwrap_or("0x0");
+
+        let block_num = u64::from_str_radix(block_number.trim_start_matches("0x"), 16).unwrap_or(0);
+        let gas = u64::from_str_radix(gas_used.trim_start_matches("0x"), 16).unwrap_or(0);
+
         println!("✓ Transaction confirmed!");
-        println!("  Block number: {}", receipt.block_number.unwrap_or(0));
-        println!("  Gas used: {}", receipt.gas_used);
+        println!("  Block number: {}", block_num);
+        println!("  Gas used: {}", gas);
         println!(
             "  Status: {}",
-            if receipt.status() {
-                "Success ✅"
-            } else {
-                "Failed ❌"
-            }
+            if status == "0x1" { "Success" } else { "Failed" }
         );
-    } else {
-        println!("⚠️  Transaction not yet confirmed (check later)");
     }
 
-    println!("\n🎉 Done!");
+    println!("\nDone!");
 
     Ok(())
 }
