@@ -463,7 +463,7 @@ where
 
                 // 7. Add gas refund if authority already exists
                 if !(authority_acc.is_empty()
-                    && authority_acc.is_loaded_as_not_existing_not_touched())
+                    && authority_acc.iloaded_as_not_existing_not_touched())
                 {
                     refunded_accounts += 1;
                 }

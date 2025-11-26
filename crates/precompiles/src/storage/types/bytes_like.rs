@@ -1,4 +1,4 @@
-//! Bytes-like (`Bytes`, `String`) implementation for the `Storable` trait.
+//! Bytes-like (`Bytes`, `String`) implementation for the storage traits.
 //!
 //! # Storage Layout
 //!
@@ -28,25 +28,7 @@ impl StorableType for Bytes {
     }
 }
 
-impl Storable<1> for Bytes {
-    #[inline]
-    fn load<S: StorageOps>(storage: &S, base_slot: U256, ctx: LayoutCtx) -> Result<Self> {
-        debug_assert_eq!(ctx, LayoutCtx::FULL, "Bytes cannot be packed");
-        load_bytes_like(storage, base_slot, |data| Ok(Self::from(data)))
-    }
-
-    #[inline]
-    fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-        debug_assert_eq!(ctx, LayoutCtx::FULL, "Bytes cannot be packed");
-        store_bytes_like(self.as_ref(), storage, base_slot)
-    }
-
-    #[inline]
-    fn delete<S: StorageOps>(storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-        debug_assert_eq!(ctx, LayoutCtx::FULL, "Bytes cannot be packed");
-        delete_bytes_like(storage, base_slot)
-    }
-
+impl Encodable<1> for Bytes {
     #[inline]
     fn to_evm_words(&self) -> Result<[U256; 1]> {
         to_evm_words_bytes_like(self.as_ref())
@@ -67,29 +49,7 @@ impl StorableType for String {
     }
 }
 
-impl Storable<1> for String {
-    #[inline]
-    fn load<S: StorageOps>(storage: &S, base_slot: U256, ctx: LayoutCtx) -> Result<Self> {
-        debug_assert_eq!(ctx, LayoutCtx::FULL, "String cannot be packed");
-        load_bytes_like(storage, base_slot, |data| {
-            Self::from_utf8(data).map_err(|e| {
-                TempoPrecompileError::Fatal(format!("Invalid UTF-8 in stored string: {e}"))
-            })
-        })
-    }
-
-    #[inline]
-    fn store<S: StorageOps>(&self, storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-        debug_assert_eq!(ctx, LayoutCtx::FULL, "String cannot be packed");
-        store_bytes_like(self.as_bytes(), storage, base_slot)
-    }
-
-    #[inline]
-    fn delete<S: StorageOps>(storage: &mut S, base_slot: U256, ctx: LayoutCtx) -> Result<()> {
-        debug_assert_eq!(ctx, LayoutCtx::FULL, "String cannot be packed");
-        delete_bytes_like(storage, base_slot)
-    }
-
+impl Encodable<1> for String {
     #[inline]
     fn to_evm_words(&self) -> Result<[U256; 1]> {
         to_evm_words_bytes_like(self.as_bytes())
@@ -107,20 +67,24 @@ impl Storable<1> for String {
 
 // -- STORABLE OPS IMPLEMENTATIONS ---------------------------------------------
 
-impl StorableValue for Bytes {
+impl Storable for Bytes {
     #[inline]
-    fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
-        <Self as Storable<1>>::load(storage, slot, ctx)
+    fn load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
+        debug_assert_eq!(ctx, LayoutCtx::FULL, "Bytes cannot be packed");
+        load_bytes_like(storage, slot, |data| Ok(Self::from(data)))
     }
 
     #[inline]
-    fn s_store<S: StorageOps>(&self, storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::store(self, storage, slot, ctx)
+    fn store<S: StorageOps>(&self, storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
+        debug_assert_eq!(ctx, LayoutCtx::FULL, "Bytes cannot be packed");
+        store_bytes_like(self.as_ref(), storage, slot)
     }
 
+    /// Custom delete for bytes-like types: clears keccak256-addressed data slots for long values.
     #[inline]
-    fn s_delete<S: StorageOps>(storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::delete(storage, slot, ctx)
+    fn delete<S: StorageOps>(storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
+        debug_assert_eq!(ctx, LayoutCtx::FULL, "Bytes cannot be packed");
+        delete_bytes_like(storage, slot)
     }
 
     #[inline]
@@ -140,20 +104,28 @@ impl StorableValue for Bytes {
     }
 }
 
-impl StorableValue for String {
+impl Storable for String {
     #[inline]
-    fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
-        <Self as Storable<1>>::load(storage, slot, ctx)
+    fn load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
+        debug_assert_eq!(ctx, LayoutCtx::FULL, "String cannot be packed");
+        load_bytes_like(storage, slot, |data| {
+            Self::from_utf8(data).map_err(|e| {
+                TempoPrecompileError::Fatal(format!("Invalid UTF-8 in stored string: {e}"))
+            })
+        })
     }
 
     #[inline]
-    fn s_store<S: StorageOps>(&self, storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::store(self, storage, slot, ctx)
+    fn store<S: StorageOps>(&self, storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
+        debug_assert_eq!(ctx, LayoutCtx::FULL, "String cannot be packed");
+        store_bytes_like(self.as_bytes(), storage, slot)
     }
 
+    /// Custom delete for bytes-like types: clears keccak256-addressed data slots for long values.
     #[inline]
-    fn s_delete<S: StorageOps>(storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::delete(storage, slot, ctx)
+    fn delete<S: StorageOps>(storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
+        debug_assert_eq!(ctx, LayoutCtx::FULL, "String cannot be packed");
+        delete_bytes_like(storage, slot)
     }
 
     #[inline]

@@ -16,7 +16,7 @@ use alloy::primitives::U256;
 
 use crate::{
     error::Result,
-    storage::{Layout, Storable},
+    storage::{Encodable, Layout},
 };
 
 /// Location information for a packed field within a storage slot.
@@ -66,7 +66,7 @@ pub fn create_element_mask(byte_count: usize) -> U256 {
 
 /// Extract a packed value from a storage slot at a given byte offset.
 #[inline]
-pub fn extract_packed_value<const SLOTS: usize, T: Storable<SLOTS>>(
+pub fn extract_packed_value<const WORDS: usize, T: Encodable<WORDS>>(
     slot_value: U256,
     offset: usize,
     bytes: usize,
@@ -102,7 +102,7 @@ pub fn extract_packed_value<const SLOTS: usize, T: Storable<SLOTS>>(
 
 /// Insert a packed value into a storage slot at a given byte offset.
 #[inline]
-pub fn insert_packed_value<const SLOTS: usize, T: Storable<SLOTS>>(
+pub fn insert_packed_value<const WORDS: usize, T: Encodable<WORDS>>(
     current: U256,
     value: &T,
     offset: usize,
@@ -196,7 +196,7 @@ pub const fn calc_packed_slot_count(n: usize, elem_bytes: usize) -> usize {
 ///
 /// This is a convenience wrapper around `extract_packed_value` that's more
 /// ergonomic for use in test assertions.
-pub fn extract_field<T: Storable<1>>(slot_value: U256, offset: usize, bytes: usize) -> Result<T> {
+pub fn extract_field<T: Encodable<1>>(slot_value: U256, offset: usize, bytes: usize) -> Result<T> {
     extract_packed_value(slot_value, offset, bytes)
 }
 

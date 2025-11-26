@@ -1,4 +1,4 @@
-//! Single-word primitives (up-to 32 bytes) implementation for the `Storable trait`.
+//! Single-word primitives (up-to 32 bytes) implementation for the storage traits.
 
 use alloy::primitives::{Address, U256};
 use revm::interpreter::instructions::utility::{IntoAddress, IntoU256};
@@ -29,7 +29,49 @@ impl StorableType for bool {
     }
 }
 
-impl Storable<1> for bool {
+impl Encodable<1> for bool {
+    #[inline]
+    fn to_evm_words(&self) -> Result<[U256; 1]> {
+        Ok([if *self { U256::ONE } else { U256::ZERO }])
+    }
+
+    #[inline]
+    fn from_evm_words(words: [U256; 1]) -> Result<Self> {
+        Ok(!words[0].is_zero())
+    }
+}
+
+impl StorableType for Address {
+    const LAYOUT: Layout = Layout::Bytes(20);
+    type Handler = Slot<Self>;
+
+    fn handle(slot: U256, ctx: LayoutCtx, address: Rc<Address>) -> Self::Handler {
+        Slot::new_with_ctx(slot, ctx, address)
+    }
+}
+
+impl Encodable<1> for Address {
+    #[inline]
+    fn to_evm_words(&self) -> Result<[U256; 1]> {
+        Ok([self.into_u256()])
+    }
+
+    #[inline]
+    fn from_evm_words(words: [U256; 1]) -> Result<Self> {
+        Ok(words[0].into_address())
+    }
+}
+
+impl StorageKey for Address {
+    #[inline]
+    fn as_storage_bytes(&self) -> impl AsRef<[u8]> {
+        self.as_slice()
+    }
+}
+
+// -- STORABLE OPS IMPLEMENTATIONS FOR PRIMITIVES --------------------------------
+
+impl Storable for bool {
     #[inline]
     fn load<S: StorageOps>(storage: &S, base_slot: U256, ctx: LayoutCtx) -> Result<Self> {
         match ctx.packed_offset() {
@@ -55,27 +97,20 @@ impl Storable<1> for bool {
         }
     }
 
+    // delete uses default implementation from trait
+
     #[inline]
-    fn to_evm_words(&self) -> Result<[U256; 1]> {
-        Ok([if *self { U256::ONE } else { U256::ZERO }])
+    fn to_word(&self) -> Result<U256> {
+        Ok(<Self as Encodable<1>>::to_evm_words(self)?[0])
     }
 
     #[inline]
-    fn from_evm_words(words: [U256; 1]) -> Result<Self> {
-        Ok(!words[0].is_zero())
+    fn from_word(word: U256) -> Result<Self> {
+        <Self as Encodable<1>>::from_evm_words([word])
     }
 }
 
-impl StorableType for Address {
-    const LAYOUT: Layout = Layout::Bytes(20);
-    type Handler = Slot<Self>;
-
-    fn handle(slot: U256, ctx: LayoutCtx, address: Rc<Address>) -> Self::Handler {
-        Slot::new_with_ctx(slot, ctx, address)
-    }
-}
-
-impl Storable<1> for Address {
+impl Storable for Address {
     #[inline]
     fn load<S: StorageOps>(storage: &S, base_slot: U256, ctx: LayoutCtx) -> Result<Self> {
         match ctx.packed_offset() {
@@ -101,77 +136,16 @@ impl Storable<1> for Address {
         }
     }
 
-    #[inline]
-    fn to_evm_words(&self) -> Result<[U256; 1]> {
-        Ok([self.into_u256()])
-    }
-
-    #[inline]
-    fn from_evm_words(words: [U256; 1]) -> Result<Self> {
-        Ok(words[0].into_address())
-    }
-}
-
-impl StorageKey for Address {
-    #[inline]
-    fn as_storage_bytes(&self) -> impl AsRef<[u8]> {
-        self.as_slice()
-    }
-}
-
-// -- STORABLE OPS IMPLEMENTATIONS FOR PRIMITIVES --------------------------------
-
-impl StorableValue for bool {
-    #[inline]
-    fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
-        <Self as Storable<1>>::load(storage, slot, ctx)
-    }
-
-    #[inline]
-    fn s_store<S: StorageOps>(&self, storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::store(self, storage, slot, ctx)
-    }
-
-    #[inline]
-    fn s_delete<S: StorageOps>(storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::delete(storage, slot, ctx)
-    }
+    // delete uses default implementation from trait
 
     #[inline]
     fn to_word(&self) -> Result<U256> {
-        Ok(<Self as Storable<1>>::to_evm_words(self)?[0])
+        Ok(<Self as Encodable<1>>::to_evm_words(self)?[0])
     }
 
     #[inline]
     fn from_word(word: U256) -> Result<Self> {
-        <Self as Storable<1>>::from_evm_words([word])
-    }
-}
-
-impl StorableValue for Address {
-    #[inline]
-    fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
-        <Self as Storable<1>>::load(storage, slot, ctx)
-    }
-
-    #[inline]
-    fn s_store<S: StorageOps>(&self, storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::store(self, storage, slot, ctx)
-    }
-
-    #[inline]
-    fn s_delete<S: StorageOps>(storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::delete(storage, slot, ctx)
-    }
-
-    #[inline]
-    fn to_word(&self) -> Result<U256> {
-        Ok(<Self as Storable<1>>::to_evm_words(self)?[0])
-    }
-
-    #[inline]
-    fn from_word(word: U256) -> Result<Self> {
-        <Self as Storable<1>>::from_evm_words([word])
+        <Self as Encodable<1>>::from_evm_words([word])
     }
 }
 

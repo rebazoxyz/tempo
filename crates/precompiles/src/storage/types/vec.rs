@@ -1,4 +1,4 @@
-//! Dynamic array (`Vec<T>`) implementation for the `Storable` trait.
+//! Dynamic array (`Vec<T>`) implementation for the storage traits.
 //!
 //! # Storage Layout
 //!
@@ -17,7 +17,7 @@ use std::{marker::PhantomData, rc::Rc};
 use crate::{
     error::{Result, TempoPrecompileError},
     storage::{
-        Handler, Layout, LayoutCtx, Storable, StorableType, StorableValue, StorageOps,
+        Encodable, Handler, Layout, LayoutCtx, Storable, StorableType, StorageOps,
         packing::{
             calc_element_loc, calc_packed_slot_count, extract_packed_value, insert_packed_value,
         },
@@ -27,7 +27,7 @@ use crate::{
 
 impl<T> StorableType for Vec<T>
 where
-    T: StorableValue,
+    T: Storable,
 {
     /// Vec base slot occupies one full storage slot (stores length).
     const LAYOUT: Layout = Layout::Slots(1);
@@ -38,15 +38,27 @@ where
     }
 }
 
-impl<T> Storable<1> for Vec<T>
+impl<T> Encodable<1> for Vec<T>
 where
-    T: StorableValue,
+    T: Storable,
 {
-    fn load<S: StorageOps>(
-        storage: &S,
-        len_slot: U256,
-        ctx: crate::storage::types::LayoutCtx,
-    ) -> Result<Self> {
+    fn to_evm_words(&self) -> Result<[U256; 1]> {
+        // Vec base slot representation: just the length
+        Ok([U256::from(self.len())])
+    }
+
+    fn from_evm_words(_words: [U256; 1]) -> Result<Self> {
+        Err(TempoPrecompileError::Fatal(
+            "Cannot reconstruct `Vec` from base slot data alone.".into(),
+        ))
+    }
+}
+
+impl<T> Storable for Vec<T>
+where
+    T: Storable,
+{
+    fn load<S: StorageOps>(storage: &S, len_slot: U256, ctx: LayoutCtx) -> Result<Self> {
         debug_assert_eq!(ctx, LayoutCtx::FULL, "Dynamic arrays cannot be packed");
 
         // Read length from base slot
@@ -66,12 +78,7 @@ where
         }
     }
 
-    fn store<S: StorageOps>(
-        &self,
-        storage: &mut S,
-        len_slot: U256,
-        ctx: crate::storage::types::LayoutCtx,
-    ) -> Result<()> {
+    fn store<S: StorageOps>(&self, storage: &mut S, len_slot: U256, ctx: LayoutCtx) -> Result<()> {
         debug_assert_eq!(ctx, LayoutCtx::FULL, "Dynamic arrays cannot be packed");
 
         // Write length to base slot
@@ -90,6 +97,7 @@ where
         }
     }
 
+    /// Custom delete for Vec: clears both length slot and all data slots.
     fn delete<S: StorageOps>(storage: &mut S, len_slot: U256, ctx: LayoutCtx) -> Result<()> {
         debug_assert_eq!(ctx, LayoutCtx::FULL, "Dynamic arrays cannot be packed");
 
@@ -115,53 +123,21 @@ where
             // Clear unpacked element slots (multi-slot aware)
             for elem_idx in 0..length {
                 let elem_slot = data_start + U256::from(elem_idx * T::SLOTS);
-                T::s_delete(storage, elem_slot, LayoutCtx::FULL)?;
+                T::delete(storage, elem_slot, LayoutCtx::FULL)?;
             }
         }
 
         Ok(())
     }
 
-    fn to_evm_words(&self) -> Result<[U256; 1]> {
-        // Vec base slot representation: just the length
-        Ok([U256::from(self.len())])
-    }
-
-    fn from_evm_words(_words: [U256; 1]) -> Result<Self> {
-        Err(TempoPrecompileError::Fatal(
-            "Cannot reconstruct `Vec` from base slot alone. Use `load()` with storage access."
-                .into(),
-        ))
-    }
-}
-
-impl<T> StorableValue for Vec<T>
-where
-    T: StorableValue,
-{
-    #[inline]
-    fn s_load<S: StorageOps>(storage: &S, slot: U256, ctx: LayoutCtx) -> Result<Self> {
-        <Self as Storable<1>>::load(storage, slot, ctx)
-    }
-
-    #[inline]
-    fn s_store<S: StorageOps>(&self, storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::store(self, storage, slot, ctx)
-    }
-
-    #[inline]
-    fn s_delete<S: StorageOps>(storage: &mut S, slot: U256, ctx: LayoutCtx) -> Result<()> {
-        <Self as Storable<1>>::delete(storage, slot, ctx)
-    }
-
     #[inline]
     fn to_word(&self) -> Result<U256> {
-        Ok(<Self as Storable<1>>::to_evm_words(self)?[0])
+        Ok(<Self as Encodable<1>>::to_evm_words(self)?[0])
     }
 
     #[inline]
     fn from_word(word: U256) -> Result<Self> {
-        <Self as Storable<1>>::from_evm_words([word])
+        <Self as Encodable<1>>::from_evm_words([word])
     }
 }
 
@@ -193,7 +169,7 @@ where
 /// ```
 pub struct VecHandler<T>
 where
-    T: StorableValue,
+    T: Storable,
 {
     len_slot: U256,
     address: Rc<Address>,
@@ -202,7 +178,7 @@ where
 
 impl<T> Handler<Vec<T>> for VecHandler<T>
 where
-    T: StorableValue,
+    T: Storable,
 {
     /// Reads the entire vector from storage.
     #[inline]
@@ -225,7 +201,7 @@ where
 
 impl<T> VecHandler<T>
 where
-    T: StorableValue,
+    T: Storable,
 {
     /// Creates a new handler for the vector at the given base slot and address.
     #[inline]
@@ -298,7 +274,7 @@ where
     #[inline]
     pub fn push(&self, value: T) -> Result<()>
     where
-        T: StorableValue,
+        T: Storable,
         T::Handler: Handler<T>,
     {
         // Read current length
@@ -320,7 +296,7 @@ where
     #[inline]
     pub fn pop(&self) -> Result<Option<T>>
     where
-        T: StorableValue,
+        T: Storable,
         T::Handler: Handler<T>,
     {
         // Read current length
@@ -363,7 +339,7 @@ fn load_packed_elements<T, S>(
     byte_count: usize,
 ) -> Result<Vec<T>>
 where
-    T: StorableValue,
+    T: Storable,
     S: StorageOps,
 {
     debug_assert!(
@@ -418,7 +394,7 @@ fn store_packed_elements<T, S>(
     byte_count: usize,
 ) -> Result<()>
 where
-    T: StorableValue,
+    T: Storable,
     S: StorageOps,
 {
     debug_assert!(
@@ -445,7 +421,7 @@ where
 /// Takes a slice of elements and packs them into a single U256 word.
 fn build_packed_slot<T>(elements: &[T], byte_count: usize) -> Result<U256>
 where
-    T: StorableValue,
+    T: Storable,
 {
     debug_assert!(T::BYTES <= 16, "build_packed_slot requires T::BYTES <= 16");
     let mut slot_value = U256::ZERO;
@@ -466,14 +442,14 @@ where
 /// Each element occupies `T::SLOTS` consecutive slots.
 fn load_unpacked_elements<T, S>(storage: &S, data_start: U256, length: usize) -> Result<Vec<T>>
 where
-    T: StorableValue,
+    T: Storable,
     S: StorageOps,
 {
     let mut result = Vec::with_capacity(length);
     for index in 0..length {
         // Use T::SLOTS for proper multi-slot element addressing
         let elem_slot = data_start + U256::from(index * T::SLOTS);
-        let elem = T::s_load(storage, elem_slot, LayoutCtx::FULL)?;
+        let elem = T::load(storage, elem_slot, LayoutCtx::FULL)?;
         result.push(elem);
     }
     Ok(result)
@@ -484,13 +460,13 @@ where
 /// Each element uses `T::SLOTS` consecutive slots.
 fn store_unpacked_elements<T, S>(elements: &[T], storage: &mut S, data_start: U256) -> Result<()>
 where
-    T: StorableValue,
+    T: Storable,
     S: StorageOps,
 {
     for (elem_idx, elem) in elements.iter().enumerate() {
         // Use T::SLOTS for proper multi-slot element addressing
         let elem_slot = data_start + U256::from(elem_idx * T::SLOTS);
-        elem.s_store(storage, elem_slot, LayoutCtx::FULL)?;
+        elem.store(storage, elem_slot, LayoutCtx::FULL)?;
     }
 
     Ok(())

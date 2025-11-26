@@ -1,4 +1,4 @@
-//! Fixed-size array handler for the `Storable` trait.
+//! Fixed-size array handler for the storage traits.
 //!
 //! # Storage Layout
 //!
@@ -17,7 +17,7 @@ use tempo_precompiles_macros;
 
 use crate::{
     error::Result,
-    storage::{Handler, LayoutCtx, Storable, StorableType, StorableValue, packing, types::Slot},
+    storage::{Handler, LayoutCtx, Storable, StorableType, packing, types::Slot},
 };
 
 // fixed-size arrays: [T; N] for primitive types T and sizes 1-32
@@ -94,7 +94,7 @@ where
     #[inline]
     pub fn read(&self) -> Result<[T; N]>
     where
-        [T; N]: StorableValue,
+        [T; N]: Storable,
     {
         self.as_slot().read()
     }
@@ -103,7 +103,7 @@ where
     #[inline]
     pub fn write(&mut self, value: [T; N]) -> Result<()>
     where
-        [T; N]: StorableValue,
+        [T; N]: Storable,
     {
         self.as_slot().write(value)
     }
@@ -112,7 +112,7 @@ where
     #[inline]
     pub fn delete(&mut self) -> Result<()>
     where
-        [T; N]: StorableValue,
+        [T; N]: Storable,
     {
         self.as_slot().delete()
     }
@@ -164,7 +164,7 @@ where
 impl<T, const N: usize> Handler<[T; N]> for ArrayHandler<T, N>
 where
     T: StorableType,
-    [T; N]: StorableValue,
+    [T; N]: Storable,
 {
     /// Reads the entire array from storage.
     #[inline]
@@ -189,7 +189,7 @@ where
 mod tests {
     use super::*;
     use crate::storage::{
-        Layout, LayoutCtx, PrecompileStorageProvider, hashmap::HashMapStorageProvider,
+        Encodable, Layout, LayoutCtx, PrecompileStorageProvider, hashmap::HashMapStorageProvider,
     };
     use proptest::prelude::*;
 
@@ -217,7 +217,7 @@ mod tests {
         ];
 
         // Verify LAYOUT
-        <[u8; 32] as Storable<1>>::validate_layout();
+        <[u8; 32] as Encodable<1>>::validate_layout();
         assert_eq!(<[u8; 32] as StorableType>::LAYOUT, Layout::Slots(1));
 
         // Store and load
@@ -230,7 +230,7 @@ mod tests {
         // Verify to_evm_words / from_evm_words
         let words = data.to_evm_words().unwrap();
         assert_eq!(words.len(), 1, "[u8; 32] should produce 1 word");
-        let recovered: [u8; 32] = Storable::from_evm_words(words).unwrap();
+        let recovered: [u8; 32] = Encodable::from_evm_words(words).unwrap();
         assert_eq!(recovered, data, "[u8; 32] EVM words roundtrip failed");
 
         // Verify delete
@@ -249,7 +249,7 @@ mod tests {
         let data: [u64; 5] = [1, 2, 3, 4, 5];
 
         // Verify slot count
-        <[u64; 5] as Storable<2>>::validate_layout();
+        <[u64; 5] as Encodable<2>>::validate_layout();
         assert_eq!(<[u64; 5] as StorableType>::LAYOUT, Layout::Slots(2));
 
         // Store and load
@@ -285,7 +285,7 @@ mod tests {
         let data: [u16; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
         // Verify slot count
-        <[u16; 16] as Storable<1>>::validate_layout();
+        <[u16; 16] as Encodable<1>>::validate_layout();
         assert_eq!(<[u16; 16] as StorableType>::LAYOUT, Layout::Slots(1));
 
         // Store and load
@@ -305,7 +305,7 @@ mod tests {
         let data: [U256; 3] = [U256::from(12345), U256::from(67890), U256::from(111111)];
 
         // Verify slot count
-        <[U256; 3] as Storable<3>>::validate_layout();
+        <[U256; 3] as Encodable<3>>::validate_layout();
         assert_eq!(<[U256; 3] as StorableType>::LAYOUT, Layout::Slots(3));
 
         // Store and load
@@ -336,7 +336,7 @@ mod tests {
         ];
 
         // Verify slot count
-        <[Address; 3] as Storable<3>>::validate_layout();
+        <[Address; 3] as Encodable<3>>::validate_layout();
         assert_eq!(<[Address; 3] as StorableType>::LAYOUT, Layout::Slots(3));
 
         // Store and load
@@ -356,7 +356,7 @@ mod tests {
         let data: [u8; 1] = [42];
 
         // Verify slot count
-        <[u8; 1] as Storable<1>>::validate_layout();
+        <[u8; 1] as Encodable<1>>::validate_layout();
         assert_eq!(<[u8; 1] as StorableType>::LAYOUT, Layout::Slots(1));
 
         // Store and load
@@ -387,7 +387,7 @@ mod tests {
         ];
 
         // Verify LAYOUT: 8 slots (one per inner array)
-        <[[u8; 4]; 8] as Storable<8>>::validate_layout();
+        <[[u8; 4]; 8] as Encodable<8>>::validate_layout();
         assert_eq!(<[[u8; 4]; 8] as StorableType>::LAYOUT, Layout::Slots(8));
 
         // Store and load
@@ -400,7 +400,7 @@ mod tests {
         // Verify to_evm_words / from_evm_words
         let words = data.to_evm_words().unwrap();
         assert_eq!(words.len(), 8, "[[u8; 4]; 8] should produce 8 words");
-        let recovered: [[u8; 4]; 8] = Storable::from_evm_words(words).unwrap();
+        let recovered: [[u8; 4]; 8] = Encodable::from_evm_words(words).unwrap();
         assert_eq!(recovered, data, "[[u8; 4]; 8] EVM words roundtrip failed");
 
         // Verify delete clears all 8 slots
@@ -433,7 +433,7 @@ mod tests {
         ];
 
         // Verify LAYOUT: 8 slots (one per inner array)
-        <[[u16; 2]; 8] as Storable<8>>::validate_layout();
+        <[[u16; 2]; 8] as Encodable<8>>::validate_layout();
         assert_eq!(<[[u16; 2]; 8] as StorableType>::LAYOUT, Layout::Slots(8));
 
         // Store and load
@@ -446,7 +446,7 @@ mod tests {
         // Verify to_evm_words / from_evm_words
         let words = data.to_evm_words().unwrap();
         assert_eq!(words.len(), 8, "[[u16; 2]; 8] should produce 8 words");
-        let recovered: [[u16; 2]; 8] = Storable::from_evm_words(words).unwrap();
+        let recovered: [[u16; 2]; 8] = Encodable::from_evm_words(words).unwrap();
         assert_eq!(recovered, data, "[[u16; 2]; 8] EVM words roundtrip failed");
 
         // Verify delete clears all 8 slots
@@ -477,7 +477,7 @@ mod tests {
 
             // EVM words roundtrip
             let words = data.to_evm_words().unwrap();
-            let recovered: [u8; 32] = Storable::from_evm_words(words).unwrap();
+            let recovered: [u8; 32] = Encodable::from_evm_words(words).unwrap();
             prop_assert_eq!(&recovered, &data, "[u8; 32] EVM words roundtrip failed");
 
             // Delete
@@ -503,7 +503,7 @@ mod tests {
 
             // EVM words roundtrip
             let words = data.to_evm_words().unwrap();
-            let recovered: [u16; 16] = Storable::from_evm_words(words).unwrap();
+            let recovered: [u16; 16] = Encodable::from_evm_words(words).unwrap();
             prop_assert_eq!(&recovered, &data, "[u16; 16] EVM words roundtrip failed");
         }
 
@@ -530,7 +530,7 @@ mod tests {
 
             // EVM words roundtrip
             let words = data.to_evm_words().unwrap();
-            let recovered: [U256; 5] = Storable::from_evm_words(words).unwrap();
+            let recovered: [U256; 5] = Encodable::from_evm_words(words).unwrap();
             prop_assert_eq!(&recovered, &data, "[U256; 5] EVM words roundtrip failed");
 
             // Delete

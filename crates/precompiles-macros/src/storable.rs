@@ -66,7 +66,7 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
     let mod_ident = format_ident!("__packing_{}", to_snake_case(&strukt.to_string()));
     let packing_module = gen_packing_module_from_ir(&layout_fields, &mod_ident);
 
-    // Classify fields to figure out which impl `Storable`
+    // Classify fields: direct (storable) vs indirect (mappings)
     let len = fields.len();
     let (direct_fields, direct_names, mapping_names) = field_infos.iter().fold(
         (Vec::with_capacity(len), Vec::with_capacity(len), Vec::new()),
@@ -108,8 +108,28 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
             }
         }
 
-        // `Storable` implementation: loads/stores only directly accessible fields, skips mappings
-        impl #impl_generics crate::storage::Storable<{ #mod_ident::SLOT_COUNT }> for #strukt #ty_generics #where_clause {
+        // `Encodable` implementation: pure EVM word encoding/decoding, no I/O
+        impl #impl_generics crate::storage::Encodable<{ #mod_ident::SLOT_COUNT }> for #strukt #ty_generics #where_clause {
+            fn to_evm_words(&self) -> crate::error::Result<[::alloy::primitives::U256; { #mod_ident::SLOT_COUNT }]> {
+                use crate::storage::Encodable;
+
+                #to_evm_words_impl
+            }
+
+            fn from_evm_words(words: [::alloy::primitives::U256; { #mod_ident::SLOT_COUNT }]) -> crate::error::Result<Self> {
+                use crate::storage::Encodable;
+
+                #from_evm_words_impl
+
+                Ok(Self {
+                    #(#direct_names),*,
+                    #(#mapping_names: Default::default()),*
+                })
+            }
+        }
+
+        // `Storable` implementation: storage I/O with full logic
+        impl #impl_generics crate::storage::Storable for #strukt #ty_generics #where_clause {
             fn load<S: crate::storage::StorageOps>(
                 storage: &S,
                 base_slot: ::alloy::primitives::U256,
@@ -140,53 +160,7 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
                 Ok(())
             }
 
-            fn to_evm_words(&self) -> crate::error::Result<[::alloy::primitives::U256; { #mod_ident::SLOT_COUNT }]> {
-                use crate::storage::Storable;
-
-                #to_evm_words_impl
-            }
-
-            fn from_evm_words(words: [::alloy::primitives::U256; { #mod_ident::SLOT_COUNT }]) -> crate::error::Result<Self> {
-                use crate::storage::Storable;
-
-                #from_evm_words_impl
-
-                Ok(Self {
-                    #(#direct_names),*,
-                    #(#mapping_names: Default::default()),*
-                })
-            }
-        }
-
-        // impl `StorableValue` to enable `Storable<N>` for `Handler<T>`
-        impl #impl_generics crate::storage::StorableValue for #strukt #ty_generics #where_clause {
-            #[inline]
-            fn s_load<S: crate::storage::StorageOps>(
-                storage: &S,
-                slot: ::alloy::primitives::U256,
-                ctx: crate::storage::LayoutCtx
-            ) -> crate::error::Result<Self> {
-                <Self as crate::storage::Storable<{ #mod_ident::SLOT_COUNT }>>::load(storage, slot, ctx)
-            }
-
-            #[inline]
-            fn s_store<S: crate::storage::StorageOps>(
-                &self,
-                storage: &mut S,
-                slot: ::alloy::primitives::U256,
-                ctx: crate::storage::LayoutCtx
-            ) -> crate::error::Result<()> {
-                <Self as crate::storage::Storable<{ #mod_ident::SLOT_COUNT }>>::store(self, storage, slot, ctx)
-            }
-
-            #[inline]
-            fn s_delete<S: crate::storage::StorageOps>(
-                storage: &mut S,
-                slot: ::alloy::primitives::U256,
-                ctx: crate::storage::LayoutCtx
-            ) -> crate::error::Result<()> {
-                <Self as crate::storage::Storable<{ #mod_ident::SLOT_COUNT }>>::delete(storage, slot, ctx)
-            }
+            // delete uses default implementation from trait
 
             #[inline]
             fn to_word(&self) -> crate::error::Result<::alloy::primitives::U256> {
@@ -195,7 +169,7 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
                         "to_word called on multi-slot struct".into()
                     ));
                 }
-                Ok(<Self as crate::storage::Storable<{ #mod_ident::SLOT_COUNT }>>::to_evm_words(self)?[0])
+                Ok(<Self as crate::storage::Encodable<{ #mod_ident::SLOT_COUNT }>>::to_evm_words(self)?[0])
             }
 
             #[inline]
@@ -205,7 +179,7 @@ pub(crate) fn derive_impl(input: DeriveInput) -> syn::Result<TokenStream> {
                         "from_word called on multi-slot struct".into()
                     ));
                 }
-                <Self as crate::storage::Storable<{ #mod_ident::SLOT_COUNT }>>::from_evm_words(
+                <Self as crate::storage::Encodable<{ #mod_ident::SLOT_COUNT }>>::from_evm_words(
                     ::std::array::from_fn(|_| word)
                 )
             }
@@ -329,9 +303,9 @@ fn gen_handler_struct(
 
 /// Generate either `fn load()` or `fn store()` implementation.
 ///
-/// If `is_load` is true, generates load implementation with unpacking logic.
-/// If `is_load` is false, generates store implementation with packing logic.
-fn gen_storage_op_impl(fields: &[(&Ident, &Type)], packing: &Ident, is_load: bool) -> TokenStream {
+/// If `iload` is true, generates load implementation with unpacking logic.
+/// If `iload` is false, generates store implementation with packing logic.
+fn gen_storage_op_impl(fields: &[(&Ident, &Type)], packing: &Ident, iload: bool) -> TokenStream {
     let field_ops = fields
         .iter()
         .enumerate()
@@ -350,9 +324,9 @@ fn gen_storage_op_impl(fields: &[(&Ident, &Type)], packing: &Ident, is_load: boo
                 next_slot_const_ref,
             );
 
-            if is_load {
+            if iload {
                 quote! {
-                    let #name = <#ty>::load(
+                    let #name = <#ty as crate::storage::Storable>::load(
                         storage,
                         base_slot + ::alloy::primitives::U256::from(#packing::#loc_const.offset_slots),
                         #layout_ctx
@@ -361,7 +335,7 @@ fn gen_storage_op_impl(fields: &[(&Ident, &Type)], packing: &Ident, is_load: boo
             } else {
                 quote! {{
                     let target_slot = base_slot + ::alloy::primitives::U256::from(#packing::#loc_const.offset_slots);
-                    self.#name.store(storage, target_slot, #layout_ctx)?;
+                    <#ty as crate::storage::Storable>::store(&self.#name, storage, target_slot, #layout_ctx)?;
                 }}
             }
         });
