@@ -334,31 +334,36 @@ fn verify_webauthn_data_internal(
         return Err("WebAuthn data too short");
     }
 
-    // Check if AT flag (bit 6) is set in flags byte (byte 32)
+    // Check flags (byte 32): UP (bit 0), AT (bit 6), ED (bit 7)
     let flags = webauthn_data[32];
-    let at_flag_set = (flags & 0x40) != 0;
+    let (up_flag, at_flag, ed_flag) = (flags & 0x01, flags & 0x40, flags & 0x80);
+
+    // UP flag MUST be set
+    if up_flag == 0 {
+        return Err("User Presence (UP) flag not set in authenticatorData");
+    }
+
+    // AT flag must NOT be set for assertion signatures (`webauthn.get`)
+    if at_flag != 0 {
+        return Err("AT flag must not be set for assertion signatures");
+    }
 
     // Determine authenticatorData length
-    let auth_data_len = if at_flag_set {
-        // AT flag is set, need to parse CBOR data
-        parse_auth_data_length_with_at(webauthn_data)?
-    } else {
-        // authenticatorData is exactly 37 bytes
+    let auth_data_len = if ed_flag == 0 {
+        // If ED flag is not set, exactly 37 bytes (no extensions)
         MIN_AUTH_DATA_LEN
+    } else {
+        // Otherwise, we need to parse CBOR data
+        parse_auth_data_length_with_ed(webauthn_data)?
     };
 
-    // Validate we have clientDataJSON after authenticatorData
+    // Ensure that we have clientDataJSON after authenticatorData
     if auth_data_len >= webauthn_data.len() {
         return Err("No clientDataJSON after authenticatorData");
     }
 
     let authenticator_data = &webauthn_data[..auth_data_len];
     let client_data_json = &webauthn_data[auth_data_len..];
-
-    // Check UP flag (bit 0) is set
-    if (flags & 0x01) == 0 {
-        return Err("User Presence (UP) flag not set in authenticatorData");
-    }
 
     // Validate clientDataJSON
     let json_str =
@@ -393,45 +398,27 @@ fn verify_webauthn_data_internal(
     Ok(B256::from_slice(&message_hash))
 }
 
-/// Parse authenticatorData length when AT flag is set.
-/// ref: <https://www.w3.org/TR/webauthn-2/#attested-credential-data>
+/// Parse authenticatorData length when ED flag is set.
+/// ref: <https://www.w3.org/TR/webauthn-2/#sctn-authenticator-data>
 ///
-/// When the AT (Attested Credential) flag is set, authenticatorData contains:
+/// When the ED (Extension Data) flag is set, authenticatorData contains:
 /// - 37 bytes base (rpIdHash + flags + signCount)
-/// - 16 bytes aaguid
-/// - 2 bytes credentialIdLength (big-endian u16)
-/// - credentialId (variable, up to credentialIdLength bytes)
-/// - credentialPublicKey (CBOR-encoded COSE_Key, variable)
-fn parse_auth_data_length_with_at(webauthn_data: &[u8]) -> Result<usize, &'static str> {
-    // Minimum with AT flag: 37 base + 16 aaguid + 2 credIdLen = 55 bytes
-    const MIN_AT_LEN: usize = 55;
+/// - CBOR-encoded extensions (variable length)
+fn parse_auth_data_length_with_ed(webauthn_data: &[u8]) -> Result<usize, &'static str> {
+    const MIN_AUTH_DATA_LEN: usize = 37;
 
-    if webauthn_data.len() < MIN_AT_LEN {
-        return Err("AuthenticatorData too short for AT flag");
+    // Extensions must have at least 1 byte of CBOR data
+    if webauthn_data.len() <= MIN_AUTH_DATA_LEN {
+        return Err("AuthenticatorData too short for ED flag");
     }
 
-    // Read `credentialIdLength`
-    let cred_id_len = u16::from_be_bytes([webauthn_data[53], webauthn_data[54]]) as usize;
-
-    if cred_id_len > 1024 {
-        return Err("credentialIdLength exceeds maximum");
-    }
-
-    // Position where `credentialPublicKey` (CBOR) starts
-    let cose_key_start = MIN_AT_LEN + cred_id_len;
-    if cose_key_start >= webauthn_data.len() {
-        return Err("AuthenticatorData too short for credentialId");
-    }
-
-    // Parse CBOR public key length
-    let mut decoder = minicbor::Decoder::new(&webauthn_data[cose_key_start..]);
+    // Extensions start right after the base authenticatorData (because AT flag is false)
+    let mut decoder = minicbor::Decoder::new(&webauthn_data[MIN_AUTH_DATA_LEN..]);
     decoder
         .skip()
-        .map_err(|_| "Invalid CBOR data in credentialPublicKey")?;
-    let cose_key_len = decoder.position();
+        .map_err(|_| "Invalid CBOR data in extensions")?;
 
-    // Total length
-    Ok(cose_key_start + cose_key_len)
+    Ok(MIN_AUTH_DATA_LEN + decoder.position())
 }
 
 #[cfg(test)]
@@ -854,33 +841,41 @@ mod tests {
     }
 
     #[test]
-    fn test_webauthn_with_at_flag_validation() {
-        // Build base auth data with AT flag set: rpIdHash + flags + signCount + aaguid
-        fn base_auth_data_with_at_flag() -> Vec<u8> {
-            let mut data = vec![0u8; 32];
-            data.push(0x41);
-            data.extend_from_slice(&[0u8; 4]);
-            data.extend_from_slice(&[0u8; 16]);
+    fn test_webauthn_flag_validation() {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+        // Helper to build webauthn data with given flags and optional extension bytes
+        fn build_webauthn_data(flags: u8, extension: Option<&[u8]>, tx_hash: &B256) -> Vec<u8> {
+            let mut data = vec![0u8; 32]; // rpIdHash
+            data.push(flags);
+            data.extend_from_slice(&[0u8; 4]); // signCount
+            if let Some(ext) = extension {
+                data.extend_from_slice(ext);
+            }
+            let challenge = URL_SAFE_NO_PAD.encode(tx_hash.as_slice());
+            data.extend_from_slice(
+                format!("{{\"type\":\"webauthn.get\",\"challenge\":\"{challenge}\"}}").as_bytes(),
+            );
             data
         }
 
-        // Verify invalid CBOR is rejected
-        let mut auth_data = base_auth_data_with_at_flag();
-        auth_data.extend_from_slice(&[0x00, 0x04]); // credentialIdLength = 4
-        auth_data.extend_from_slice(&[0xAA; 4]); // credentialId
-        auth_data.push(0x1F); // invalid CBOR (reserved additional info for type 0)
+        let tx_hash = B256::ZERO;
 
-        let result = verify_webauthn_data_internal(&auth_data, &B256::ZERO);
-        assert!(result.is_err(), "Should reject invalid CBOR");
+        // AT flag must be rejected for assertion signatures
+        let data = build_webauthn_data(0x41, None, &tx_hash); // UP + AT
+        let err = verify_webauthn_data_internal(&data, &tx_hash).unwrap_err();
+        assert!(err.contains("AT flag"), "Should reject AT flag");
 
-        // Verify excessive credentialIdLength is rejected
-        let mut auth_data = base_auth_data_with_at_flag();
-        auth_data.extend_from_slice(&[0xFF, 0xFF]); // credentialIdLength = 65535 (> 1024)
-
-        let result = verify_webauthn_data_internal(&auth_data, &B256::ZERO);
+        // ED flag with valid CBOR extensions should work
+        let data = build_webauthn_data(0x81, Some(&[0xa0]), &tx_hash); // UP + ED, empty map
         assert!(
-            result.is_err_and(|err| err.contains("exceeds max")),
-            "Should reject excessive credentialIdLength"
+            verify_webauthn_data_internal(&data, &tx_hash).is_ok(),
+            "ED flag with valid CBOR should work"
         );
+
+        // ED flag with invalid CBOR should be rejected
+        let data = build_webauthn_data(0x81, Some(&[0x1F]), &tx_hash); // UP + ED, invalid CBOR
+        let err = verify_webauthn_data_internal(&data, &tx_hash).unwrap_err();
+        assert!(err.contains("CBOR"), "Should reject invalid CBOR");
     }
 }
