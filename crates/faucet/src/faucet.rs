@@ -26,12 +26,12 @@ impl TempoFaucetExt {
     pub fn new(
         faucet_token_addresses: Vec<Address>,
         funding_amount: U256,
-        provider: FillProvider<impl TxFiller + 'static, impl Provider + 'static>,
+        provider: DynProvider,
     ) -> Self {
         Self {
             faucet_token_addresses,
             funding_amount,
-            provider: provider.erased(),
+            provider,
         }
     }
 }

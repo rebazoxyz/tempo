@@ -2,7 +2,7 @@ use alloy::{
     network::{Ethereum, EthereumWallet},
     primitives::{Address, B256, U256},
     providers::{
-        Identity, ProviderBuilder, RootProvider,
+        DynProvider, Identity, Provider, ProviderBuilder, RootProvider,
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
             WalletFiller,
@@ -11,18 +11,6 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use clap::Args;
-
-type HttpWalletFillProvider = FillProvider<
-    JoinFill<
-        JoinFill<
-            Identity,
-            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-        >,
-        WalletFiller<EthereumWallet>,
-    >,
-    RootProvider<Ethereum>,
-    Ethereum,
->;
 
 /// Faucet-specific CLI arguments
 #[derive(Debug, Clone, Default, Args, PartialEq, Eq)]
@@ -84,11 +72,19 @@ impl FaucetArgs {
         self.amount.expect("No TIP20 token amount provided")
     }
 
-    pub fn provider(&self) -> HttpWalletFillProvider {
-        ProviderBuilder::new().wallet(self.wallet()).connect_http(
-            self.node_address
-                .parse()
-                .expect("Failed to parse node address"),
-        )
+    pub fn provider(&self) -> DynProvider {
+        ProviderBuilder::default()
+            .fetch_chain_id()
+            .with_gas_estimation()
+            // Cached filler does not work with multiple RPC instances,
+            // because each of them will cache their own local nonce
+            .with_simple_nonce_management()
+            .wallet(self.wallet())
+            .connect_http(
+                self.node_address
+                    .parse()
+                    .expect("Failed to parse node address"),
+            )
+            .erased()
     }
 }
