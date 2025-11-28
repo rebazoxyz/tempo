@@ -174,6 +174,12 @@ impl<T: StorableType> VecHandler<T> {
         }
     }
 
+    /// Returns a `Slot` accessor for full-vector operations.
+    #[inline]
+    fn as_slot(&self) -> Slot<Vec<T>> {
+        Slot::new(self.len_slot, Rc::clone(&self.address))
+    }
+
     /// Returns the slot that stores the length of the dynamic array.
     #[inline]
     pub fn len_slot(&self) -> ::alloy::primitives::U256 {
@@ -224,6 +230,33 @@ impl<T: StorableType> VecHandler<T> {
     pub fn at(&self, index: usize) -> T::Handler {
         let (base_slot, layout_ctx) = self.location_of(index);
         T::handle(base_slot, layout_ctx, Rc::clone(&self.address))
+    }
+
+    /// Reads the entire vector from storage.
+    #[inline]
+    pub fn read(&self) -> Result<Vec<T>>
+    where
+        T: Storable,
+    {
+        self.as_slot().read()
+    }
+
+    /// Writes the entire vector to storage.
+    #[inline]
+    pub fn write(&mut self, value: Vec<T>) -> Result<()>
+    where
+        T: Storable,
+    {
+        self.as_slot().write(value)
+    }
+
+    /// Deletes the entire vector from storage (clears length and all elements).
+    #[inline]
+    pub fn delete(&mut self) -> Result<()>
+    where
+        T: Storable,
+    {
+        self.as_slot().delete()
     }
 
     /// Pushes a new element to the end of the vector.
