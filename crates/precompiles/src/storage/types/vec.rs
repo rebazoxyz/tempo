@@ -174,12 +174,6 @@ impl<T: StorableType> VecHandler<T> {
         }
     }
 
-    /// Returns a `Slot` accessor for full-vector operations.
-    #[inline]
-    fn as_slot(&self) -> Slot<Vec<T>> {
-        Slot::new(self.len_slot, Rc::clone(&self.address))
-    }
-
     /// Returns the slot that stores the length of the dynamic array.
     #[inline]
     pub fn len_slot(&self) -> ::alloy::primitives::U256 {
@@ -193,6 +187,12 @@ impl<T: StorableType> VecHandler<T> {
     #[inline]
     pub fn data_slot(&self) -> ::alloy::primitives::U256 {
         calc_data_slot(self.len_slot)
+    }
+
+    /// Returns a `Slot` accessor for full-vector operations.
+    #[inline]
+    fn as_slot(&self) -> Slot<Vec<T>> {
+        Slot::new(self.len_slot, Rc::clone(&self.address))
     }
 
     /// Returns the length of the vector.
