@@ -2,7 +2,7 @@
 pub mod hashmap;
 
 pub mod thread_local;
-pub use thread_local::{StorageAccessor, StorageGuard};
+pub use thread_local::StorageContext;
 
 mod types;
 pub use types::*;
@@ -17,15 +17,6 @@ use tempo_chainspec::hardfork::TempoHardfork;
 
 use crate::error::Result;
 
-/// Trait for types that can enter a thread-local storage context.
-///
-/// Only one `StorageGuard` can exist at a time, in the same thread.
-/// If multiple providers are instantiated in parallel threads, they CANNOT point to the same storage addresses.
-pub trait PrecompileStorageContext: PrecompileStorageProvider {
-    /// Enters this storage provider's context, enabling thread-local access.
-    fn enter(&mut self) -> Result<StorageGuard<'_>>;
-}
-
 /// Low-level storage provider for interacting with the EVM.
 ///
 /// # Implementations
@@ -33,10 +24,10 @@ pub trait PrecompileStorageContext: PrecompileStorageProvider {
 /// - `EvmPrecompileStorageProvider` - Production EVM storage
 /// - `HashMapStorageProvider` - Test storage
 ///
-/// # Sync with `[StorageAccessor]`
+/// # Sync with `[StorageContext]`
 ///
-/// `StorageAccessor` mirrors these methods with split mutability for read (staticcall) vs write (call).
-/// When adding new methods here, remember to add corresponding methods to `StorageAccessor`.
+/// `StorageContext` mirrors these methods with split mutability for read (staticcall) vs write (call).
+/// When adding new methods here, remember to add corresponding methods to `StorageContext`.
 pub trait PrecompileStorageProvider {
     /// Returns the chain ID.
     fn chain_id(&self) -> u64;
@@ -116,5 +107,5 @@ pub trait ContractStorage {
     fn address(&self) -> Address;
 
     /// Contract storage accessor.
-    fn storage(&mut self) -> &mut StorageAccessor;
+    fn storage(&mut self) -> &mut StorageContext;
 }
