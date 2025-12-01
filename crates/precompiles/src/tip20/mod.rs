@@ -2692,7 +2692,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_burn_from() -> eyre::Result<()> {
-        let mut storage = HashMapStorageProvider::new(1);
+        let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Allegretto);
         let admin = Address::random();
         let burner = Address::random();
         let target = Address::random();
