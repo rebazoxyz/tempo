@@ -235,7 +235,7 @@ mod tests {
         let admin = Address::random();
 
         // Initialize PathUSD first
-        initialize_path_usd(&mut storage, admin).unwrap();
+        initialize_path_usd(admin).unwrap();
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
@@ -292,7 +292,7 @@ mod tests {
         let admin = Address::random();
 
         // Initialize PathUSD first
-        initialize_path_usd(&mut storage, admin).unwrap();
+        initialize_path_usd(admin).unwrap();
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
@@ -494,7 +494,7 @@ mod tests {
         let admin = Address::random();
 
         // Initialize PathUSD first
-        initialize_path_usd(&mut storage, admin)?;
+        initialize_path_usd(admin)?;
 
         // Create two USD tokens
         let user_token = token_id_to_address(1);
@@ -630,7 +630,7 @@ mod tests {
         let mut storage = HashMapStorageProvider::new_with_spec(1, TempoHardfork::Moderato);
         let user = Address::random();
         let admin = Address::random();
-        initialize_path_usd(&mut storage, admin).unwrap();
+        initialize_path_usd(admin).unwrap();
 
         let user_token = token_id_to_address(1);
         let validator_token = token_id_to_address(2);

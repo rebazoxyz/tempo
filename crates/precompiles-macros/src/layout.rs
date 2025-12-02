@@ -170,7 +170,7 @@ pub(crate) fn gen_constructor(
                 let emited = self.storage.get_events(self.address);
                 assert_eq!(emited.len(), expected.len());
 
-                for (i, event) = expected.iter().enumerate() {
+                for (i, event) in expected.into_iter().enumerate() {
                     assert_eq!(emited[i], event.into_log_data());
                 }
             }

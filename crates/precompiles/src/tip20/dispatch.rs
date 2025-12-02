@@ -1,6 +1,7 @@
 use super::ITIP20;
 use crate::{
     Precompile, fill_precompile_output, input_cost, metadata, mutate, mutate_void,
+    storage::Handler,
     tip20::{IRolesAuth, TIP20Token},
     unknown_selector, view,
 };
@@ -121,7 +122,7 @@ impl Precompile for TIP20Token {
                         self.storage.spec(),
                     );
                 }
-                view::<ITIP20::feeRecipientCall>(calldata, |_call| self.sload_fee_recipient())
+                view::<ITIP20::feeRecipientCall>(calldata, |_call| self.fee_recipient.read())
             }
             ITIP20::setFeeRecipientCall::SELECTOR => {
                 if !self.storage.spec().is_allegretto() {
@@ -258,7 +259,7 @@ impl Precompile for TIP20Token {
 mod tests {
     use crate::{
         PATH_USD_ADDRESS,
-        storage::hashmap::HashMapStorageProvider,
+        storage::{PrecompileStorageProvider, StorageContext},
         test_util::setup_storage,
         tip20::{TIP20Token, tests::initialize_path_usd},
     };
@@ -267,14 +268,15 @@ mod tests {
         primitives::{Bytes, U256, keccak256},
         sol_types::{SolInterface, SolValue},
     };
+    use tempo_chainspec::hardfork::TempoHardfork;
     use tempo_contracts::precompiles::{RolesAuthError, TIP20Error};
 
     use super::*;
 
     #[test]
     fn test_function_selector_dispatch() {
-        use tempo_chainspec::hardfork::TempoHardfork;
         let (mut storage, sender) = setup_storage();
+        storage.set_spec(TempoHardfork::Moderato);
         let token_id = 1;
 
         StorageContext::enter(&mut storage, || {
@@ -292,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_balance_of_calldata_handling() {
+    fn test_balance_of_calldata_handling() -> eyre::Result<()> {
         let (mut storage, admin) = setup_storage();
         let (sender, account) = (Address::random(), Address::random());
         let issuer_role = keccak256(b"ISSUER_ROLE");
@@ -334,6 +336,8 @@ mod tests {
             // Verify we get the correct balance
             let decoded = U256::abi_decode(&result.bytes)?;
             assert_eq!(decoded, test_balance);
+
+            Ok(())
         })
     }
 
@@ -355,7 +359,7 @@ mod tests {
                 admin,
                 IRolesAuth::grantRoleCall {
                     role: issuer_role,
-                    account: admin,
+                    account: sender,
                 },
             )?;
 
@@ -364,7 +368,7 @@ mod tests {
             assert_eq!(initial_balance, U256::ZERO);
 
             // Create mint call
-            let mint_amount = U256::random() % token.supply_cap()?;
+            let mint_amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             let mint_call = ITIP20::mintCall {
                 to: recipient,
                 amount: mint_amount,

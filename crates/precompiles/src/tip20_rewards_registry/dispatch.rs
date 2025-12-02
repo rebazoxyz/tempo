@@ -38,7 +38,7 @@ impl Precompile for TIP20RewardsRegistry {
 mod tests {
     use super::*;
     use crate::{
-        storage::hashmap::HashMapStorageProvider,
+        storage::StorageContext,
         test_util::{assert_full_coverage, check_selector_coverage, setup_storage},
     };
     use tempo_contracts::precompiles::ITIP20RewardsRegistry::ITIP20RewardsRegistryCalls;

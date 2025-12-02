@@ -3,7 +3,7 @@ pub mod dispatch;
 use crate::{
     STABLECOIN_EXCHANGE_ADDRESS,
     error::Result,
-    storage::{ContractStorage, PrecompileStorageProvider},
+    storage::StorageContext,
     tip20::{ITIP20, TIP20Token},
 };
 use alloy::primitives::{Address, B256, U256, keccak256};
@@ -23,17 +23,19 @@ const CURRENCY: &str = "USD";
 
 pub struct PathUSD {
     pub token: TIP20Token,
+    storage: StorageContext,
 }
 
 impl PathUSD {
     pub fn new() -> Self {
         Self {
             token: TIP20Token::new(0),
+            storage: StorageContext::default(),
         }
     }
 
     pub fn initialize(&mut self, admin: Address) -> Result<()> {
-        let (name, symbol) = if self.token.storage().spec().is_allegretto() {
+        let (name, symbol) = if self.storage.spec().is_allegretto() {
             (NAME_POST_ALLEGRETTO, NAME_POST_ALLEGRETTO)
         } else {
             (NAME_PRE_ALLEGRETTO, NAME_PRE_ALLEGRETTO)
@@ -43,21 +45,21 @@ impl PathUSD {
             .initialize(name, symbol, CURRENCY, Address::ZERO, admin, Address::ZERO)
     }
 
-    fn is_transfer_authorized(&mut self, sender: Address) -> Result<bool> {
+    fn is_transfer_authorized(&self, sender: Address) -> Result<bool> {
         let authorized = sender == STABLECOIN_EXCHANGE_ADDRESS
             || self.token.has_role_internal(sender, *TRANSFER_ROLE)?;
 
         Ok(authorized)
     }
 
-    fn is_transfer_from_authorized(&mut self, sender: Address, from: Address) -> Result<bool> {
+    fn is_transfer_from_authorized(&self, sender: Address, from: Address) -> Result<bool> {
         let authorized = sender == STABLECOIN_EXCHANGE_ADDRESS
             || self.token.has_role_internal(from, *TRANSFER_ROLE)?;
         Ok(authorized)
     }
 
     fn is_transfer_with_memo_authorized(
-        &mut self,
+        &self,
         sender: Address,
         recipient: Address,
     ) -> Result<bool> {
@@ -71,7 +73,7 @@ impl PathUSD {
     }
 
     fn is_transfer_from_with_memo_authorized(
-        &mut self,
+        &self,
         sender: Address,
         from: Address,
         recipient: Address,
@@ -87,7 +89,7 @@ impl PathUSD {
 
     pub fn transfer(&mut self, msg_sender: Address, call: ITIP20::transferCall) -> Result<bool> {
         // Post allegretto, use default tip20 logic
-        if self.token.storage().spec().is_allegretto() {
+        if self.storage.spec().is_allegretto() {
             return self.token.transfer(msg_sender, call);
         }
 
@@ -104,7 +106,7 @@ impl PathUSD {
         call: ITIP20::transferFromCall,
     ) -> Result<bool> {
         // Post allegretto, use default tip20 logic
-        if self.token.storage().spec().is_allegretto() {
+        if self.storage.spec().is_allegretto() {
             return self.token.transfer_from(msg_sender, call);
         }
 
@@ -123,7 +125,7 @@ impl PathUSD {
         call: ITIP20::transferWithMemoCall,
     ) -> Result<()> {
         // Post allegretto, use default tip20 logic
-        if self.token.storage().spec().is_allegretto() {
+        if self.storage.spec().is_allegretto() {
             return self.token.transfer_with_memo(msg_sender, call);
         }
 
@@ -140,7 +142,7 @@ impl PathUSD {
         call: ITIP20::transferFromWithMemoCall,
     ) -> Result<bool> {
         // Post allegretto, use default tip20 logic
-        if self.token.storage().spec().is_allegretto() {
+        if self.storage.spec().is_allegretto() {
             return self.token.transfer_from_with_memo(msg_sender, call);
         }
 
@@ -153,39 +155,39 @@ impl PathUSD {
         }
     }
 
-    pub fn name(&mut self) -> Result<String> {
-        if self.token.storage().spec().is_allegretto() {
+    pub fn name(&self) -> Result<String> {
+        if self.storage.spec().is_allegretto() {
             Ok(NAME_POST_ALLEGRETTO.to_string())
         } else {
             self.token.name()
         }
     }
 
-    pub fn symbol(&mut self) -> Result<String> {
-        if self.token.storage().spec().is_allegretto() {
+    pub fn symbol(&self) -> Result<String> {
+        if self.storage.spec().is_allegretto() {
             Ok(NAME_POST_ALLEGRETTO.to_string())
         } else {
             self.token.symbol()
         }
     }
 
-    pub fn currency(&mut self) -> Result<String> {
+    pub fn currency(&self) -> Result<String> {
         self.token.currency()
     }
 
-    pub fn decimals(&mut self) -> Result<u8> {
+    pub fn decimals(&self) -> Result<u8> {
         self.token.decimals()
     }
 
-    pub fn total_supply(&mut self) -> Result<U256> {
+    pub fn total_supply(&self) -> Result<U256> {
         self.token.total_supply()
     }
 
-    pub fn balance_of(&mut self, call: ITIP20::balanceOfCall) -> Result<U256> {
+    pub fn balance_of(&self, call: ITIP20::balanceOfCall) -> Result<U256> {
         self.token.balance_of(call)
     }
 
-    pub fn allowance(&mut self, call: ITIP20::allowanceCall) -> Result<U256> {
+    pub fn allowance(&self, call: ITIP20::allowanceCall) -> Result<U256> {
         self.token.allowance(call)
     }
 
@@ -272,7 +274,7 @@ mod tests {
     use super::*;
     use crate::{
         error::TempoPrecompileError,
-        storage::hashmap::HashMapStorageProvider,
+        storage::PrecompileStorageProvider,
         test_util::setup_storage,
         tip20::{IRolesAuth, ISSUER_ROLE, PAUSE_ROLE, UNPAUSE_ROLE},
     };
@@ -282,7 +284,7 @@ mod tests {
         path_usd.initialize(admin)?;
         path_usd.token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-        path_usd
+        Ok(path_usd)
     }
 
     #[test]

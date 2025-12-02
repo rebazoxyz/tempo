@@ -462,7 +462,7 @@ impl TIP20Token {
     }
 
     /// Gets the next available stream ID (minimum 1).
-    pub fn get_next_stream_id(&mut self) -> Result<u64> {
+    pub fn get_next_stream_id(&self) -> Result<u64> {
         self.next_stream_id.read().map(|id| id.max(1))
     }
 
@@ -472,7 +472,7 @@ impl TIP20Token {
     }
 
     /// Gets the accumulated global reward per token.
-    fn get_global_reward_per_token(&mut self) -> Result<U256> {
+    fn get_global_reward_per_token(&self) -> Result<U256> {
         self.global_reward_per_token.read()
     }
 
@@ -482,7 +482,7 @@ impl TIP20Token {
     }
 
     /// Gets the timestamp of the last reward update from storage.
-    fn get_last_update_time(&mut self) -> Result<u64> {
+    fn get_last_update_time(&self) -> Result<u64> {
         self.last_update_time.read()
     }
 
@@ -492,7 +492,7 @@ impl TIP20Token {
     }
 
     /// Gets the total supply of tokens opted into rewards from storage.
-    pub fn get_opted_in_supply(&mut self) -> Result<u128> {
+    pub fn get_opted_in_supply(&self) -> Result<u128> {
         self.opted_in_supply.read()
     }
 
@@ -502,7 +502,7 @@ impl TIP20Token {
     }
 
     /// Gets the scheduled rate decrease at a specific time from storage.
-    fn get_scheduled_rate_decrease_at(&mut self, end_time: u128) -> Result<U256> {
+    fn get_scheduled_rate_decrease_at(&self, end_time: u128) -> Result<U256> {
         self.scheduled_rate_decrease.at(end_time).read()
     }
 
@@ -512,7 +512,7 @@ impl TIP20Token {
     }
 
     /// Gets the total reward per second rate from storage.
-    pub fn get_total_reward_per_second(&mut self) -> Result<U256> {
+    pub fn get_total_reward_per_second(&self) -> Result<U256> {
         self.total_reward_per_second.read()
     }
 
@@ -575,12 +575,12 @@ impl TIP20Token {
     }
 
     /// Retrieves a reward stream by its ID.
-    pub fn get_stream(&mut self, stream_id: u64) -> Result<RewardStream> {
+    pub fn get_stream(&self, stream_id: u64) -> Result<RewardStream> {
         self.streams.at(stream_id).read()
     }
 
     /// Retrieves user reward information for a given account.
-    pub fn get_user_reward_info(&mut self, account: Address) -> Result<UserRewardInfo> {
+    pub fn get_user_reward_info(&self, account: Address) -> Result<UserRewardInfo> {
         self.user_reward_info.at(account).read()
     }
 }
@@ -647,6 +647,7 @@ mod tests {
     use super::*;
     use crate::{
         PATH_USD_ADDRESS,
+        storage::{PrecompileStorageProvider, StorageContext},
         test_util::setup_storage,
         tip20::{ISSUER_ROLE, tests::initialize_path_usd},
         tip20_rewards_registry::TIP20RewardsRegistry,
@@ -721,7 +722,7 @@ mod tests {
             token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let amount = U256::random() % token.supply_cap()?;
+            let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             token.mint(admin, ITIP20::mintCall { to: alice, amount })?;
             token
                 .set_reward_recipient(alice, ITIP20::setRewardRecipientCall { recipient: alice })?;
@@ -759,7 +760,8 @@ mod tests {
             token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let mint_amount = (U256::random() % token.supply_cap).min(U256::from(10));
+            let mint_amount = (U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?)
+                .min(U256::from(10));
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -768,7 +770,7 @@ mod tests {
                 },
             )?;
 
-            let reward_amount = mint_amount / 10;
+            let reward_amount = mint_amount / U256::from(10);
             let stream_id = token.start_reward(
                 admin,
                 ITIP20::startRewardCall {
@@ -813,7 +815,8 @@ mod tests {
             token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let mint_amount = (U256::random() % token.supply_cap).min(U256::from(10));
+            let mint_amount = (U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?)
+                .min(U256::from(10));
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -825,7 +828,7 @@ mod tests {
             token
                 .set_reward_recipient(alice, ITIP20::setRewardRecipientCall { recipient: alice })?;
 
-            let reward_amount = mint_amount / 10;
+            let reward_amount = mint_amount / U256::from(10);
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -844,7 +847,7 @@ mod tests {
             )?;
 
             token.update_rewards(alice)?;
-            let info_after = token.sload_user_reward_info(alice)?;
+            let info_after = token.user_reward_info.at(alice).read()?;
             let global_rpt_after = token.get_global_reward_per_token()?;
 
             assert_eq!(info_after.reward_per_token, global_rpt_after);
@@ -866,7 +869,8 @@ mod tests {
             token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let mint_amount = (U256::random() % token.supply_cap).min(U256::from(10));
+            let mint_amount = (U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?)
+                .min(U256::from(10));
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -878,7 +882,7 @@ mod tests {
             token
                 .set_reward_recipient(alice, ITIP20::setRewardRecipientCall { recipient: alice })?;
 
-            let reward_amount = mint_amount / 10;
+            let reward_amount = mint_amount / U256::from(10);
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -912,7 +916,7 @@ mod tests {
             assert_eq!(total_reward_per_second, expected_rate);
 
             assert_eq!(token.get_opted_in_supply()?, mint_amount.to::<u128>());
-            let info = token.sload_user_reward_info(alice)?;
+            let info = token.user_reward_info.at(alice).read()?;
             assert_eq!(info.reward_per_token, U256::ZERO);
             Ok(())
         })
@@ -932,7 +936,8 @@ mod tests {
             token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let mint_amount = (U256::random() % token.supply_cap).min(U256::from(10));
+            let mint_amount = (U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?)
+                .min(U256::from(10));
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -944,7 +949,7 @@ mod tests {
             token
                 .set_reward_recipient(alice, ITIP20::setRewardRecipientCall { recipient: alice })?;
 
-            let reward_amount = mint_amount / 10;
+            let reward_amount = mint_amount / U256::from(10);
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -962,7 +967,7 @@ mod tests {
                 },
             )?;
 
-            let end_time = current_time + stream_duration as u128;
+            let end_time = current_time + stream_duration as u64;
 
             // Advance the timestamp to simulate time passing
             token.storage.set_timestamp(U256::from(end_time));
@@ -980,7 +985,7 @@ mod tests {
             assert!(global_rpt > U256::ZERO);
 
             token.update_rewards(alice)?;
-            let info = token.sload_user_reward_info(alice)?;
+            let info = token.user_reward_info.at(alice).read()?;
             assert_eq!(info.reward_per_token, global_rpt);
 
             Ok(())
@@ -1000,7 +1005,8 @@ mod tests {
             token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let mint_amount = (U256::random() % token.supply_cap).min(U256::from(10));
+            let mint_amount = (U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?)
+                .min(U256::from(10));
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -1013,7 +1019,7 @@ mod tests {
                 .set_reward_recipient(alice, ITIP20::setRewardRecipientCall { recipient: alice })?;
 
             // Mint reward tokens to admin
-            let reward_amount = mint_amount / 10;
+            let reward_amount = mint_amount / U256::from(10);
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -1053,7 +1059,8 @@ mod tests {
             token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)?;
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let mint_amount = (U256::random() % token.supply_cap).min(U256::from(10));
+            let mint_amount = (U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?)
+                .min(U256::from(10));
             token.mint(
                 admin,
                 ITIP20::mintCall {
@@ -1066,7 +1073,7 @@ mod tests {
                 .set_reward_recipient(alice, ITIP20::setRewardRecipientCall { recipient: alice })?;
 
             // Mint reward tokens to admin
-            let reward_amount = mint_amount / 10;
+            let reward_amount = mint_amount / U256::from(10);
             token.mint(
                 admin,
                 ITIP20::mintCall {

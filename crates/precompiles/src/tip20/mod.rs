@@ -105,7 +105,7 @@ pub fn validate_usd_currency(token: Address, storage: StorageContext) -> Result<
         return Err(FeeManagerError::invalid_token().into());
     }
 
-    let mut tip20_token = TIP20Token::from_address(token);
+    let tip20_token = TIP20Token::from_address(token);
     let currency = tip20_token.currency()?;
     if currency != USD_CURRENCY {
         return Err(TIP20Error::invalid_currency().into());
@@ -114,43 +114,43 @@ pub fn validate_usd_currency(token: Address, storage: StorageContext) -> Result<
 }
 
 impl TIP20Token {
-    pub fn name(&mut self) -> Result<String> {
+    pub fn name(&self) -> Result<String> {
         self.name.read()
     }
 
-    pub fn symbol(&mut self) -> Result<String> {
+    pub fn symbol(&self) -> Result<String> {
         self.symbol.read()
     }
 
-    pub fn decimals(&mut self) -> Result<u8> {
+    pub fn decimals(&self) -> Result<u8> {
         Ok(TIP20_DECIMALS)
     }
 
-    pub fn currency(&mut self) -> Result<String> {
+    pub fn currency(&self) -> Result<String> {
         self.currency.read()
     }
 
-    pub fn total_supply(&mut self) -> Result<U256> {
+    pub fn total_supply(&self) -> Result<U256> {
         self.total_supply.read()
     }
 
-    pub fn quote_token(&mut self) -> Result<Address> {
+    pub fn quote_token(&self) -> Result<Address> {
         self.quote_token.read()
     }
 
-    pub fn next_quote_token(&mut self) -> Result<Address> {
+    pub fn next_quote_token(&self) -> Result<Address> {
         self.next_quote_token.read()
     }
 
-    pub fn supply_cap(&mut self) -> Result<U256> {
+    pub fn supply_cap(&self) -> Result<U256> {
         self.supply_cap.read()
     }
 
-    pub fn paused(&mut self) -> Result<bool> {
+    pub fn paused(&self) -> Result<bool> {
         self.paused.read()
     }
 
-    pub fn transfer_policy_id(&mut self) -> Result<u64> {
+    pub fn transfer_policy_id(&self) -> Result<u64> {
         self.transfer_policy_id.read()
     }
 
@@ -187,11 +187,11 @@ impl TIP20Token {
     }
 
     // View functions
-    pub fn balance_of(&mut self, call: ITIP20::balanceOfCall) -> Result<U256> {
+    pub fn balance_of(&self, call: ITIP20::balanceOfCall) -> Result<U256> {
         self.balances.at(call.account).read()
     }
 
-    pub fn allowance(&mut self, call: ITIP20::allowanceCall) -> Result<U256> {
+    pub fn allowance(&self, call: ITIP20::allowanceCall) -> Result<U256> {
         self.allowances.at(call.owner).at(call.spender).read()
     }
 
@@ -510,7 +510,7 @@ impl TIP20Token {
             let old_allowance = self.get_allowance(msg_sender, call.spender)?;
 
             // Check and update spending limits for access keys
-            let mut keychain = AccountKeychain::new(self.storage);
+            let mut keychain = AccountKeychain::new();
             keychain.authorize_approve(msg_sender, self.address, old_allowance, call.amount)?;
         }
 
@@ -535,7 +535,7 @@ impl TIP20Token {
         // Only check access keys after Allegretto hardfork
         if self.storage.spec().is_allegretto() {
             // Check and update spending limits for access keys
-            let mut keychain = AccountKeychain::new(self.storage);
+            let mut keychain = AccountKeychain::new();
             keychain.authorize_transfer(msg_sender, self.address, call.amount)?;
         }
 
@@ -704,7 +704,7 @@ impl TIP20Token {
         self.grant_default_admin(admin)
     }
 
-    fn get_balance(&mut self, account: Address) -> Result<U256> {
+    fn get_balance(&self, account: Address) -> Result<U256> {
         self.balances.at(account).read()
     }
 
@@ -712,7 +712,7 @@ impl TIP20Token {
         self.balances.at(account).write(amount)
     }
 
-    fn get_allowance(&mut self, owner: Address, spender: Address) -> Result<U256> {
+    fn get_allowance(&self, owner: Address, spender: Address) -> Result<U256> {
         self.allowances.at(owner).at(spender).read()
     }
 
@@ -724,7 +724,7 @@ impl TIP20Token {
         self.total_supply.write(amount)
     }
 
-    fn check_not_paused(&mut self) -> Result<()> {
+    fn check_not_paused(&self) -> Result<()> {
         if self.paused()? {
             return Err(TIP20Error::contract_paused().into());
         }
@@ -740,7 +740,7 @@ impl TIP20Token {
     }
 
     /// Checks if the transfer is authorized.
-    pub fn is_transfer_authorized(&mut self, from: Address, to: Address) -> Result<bool> {
+    pub fn is_transfer_authorized(&self, from: Address, to: Address) -> Result<bool> {
         let transfer_policy_id = self.transfer_policy_id()?;
         let mut registry = TIP403Registry::new();
 
@@ -918,13 +918,14 @@ impl TIP20Token {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use alloy::primitives::{Address, FixedBytes, U256};
+    use alloy::primitives::{Address, FixedBytes, IntoLogData, U256};
     use tempo_chainspec::hardfork::TempoHardfork;
     use tempo_contracts::precompiles::{DEFAULT_FEE_TOKEN_POST_ALLEGRETTO, ITIP20Factory};
 
     use super::*;
     use crate::{
-        PATH_USD_ADDRESS, error::TempoPrecompileError, storage::hashmap::HashMapStorageProvider,
+        PATH_USD_ADDRESS, error::TempoPrecompileError, storage::PrecompileStorageProvider,
+        test_util::setup_storage,
     };
     use rand::{Rng, distributions::Alphanumeric, thread_rng};
 
@@ -950,7 +951,7 @@ pub(crate) mod tests {
         reward_amount: U256,
     ) -> Result<(u64, u128)> {
         initialize_path_usd(admin)?;
-        let token_id = setup_factory_with_token(admin, "Test", "TST");
+        let token_id = setup_factory_with_token(admin, "Test", "TST")?;
 
         let initial_opted_in = {
             let mut token = TIP20Token::new(token_id);
@@ -996,14 +997,14 @@ pub(crate) mod tests {
         }
 
         // Advance time to accrue rewards
-        let initial_time = storage.timestamp();
-        storage.set_timestamp(initial_time + U256::from(50));
+        let initial_time = StorageContext.timestamp();
+        StorageContext.set_timestamp(initial_time + U256::from(50));
 
         Ok((token_id, initial_opted_in))
     }
 
     /// Initialize a factory and create a single token
-    fn setup_factory_with_token(admin: Address, name: &str, symbol: &str) -> Result<(u64)> {
+    fn setup_factory_with_token(admin: Address, name: &str, symbol: &str) -> Result<u64> {
         initialize_path_usd(admin)?;
         let mut factory = TIP20Factory::new();
         factory.initialize()?;
@@ -1026,6 +1027,7 @@ pub(crate) mod tests {
 
     /// Create a token via an already-initialized factory
     fn create_token_via_factory(
+        factory: &mut TIP20Factory,
         admin: Address,
         name: &str,
         symbol: &str,
@@ -1052,9 +1054,9 @@ pub(crate) mod tests {
         factory.initialize()?;
 
         let token_id =
-            create_token_via_factory(&mut factory, admin, "Test", "TST", PATH_USD_ADDRESS);
+            create_token_via_factory(&mut factory, admin, "Test", "TST", PATH_USD_ADDRESS)?;
         let quote_token_id =
-            create_token_via_factory(&mut factory, admin, "Quote", "QUOTE", PATH_USD_ADDRESS);
+            create_token_via_factory(&mut factory, admin, "Quote", "QUOTE", PATH_USD_ADDRESS)?;
 
         Ok((token_id, quote_token_id))
     }
@@ -1076,7 +1078,7 @@ pub(crate) mod tests {
             // Grant issuer role to admin
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let amount = U256::random() % token.supply_cap()?;
+            let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             token
                 .mint(admin, ITIP20::mintCall { to: addr, amount })
                 .unwrap();
@@ -1112,7 +1114,7 @@ pub(crate) mod tests {
                 .unwrap();
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let amount = U256::random() % token.supply_cap()?;
+            let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             token
                 .mint(admin, ITIP20::mintCall { to: from, amount })
                 .unwrap();
@@ -1151,7 +1153,7 @@ pub(crate) mod tests {
                 .initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)
                 .unwrap();
 
-            let amount = U256::random() % token.supply_cap()?;
+            let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             let result = token.transfer(from, ITIP20::transferCall { to, amount });
             assert!(matches!(
                 result,
@@ -1181,7 +1183,7 @@ pub(crate) mod tests {
 
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let amount = U256::random() % token.supply_cap()?;
+            let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             token
                 .mint_with_memo(admin, ITIP20::mintWithMemoCall { to, amount, memo })
                 .unwrap();
@@ -1208,6 +1210,7 @@ pub(crate) mod tests {
     #[test]
     fn test_mint_with_memo_from_address_post_moderato() -> eyre::Result<()> {
         let (mut storage, admin) = setup_storage();
+        storage.set_spec(TempoHardfork::Moderato);
         let to = Address::random();
         let memo = FixedBytes::random();
         let token_id = 1;
@@ -1221,7 +1224,7 @@ pub(crate) mod tests {
 
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let amount = U256::random() % token.supply_cap()?;
+            let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             token
                 .mint_with_memo(admin, ITIP20::mintWithMemoCall { to, amount, memo })
                 .unwrap();
@@ -1259,7 +1262,7 @@ pub(crate) mod tests {
 
             token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-            let amount = U256::random() % token.supply_cap()?;
+            let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             token
                 .mint_with_memo(admin, ITIP20::mintWithMemoCall { to, amount, memo })
                 .unwrap();
@@ -1422,7 +1425,7 @@ pub(crate) mod tests {
     //     let owner = Address::random();
     //     let spender = Address::random();
     //     let to = Address::random();
-    //     let amount = U256::random() % token.supply_cap()?;
+    //     let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
     //     let memo = FixedBytes::random();
 
     //     token
@@ -2206,7 +2209,7 @@ pub(crate) mod tests {
     // fn test_is_tip20() {
     //     let mut storage = HashMapStorageProvider::new(1);
     //     let sender = Address::random();
-    //     initialize_path_usd(&mut storage, sender).unwrap();
+    //     initialize_path_usd(sender).unwrap();
 
     //     let mut factory = TIP20Factory::new(&mut storage);
 

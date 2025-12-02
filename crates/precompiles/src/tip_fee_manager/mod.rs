@@ -516,7 +516,7 @@ mod tests {
         let user = Address::random();
 
         // Initialize PathUSD first
-        initialize_path_usd(&mut storage, user).unwrap();
+        initialize_path_usd(user).unwrap();
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
@@ -550,7 +550,7 @@ mod tests {
         let user = Address::random();
 
         // Initialize PathUSD first
-        initialize_path_usd(&mut storage, user).unwrap();
+        initialize_path_usd(user).unwrap();
 
         let mut fee_manager = TipFeeManager::new(&mut storage);
 
@@ -577,7 +577,7 @@ mod tests {
         let user = Address::random();
 
         // Initialize PathUSD first
-        initialize_path_usd(&mut storage, user).unwrap();
+        initialize_path_usd(user).unwrap();
 
         let mut fee_manager = TipFeeManager::new(&mut storage);
 
@@ -600,7 +600,7 @@ mod tests {
         let admin = Address::random();
 
         // Initialize PathUSD first
-        initialize_path_usd(&mut storage, admin).unwrap();
+        initialize_path_usd(admin).unwrap();
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
@@ -650,7 +650,7 @@ mod tests {
         let admin = Address::random();
 
         // Initialize PathUSD first
-        initialize_path_usd(&mut storage, admin).unwrap();
+        initialize_path_usd(admin).unwrap();
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
@@ -758,7 +758,7 @@ mod tests {
 
         // Initialize token and give fee manager tokens (simulating that collect_fee_pre_tx already happened)
         {
-            initialize_path_usd(&mut storage, admin).unwrap();
+            initialize_path_usd(admin).unwrap();
             let mut tip20_token = TIP20Token::from_address(token, &mut storage);
             tip20_token
                 .initialize(
@@ -874,7 +874,7 @@ mod tests {
 
         {
             // Initialize token
-            initialize_path_usd(&mut storage, admin)?;
+            initialize_path_usd(admin)?;
             let mut tip20_token = TIP20Token::from_address(token, &mut storage);
             tip20_token.initialize(
                 "TestToken",

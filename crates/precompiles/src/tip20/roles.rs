@@ -21,11 +21,11 @@ impl TIP20Token {
     }
 
     // Public functions that handle calldata and emit events
-    pub fn has_role(&mut self, call: IRolesAuth::hasRoleCall) -> Result<bool> {
+    pub fn has_role(&self, call: IRolesAuth::hasRoleCall) -> Result<bool> {
         self.has_role_internal(call.account, call.role)
     }
 
-    pub fn get_role_admin(&mut self, call: IRolesAuth::getRoleAdminCall) -> Result<B256> {
+    pub fn get_role_admin(&self, call: IRolesAuth::getRoleAdminCall) -> Result<B256> {
         self.get_role_admin_internal(call.role)
     }
 
@@ -105,12 +105,12 @@ impl TIP20Token {
     }
 
     // Utility functions for checking roles without calldata
-    pub fn check_role(&mut self, account: Address, role: B256) -> Result<()> {
+    pub fn check_role(&self, account: Address, role: B256) -> Result<()> {
         self.check_role_internal(account, role)
     }
 
     // Internal implementation functions
-    pub fn has_role_internal(&mut self, account: Address, role: B256) -> Result<bool> {
+    pub fn has_role_internal(&self, account: Address, role: B256) -> Result<bool> {
         self.roles.at(account).at(role).read()
     }
 
@@ -123,7 +123,7 @@ impl TIP20Token {
     }
 
     /// If sloads 0, will be equal to DEFAULT_ADMIN_ROLE
-    fn get_role_admin_internal(&mut self, role: B256) -> Result<B256> {
+    fn get_role_admin_internal(&self, role: B256) -> Result<B256> {
         self.role_admins.at(role).read()
     }
 
@@ -131,7 +131,7 @@ impl TIP20Token {
         self.role_admins.at(role).write(admin_role)
     }
 
-    fn check_role_internal(&mut self, account: Address, role: B256) -> Result<()> {
+    fn check_role_internal(&self, account: Address, role: B256) -> Result<()> {
         if !self.has_role_internal(account, role)? {
             return Err(RolesAuthError::unauthorized().into());
         }
@@ -141,16 +141,13 @@ impl TIP20Token {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{address, keccak256};
+    use alloy::primitives::keccak256;
 
     use super::*;
-    use crate::{
-        error::TempoPrecompileError, storage::hashmap::HashMapStorageProvider,
-        test_util::setup_storage,
-    };
+    use crate::{error::TempoPrecompileError, storage::StorageContext, test_util::setup_storage};
 
     #[test]
-    fn test_role_contract_grant_and_check() {
+    fn test_role_contract_grant_and_check() -> eyre::Result<()> {
         let (mut storage, admin) = setup_storage();
         let user = Address::random();
         let custom_role = keccak256(b"CUSTOM_ROLE");
@@ -160,46 +157,47 @@ mod tests {
             let mut token = TIP20Token::new(token_id);
 
             // Initialize and grant admin
-            token
-                .initialize("name", "symbol", "currency", Address::ZERO, admin)
-                .unwrap();
+            token.initialize(
+                "name",
+                "symbol",
+                "currency",
+                Address::ZERO,
+                admin,
+                Address::ZERO,
+            )?;
 
             // Test hasRole
-            let has_admin = token
-                .has_role(IRolesAuth::hasRoleCall {
-                    account: admin,
-                    role: DEFAULT_ADMIN_ROLE,
-                })
-                .expect("Should have admin");
+            let has_admin = token.has_role(IRolesAuth::hasRoleCall {
+                account: admin,
+                role: DEFAULT_ADMIN_ROLE,
+            })?;
             assert!(has_admin);
 
             // Grant custom role
-            token
-                .grant_role(
-                    admin,
-                    IRolesAuth::grantRoleCall {
-                        role: custom_role,
-                        account: user,
-                    },
-                )
-                .unwrap();
+            token.grant_role(
+                admin,
+                IRolesAuth::grantRoleCall {
+                    role: custom_role,
+                    account: user,
+                },
+            )?;
 
             // Check custom role
-            let has_custom = token
-                .has_role(IRolesAuth::hasRoleCall {
-                    account: user,
-                    role: custom_role,
-                })
-                .expect("Should have role");
+            let has_custom = token.has_role(IRolesAuth::hasRoleCall {
+                account: user,
+                role: custom_role,
+            })?;
             assert!(has_custom);
 
             // Verify events were emitted
             assert_eq!(token.emited_events().len(), 1); // One grant event
+
+            Ok(())
         })
     }
 
     #[test]
-    fn test_role_admin_functions() {
+    fn test_role_admin_functions() -> eyre::Result<()> {
         let (mut storage, admin) = setup_storage();
         let user = Address::random();
         let custom_role = keccak256(b"CUSTOM_ROLE");
@@ -209,69 +207,78 @@ mod tests {
         StorageContext::enter(&mut storage, || {
             let mut token = TIP20Token::new(token_id);
             // Initialize and grant admin
-            token
-                .initialize("name", "symbol", "currency", Address::ZERO, admin)
-                .unwrap();
+            token.initialize(
+                "name",
+                "symbol",
+                "currency",
+                Address::ZERO,
+                admin,
+                Address::ZERO,
+            )?;
 
             // Set custom admin for role
-            token
-                .set_role_admin(
-                    admin,
-                    IRolesAuth::setRoleAdminCall {
-                        role: custom_role,
-                        adminRole: admin_role,
-                    },
-                )
-                .unwrap();
+            token.set_role_admin(
+                admin,
+                IRolesAuth::setRoleAdminCall {
+                    role: custom_role,
+                    adminRole: admin_role,
+                },
+            )?;
 
             // Check role admin
-            let retrieved_admin = token
-                .get_role_admin(IRolesAuth::getRoleAdminCall { role: custom_role })
-                .expect("Should have admin");
+            let retrieved_admin =
+                token.get_role_admin(IRolesAuth::getRoleAdminCall { role: custom_role })?;
             assert_eq!(retrieved_admin, admin_role);
+
+            Ok(())
         })
     }
 
     #[test]
-    fn test_renounce_role() {
-        let (mut storage, admin) = setup_storage();
-        let user = Address::random();
+    fn test_renounce_role() -> eyre::Result<()> {
+        let (mut storage, user) = setup_storage();
         let custom_role = keccak256(b"CUSTOM_ROLE");
         let token_id = 1;
 
         StorageContext::enter(&mut storage, || {
             let mut token = TIP20Token::new(token_id);
-            token
-                .initialize("name", "symbol", "currency", Address::ZERO, Address::ZERO)
-                .unwrap();
+            token.initialize(
+                "name",
+                "symbol",
+                "currency",
+                Address::ZERO,
+                Address::ZERO,
+                Address::ZERO,
+            )?;
             token.grant_role_internal(user, custom_role).unwrap();
 
             // Renounce role
-            token
-                .renounce_role(user, IRolesAuth::renounceRoleCall { role: custom_role })
-                .unwrap();
+            token.renounce_role(user, IRolesAuth::renounceRoleCall { role: custom_role })?;
 
             // Check role is removed
-            assert!(
-                !token
-                    .has_role_internal(user, custom_role)
-                    .expect("Could not get role")
-            );
+            assert!(!token.has_role_internal(user, custom_role)?);
+
+            Ok(())
         })
     }
 
     #[test]
-    fn test_unauthorized_access() {
-        let (mut storage, admin) = setup_storage();
-        let (user, other) = (Address::random(), Address::random());
+    fn test_unauthorized_access() -> eyre::Result<()> {
+        let (mut storage, user) = setup_storage();
+        let other = Address::random();
         let custom_role = keccak256(b"CUSTOM_ROLE");
         let token_id = 1;
 
         StorageContext::enter(&mut storage, || {
             let mut token = TIP20Token::new(token_id);
-            token
-                .initialize("name", "symbol", "currency", Address::ZERO, Address::ZERO)
-                .unwrap();
+            token.initialize(
+                "name",
+                "symbol",
+                "currency",
+                Address::ZERO,
+                Address::ZERO,
+                Address::ZERO,
+            )?;
 
             // Try to grant role without permission
             let result = token.grant_role(
@@ -288,6 +295,8 @@ mod tests {
                     RolesAuthError::Unauthorized(IRolesAuth::Unauthorized {})
                 ))
             ));
+
+            Ok(())
         })
     }
 }

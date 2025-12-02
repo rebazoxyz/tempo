@@ -108,7 +108,7 @@ impl TIP20RewardsRegistry {
 
             for token in tokens {
                 let token_id = address_to_token_id_unchecked(token);
-                let mut tip20_token = TIP20Token::new(token_id, self.storage);
+                let mut tip20_token = TIP20Token::new(token_id);
                 tip20_token.finalize_streams(self.address, next_timestamp)?;
 
                 let stream_key = keccak256((token, next_timestamp).abi_encode());
@@ -141,221 +141,240 @@ mod tests {
     use crate::{
         PATH_USD_ADDRESS,
         error::TempoPrecompileError,
-        storage::{ContractStorage, hashmap::HashMapStorageProvider},
+        storage::{
+            ContractStorage, PrecompileStorageProvider, StorageContext,
+            hashmap::HashMapStorageProvider,
+        },
+        test_util::setup_storage,
         tip20::{ISSUER_ROLE, TIP20Token, tests::initialize_path_usd},
         tip20_rewards_registry::TIP20RewardsRegistry,
     };
     use tempo_contracts::precompiles::ITIP20;
 
-    fn setup_registry(timestamp: u64) -> (HashMapStorageProvider, Address) {
-        let mut storage = HashMapStorageProvider::new(timestamp);
-        let admin = Address::random();
-        initialize_path_usd(admin).unwrap();
-        (storage, admin)
+    fn setup_registry(timestamp: u64) -> Result<(HashMapStorageProvider, Address)> {
+        let (mut storage, admin) = setup_storage();
+        storage.set_timestamp(U256::from(timestamp));
+
+        StorageContext::enter(&mut storage, || initialize_path_usd(admin))?;
+
+        Ok((storage, admin))
     }
 
     #[test]
     fn test_add_stream() -> eyre::Result<()> {
-        let (mut storage, _admin) = setup_registry(1000);
-        let mut registry = TIP20RewardsRegistry::new();
-        registry.initialize()?;
+        let (mut storage, _admin) = setup_registry(1000)?;
 
-        let token_addr = Address::random();
-        let end_time = 2000u128;
+        StorageContext::enter(&mut storage, || {
+            let mut registry = TIP20RewardsRegistry::new();
+            registry.initialize()?;
 
-        registry.add_stream(token_addr, end_time)?;
+            let token_addr = Address::random();
+            let end_time = 2000u128;
 
-        let streams = registry.sload_streams_ending_at(end_time)?;
-        assert_eq!(streams.len(), 1);
-        assert_eq!(streams[0], token_addr);
+            registry.add_stream(token_addr, end_time)?;
 
-        let stream_key = keccak256((token_addr, end_time).abi_encode());
-        let index = registry.sload_stream_index(stream_key)?;
-        assert_eq!(index, U256::ZERO);
+            let streams = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams.len(), 1);
+            assert_eq!(streams[0], token_addr);
 
-        let token_addr2 = Address::random();
-        registry.add_stream(token_addr2, end_time)?;
+            let stream_key = keccak256((token_addr, end_time).abi_encode());
+            let index = registry.stream_index.at(stream_key).read()?;
+            assert_eq!(index, U256::ZERO);
 
-        let streams = registry.sload_streams_ending_at(end_time)?;
-        assert_eq!(streams.len(), 2);
-        assert!(streams.contains(&token_addr));
-        assert!(streams.contains(&token_addr2));
+            let token_addr2 = Address::random();
+            registry.add_stream(token_addr2, end_time)?;
 
-        let stream_key2 = keccak256((token_addr2, end_time).abi_encode());
-        let index2 = registry.sload_stream_index(stream_key2)?;
-        assert_eq!(index2, U256::ONE);
+            let streams = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams.len(), 2);
+            assert!(streams.contains(&token_addr));
+            assert!(streams.contains(&token_addr2));
 
-        Ok(())
+            let stream_key2 = keccak256((token_addr2, end_time).abi_encode());
+            let index2 = registry.stream_index.at(stream_key2).read()?;
+            assert_eq!(index2, U256::ONE);
+
+            Ok(())
+        })
     }
 
     #[test]
     fn test_remove_stream() -> eyre::Result<()> {
-        let (mut storage, _admin) = setup_registry(1000);
-        let mut registry = TIP20RewardsRegistry::new();
-        registry.initialize()?;
+        let (mut storage, _admin) = setup_registry(1000)?;
 
-        let token1 = Address::random();
-        let token2 = Address::random();
-        let token3 = Address::random();
-        let end_time = 2000u128;
+        StorageContext::enter(&mut storage, || {
+            let mut registry = TIP20RewardsRegistry::new();
+            registry.initialize()?;
 
-        // Add three streams
-        registry.add_stream(token1, end_time)?;
-        registry.add_stream(token2, end_time)?;
-        registry.add_stream(token3, end_time)?;
+            let token1 = Address::random();
+            let token2 = Address::random();
+            let token3 = Address::random();
+            let end_time = 2000u128;
 
-        let streams = registry.sload_streams_ending_at(end_time)?;
-        assert_eq!(streams.len(), 3);
-        assert_eq!(streams[0], token1);
-        assert_eq!(streams[1], token2);
-        assert_eq!(streams[2], token3);
+            // Add three streams
+            registry.add_stream(token1, end_time)?;
+            registry.add_stream(token2, end_time)?;
+            registry.add_stream(token3, end_time)?;
 
-        registry.remove_stream(token2, end_time)?;
+            let streams = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams.len(), 3);
+            assert_eq!(streams[0], token1);
+            assert_eq!(streams[1], token2);
+            assert_eq!(streams[2], token3);
 
-        let streams = registry.sload_streams_ending_at(end_time)?;
-        assert_eq!(streams.len(), 2);
-        assert_eq!(streams[0], token1);
-        assert_eq!(streams[1], token3);
+            registry.remove_stream(token2, end_time)?;
 
-        // Verify indices are updated correctly
-        let stream_key1 = keccak256((token1, end_time).abi_encode());
-        let stream_key2 = keccak256((token2, end_time).abi_encode());
-        let stream_key3 = keccak256((token3, end_time).abi_encode());
+            let streams = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams.len(), 2);
+            assert_eq!(streams[0], token1);
+            assert_eq!(streams[1], token3);
 
-        let index1 = registry.sload_stream_index(stream_key1)?;
-        let index2 = registry.sload_stream_index(stream_key2)?;
-        let index3 = registry.sload_stream_index(stream_key3)?;
+            // Verify indices are updated correctly
+            let stream_key1 = keccak256((token1, end_time).abi_encode());
+            let stream_key2 = keccak256((token2, end_time).abi_encode());
+            let stream_key3 = keccak256((token3, end_time).abi_encode());
 
-        assert_eq!(index1, U256::ZERO);
-        assert_eq!(index2, U256::ZERO);
-        assert_eq!(index3, U256::ONE);
+            let index1 = registry.stream_index.at(stream_key1).read()?;
+            let index2 = registry.stream_index.at(stream_key2).read()?;
+            let index3 = registry.stream_index.at(stream_key3).read()?;
 
-        registry.remove_stream(token3, end_time)?;
-        let streams = registry.sload_streams_ending_at(end_time)?;
-        assert_eq!(streams.len(), 1);
-        assert_eq!(streams[0], token1);
+            assert_eq!(index1, U256::ZERO);
+            assert_eq!(index2, U256::ZERO);
+            assert_eq!(index3, U256::ONE);
 
-        registry.remove_stream(token1, end_time)?;
+            registry.remove_stream(token3, end_time)?;
+            let streams = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams.len(), 1);
+            assert_eq!(streams[0], token1);
 
-        let streams = registry.sload_streams_ending_at(end_time)?;
-        assert_eq!(streams.len(), 0);
+            registry.remove_stream(token1, end_time)?;
 
-        // Test removing non-existent stream
-        let non_existent_token = Address::random();
-        let result = registry.remove_stream(non_existent_token, end_time);
-        assert!(result.is_err());
+            let streams = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams.len(), 0);
 
-        Ok(())
+            // Test removing non-existent stream
+            let non_existent_token = Address::random();
+            let result = registry.remove_stream(non_existent_token, end_time);
+            assert!(result.is_err());
+
+            Ok(())
+        })
     }
 
     #[test]
-    fn test_sload_streams_ending_at() -> eyre::Result<()> {
-        let (mut storage, _admin) = setup_registry(1000);
-        let mut registry = TIP20RewardsRegistry::new();
-        registry.initialize()?;
+    fn test_streams_ending_at() -> eyre::Result<()> {
+        let (mut storage, _admin) = setup_registry(1000)?;
 
-        let timestamp = 2000u128;
+        StorageContext::enter(&mut storage, || {
+            let mut registry = TIP20RewardsRegistry::new();
+            registry.initialize()?;
 
-        let empty_streams = registry.sload_streams_ending_at(timestamp)?;
-        assert_eq!(empty_streams.len(), 0);
+            let timestamp = 2000u128;
 
-        let token1 = Address::random();
-        let token2 = Address::random();
-        let token3 = Address::random();
+            let empty_streams = registry.ending_streams.at(timestamp).read()?;
+            assert_eq!(empty_streams.len(), 0);
 
-        registry.add_stream(token1, timestamp)?;
-        registry.add_stream(token2, timestamp)?;
-        registry.add_stream(token3, timestamp)?;
+            let token1 = Address::random();
+            let token2 = Address::random();
+            let token3 = Address::random();
 
-        let streams = registry.sload_streams_ending_at(timestamp)?;
-        assert_eq!(streams.len(), 3);
-        assert_eq!(streams[0], token1);
-        assert_eq!(streams[1], token2);
-        assert_eq!(streams[2], token3);
+            registry.add_stream(token1, timestamp)?;
+            registry.add_stream(token2, timestamp)?;
+            registry.add_stream(token3, timestamp)?;
 
-        let other_timestamp = 3000u128;
-        let other_streams = registry.sload_streams_ending_at(other_timestamp)?;
-        assert_eq!(other_streams.len(), 0);
+            let streams = registry.ending_streams.at(timestamp).read()?;
+            assert_eq!(streams.len(), 3);
+            assert_eq!(streams[0], token1);
+            assert_eq!(streams[1], token2);
+            assert_eq!(streams[2], token3);
 
-        let token4 = Address::random();
-        registry.add_stream(token4, other_timestamp)?;
+            let other_timestamp = 3000u128;
+            let other_streams = registry.ending_streams.at(other_timestamp).read()?;
+            assert_eq!(other_streams.len(), 0);
 
-        let streams1 = registry.sload_streams_ending_at(timestamp)?;
-        let streams2 = registry.sload_streams_ending_at(other_timestamp)?;
+            let token4 = Address::random();
+            registry.add_stream(token4, other_timestamp)?;
 
-        assert_eq!(streams1.len(), 3);
-        assert_eq!(streams2.len(), 1);
-        assert_eq!(streams2[0], token4);
+            let streams1 = registry.ending_streams.at(timestamp).read()?;
+            let streams2 = registry.ending_streams.at(other_timestamp).read()?;
 
-        Ok(())
+            assert_eq!(streams1.len(), 3);
+            assert_eq!(streams2.len(), 1);
+            assert_eq!(streams2[0], token4);
+
+            Ok(())
+        })
     }
 
     #[test]
     fn test_finalize_streams() -> eyre::Result<()> {
-        let (mut storage, admin) = setup_registry(1500);
+        let (mut storage, admin) = setup_registry(1500)?;
 
-        // Create a TIP20 token and start a reward stream
-        let mut token = TIP20Token::new(1);
-        token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin)?;
-        let token_addr = token.address();
+        StorageContext::enter(&mut storage, || {
+            // Create a TIP20 token and start a reward stream
+            let mut token = TIP20Token::new(1);
+            token.initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)?;
+            let token_addr = token.address();
 
-        token.grant_role_internal(admin, *ISSUER_ROLE)?;
+            token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-        // Mint tokens for the reward
-        let reward_amount = U256::from(100e18);
-        token.mint(
-            admin,
-            ITIP20::mintCall {
-                to: admin,
-                amount: reward_amount,
-            },
-        )?;
+            // Mint tokens for the reward
+            let reward_amount = U256::from(100e18);
+            token.mint(
+                admin,
+                ITIP20::mintCall {
+                    to: admin,
+                    amount: reward_amount,
+                },
+            )?;
 
-        // Start a reward stream that lasts 5 seconds from current time (1500)
-        let current_time = token.storage().timestamp().to::<u128>();
-        let stream_id = token.start_reward(
-            admin,
-            ITIP20::startRewardCall {
-                amount: reward_amount,
-                secs: 5,
-            },
-        )?;
-        assert_eq!(stream_id, 1);
+            // Start a reward stream that lasts 5 seconds from current time (1500)
+            let current_time = token.storage().timestamp().to::<u128>();
+            let stream_id = token.start_reward(
+                admin,
+                ITIP20::startRewardCall {
+                    amount: reward_amount,
+                    secs: 5,
+                },
+            )?;
+            assert_eq!(stream_id, 1);
 
-        let end_time = current_time + 5;
-        let mut registry = TIP20RewardsRegistry::new();
-        registry.initialize()?;
+            let end_time = current_time + 5;
+            let mut registry = TIP20RewardsRegistry::new();
+            registry.initialize()?;
 
-        // Test unauthorized caller
-        let unauthorized = Address::random();
-        let result = registry.finalize_streams(unauthorized);
-        assert!(matches!(
-            result.unwrap_err(),
-            TempoPrecompileError::TIP20RewardsRegistry(TIP20RewardsRegistryError::Unauthorized(_))
-        ));
+            // Test unauthorized caller
+            let unauthorized = Address::random();
+            let result = registry.finalize_streams(unauthorized);
+            assert!(matches!(
+                result.unwrap_err(),
+                TempoPrecompileError::TIP20RewardsRegistry(
+                    TIP20RewardsRegistryError::Unauthorized(_)
+                )
+            ));
 
-        let result = registry.finalize_streams(Address::ZERO);
-        assert!(result.is_ok());
+            let result = registry.finalize_streams(Address::ZERO);
+            assert!(result.is_ok());
 
-        // Verify the stream was added to registry at the correct end time
-        let streams_before = registry.sload_streams_ending_at(end_time)?;
-        assert_eq!(streams_before.len(), 1);
-        assert_eq!(streams_before[0], token_addr);
+            // Verify the stream was added to registry at the correct end time
+            let streams_before = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams_before.len(), 1);
+            assert_eq!(streams_before[0], token_addr);
 
-        // Fast forward to the end time to simulate stream completion
-        registry.storage.set_timestamp(U256::from(end_time));
-        registry.finalize_streams(Address::ZERO)?;
+            // Fast forward to the end time to simulate stream completion
+            registry.storage.set_timestamp(U256::from(end_time));
+            registry.finalize_streams(Address::ZERO)?;
 
-        let last_updated = registry.sload_last_updated_timestamp()?;
-        assert_eq!(last_updated, end_time);
+            let last_updated = registry.last_updated_timestamp.read()?;
+            assert_eq!(last_updated, end_time);
 
-        // Verify streams were cleared from the registry
-        let streams_after = registry.sload_streams_ending_at(end_time)?;
-        assert_eq!(streams_after.len(), 0);
+            // Verify streams were cleared from the registry
+            let streams_after = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams_after.len(), 0);
 
-        let result = registry.finalize_streams(Address::ZERO);
-        assert!(result.is_ok());
+            let result = registry.finalize_streams(Address::ZERO);
+            assert!(result.is_ok());
 
-        Ok(())
+            Ok(())
+        })
     }
 }
