@@ -11,7 +11,7 @@ use crate::{
     PATH_USD_ADDRESS, TIP_FEE_MANAGER_ADDRESS,
     account_keychain::AccountKeychain,
     error::{Result, TempoPrecompileError},
-    storage::PrecompileStorageProvider,
+    storage::{Mapping, PrecompileStorageProvider},
     tip20::{
         rewards::{RewardStream, UserRewardInfo},
         roles::DEFAULT_ADMIN_ROLE,
@@ -403,6 +403,18 @@ impl<'a, S: PrecompileStorageProvider> TIP20Token<'a, S> {
     fn _mint(&mut self, msg_sender: Address, to: Address, amount: U256) -> Result<()> {
         self.check_role(msg_sender, *ISSUER_ROLE)?;
         let total_supply = self.total_supply()?;
+
+        // Check if the `to` address is authorized to receive tokens
+        if self.storage.spec().is_allegretto() {
+            let transfer_policy_id = self.transfer_policy_id()?;
+            let mut registry = TIP403Registry::new(self.storage);
+            if !registry.is_authorized(ITIP403Registry::isAuthorizedCall {
+                policyId: transfer_policy_id,
+                user: to,
+            })? {
+                return Err(TIP20Error::policy_forbids().into());
+            }
+        }
 
         let new_supply = total_supply
             .checked_add(amount)
