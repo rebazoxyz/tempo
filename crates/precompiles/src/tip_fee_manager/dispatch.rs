@@ -2,7 +2,7 @@ use crate::{
     Precompile,
     error::TempoPrecompileError,
     fill_precompile_output, input_cost, mutate, mutate_void,
-    storage::PrecompileStorageProvider,
+    storage::Handler,
     tip_fee_manager::{
         IFeeManager, ITIPFeeAMM, TipFeeManager,
         amm::{M, MIN_LIQUIDITY, N, SCALE},
@@ -57,7 +57,7 @@ impl Precompile for TipFeeManager {
                 })
             }
             ITIPFeeAMM::poolsCall::SELECTOR => view::<ITIPFeeAMM::poolsCall>(calldata, |call| {
-                let pool = self.sload_pools(call.poolId)?;
+                let pool = self.pools.at(call.poolId).read()?;
 
                 Ok(ITIPFeeAMM::Pool {
                     reserveUserToken: pool.reserve_user_token,
@@ -66,12 +66,12 @@ impl Precompile for TipFeeManager {
             }),
             ITIPFeeAMM::totalSupplyCall::SELECTOR => {
                 view::<ITIPFeeAMM::totalSupplyCall>(calldata, |call| {
-                    self.sload_total_supply(call.poolId)
+                    self.total_supply.at(call.poolId).read()
                 })
             }
             ITIPFeeAMM::liquidityBalancesCall::SELECTOR => {
                 view::<ITIPFeeAMM::liquidityBalancesCall>(calldata, |call| {
-                    self.sload_liquidity_balances(call.poolId, call.user)
+                    self.liquidity_balances.at(call.poolId).at(call.user).read()
                 })
             }
             ITIPFeeAMM::MCall::SELECTOR => view::<ITIPFeeAMM::MCall>(calldata, |_call| Ok(M)),
