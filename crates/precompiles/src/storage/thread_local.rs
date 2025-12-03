@@ -11,13 +11,12 @@ use crate::{
 
 scoped_thread_local!(static STORAGE: RefCell<*mut dyn PrecompileStorageProvider>);
 
-/// Converts a raw pointer to a mutable reference.
+/// Extends the lifetime of a reference: `&'a T -> &'b T`
+///
+/// SAFETY: the caller must ensure the reference remains valid for the extended lifetime.
 #[inline]
-unsafe fn ptr_as_mut<'a>(
-    ptr: *mut dyn PrecompileStorageProvider,
-) -> &'a mut dyn PrecompileStorageProvider {
-    // SAFETY: Caller guarantees ptr is valid and exclusively accessible.
-    unsafe { &mut *ptr }
+unsafe fn extend_lifetime<'b, T: ?Sized>(r: &T) -> &'b T {
+    unsafe { &*(r as *const T) }
 }
 
 /// Thread-local storage accessor that implements `PrecompileStorageProvider` without the trait bound.
@@ -58,8 +57,28 @@ impl StorageContext {
         STORAGE.set(&cell, f)
     }
 
-    /// Execute a function with access to the current thread-local storage provider.
-    fn with_storage<F, R>(f: F) -> Result<R>
+    /// Execute an infallible function with access to the current thread-local storage provider.
+    ///
+    /// # Panics
+    /// Panics if no storage context is set.
+    fn with_storage<F, R>(f: F) -> R
+    where
+        F: FnOnce(&mut dyn PrecompileStorageProvider) -> R,
+    {
+        assert!(
+            STORAGE.is_set(),
+            "No storage context. 'StorageContext::enter' must be called first"
+        );
+        STORAGE.with(|cell| {
+            // SAFETY: `scoped_tls` ensures the pointer is only accessible within the closure scope.
+            // Holding the guard prevents re-entrant borrows.
+            let mut guard = cell.borrow_mut();
+            f(unsafe { &mut **guard })
+        })
+    }
+
+    /// Execute a (fallible) function with access to the current thread-local storage provider.
+    fn try_with_storage<F, R>(f: F) -> Result<R>
     where
         F: FnOnce(&mut dyn PrecompileStorageProvider) -> Result<R>,
     {
@@ -71,67 +90,62 @@ impl StorageContext {
         STORAGE.with(|cell| {
             // SAFETY: `scoped_tls` ensures the pointer is only accessible within the closure scope.
             // Holding the guard prevents re-entrant borrows.
-            let guard = cell.borrow_mut();
-            f(unsafe { ptr_as_mut(*guard) })
+            let mut guard = cell.borrow_mut();
+            f(unsafe { &mut **guard })
         })
     }
 
     // `PrecompileStorageProvider` methods (with modified mutability for read-only methods)
 
     pub fn chain_id(&self) -> u64 {
-        // NOTE: safe to unwrap as `chain_id()` is infallible.
-        Self::with_storage(|s| Ok(s.chain_id())).unwrap()
+        Self::with_storage(|s| s.chain_id())
     }
 
     pub fn timestamp(&self) -> U256 {
-        // NOTE: safe to unwrap as `timestamp()` is infallible.
-        Self::with_storage(|s| Ok(s.timestamp())).unwrap()
+        Self::with_storage(|s| s.timestamp())
     }
 
     pub fn beneficiary(&self) -> Address {
-        // NOTE: safe to unwrap as `beneficiary()` is infallible.
-        Self::with_storage(|s| Ok(s.beneficiary())).unwrap()
+        Self::with_storage(|s| s.beneficiary())
     }
 
     pub fn set_code(&mut self, address: Address, code: Bytecode) -> Result<()> {
-        Self::with_storage(|s| s.set_code(address, code))
+        Self::try_with_storage(|s| s.set_code(address, code))
     }
 
     pub fn get_account_info(&self, address: Address) -> Result<&'_ AccountInfo> {
         // SAFETY: The returned reference is valid for the duration of the
         // `StorageContext::enter` closure. Since `StorageContext` can only be used
         // while inside enter(), the reference remains valid.
-        Self::with_storage(|s| {
+        Self::try_with_storage(|s| {
             let info = s.get_account_info(address)?;
-            // SAFETY: Extend the lifetime to match `&'_ self`.
-            // Underlying storage data outlives the accessor.
-            let info: &'_ AccountInfo = unsafe { &*(info as *const AccountInfo) };
-            Ok(info)
+            // SAFETY: Underlying storage data outlives the accessor.
+            Ok(unsafe { extend_lifetime(info) })
         })
     }
 
     pub fn sload(&self, address: Address, key: U256) -> Result<U256> {
-        Self::with_storage(|s| s.sload(address, key))
+        Self::try_with_storage(|s| s.sload(address, key))
     }
 
     pub fn tload(&self, address: Address, key: U256) -> Result<U256> {
-        Self::with_storage(|s| s.tload(address, key))
+        Self::try_with_storage(|s| s.tload(address, key))
     }
 
     pub fn sstore(&mut self, address: Address, key: U256, value: U256) -> Result<()> {
-        Self::with_storage(|s| s.sstore(address, key, value))
+        Self::try_with_storage(|s| s.sstore(address, key, value))
     }
 
     pub fn tstore(&mut self, address: Address, key: U256, value: U256) -> Result<()> {
-        Self::with_storage(|s| s.tstore(address, key, value))
+        Self::try_with_storage(|s| s.tstore(address, key, value))
     }
 
     pub fn emit_event(&mut self, address: Address, event: LogData) -> Result<()> {
-        Self::with_storage(|s| s.emit_event(address, event))
+        Self::try_with_storage(|s| s.emit_event(address, event))
     }
 
     pub fn deduct_gas(&mut self, gas: u64) -> Result<()> {
-        Self::with_storage(|s| s.deduct_gas(gas))
+        Self::try_with_storage(|s| s.deduct_gas(gas))
     }
 
     pub fn refund_gas(&mut self, gas: i64) {
@@ -139,8 +153,7 @@ impl StorageContext {
     }
 
     pub fn gas_used(&self) -> u64 {
-        // NOTE: safe to unwrap as `gas_used()` is infallible.
-        Self::with_storage(|s| Ok(s.gas_used())).unwrap()
+        Self::with_storage(|s| s.gas_used())
     }
 
     pub fn gas_refunded(&self) -> i64 {
@@ -149,8 +162,7 @@ impl StorageContext {
     }
 
     pub fn spec(&self) -> TempoHardfork {
-        // NOTE: safe to unwrap as `spec()` is infallible.
-        Self::with_storage(|s| Ok(s.spec())).unwrap()
+        Self::with_storage(|s| s.spec())
     }
 
     #[cfg(any(test, feature = "test-utils"))]
@@ -158,48 +170,27 @@ impl StorageContext {
         // SAFETY: The returned reference is valid for the duration of the
         // `StorageContext::enter` closure. Since `StorageContext` can only be used
         // while inside enter(), the reference remains valid.
-        Self::with_storage(|s| {
-            let events = s.get_events(address);
-            let events: &'_ Vec<LogData> = unsafe { &*(events as *const Vec<LogData>) };
-            Ok(events)
-        })
-        .unwrap()
+        Self::with_storage(|s| unsafe { extend_lifetime(s.get_events(address)) })
     }
 
     #[cfg(any(test, feature = "test-utils"))]
     pub fn set_nonce(&mut self, address: Address, nonce: u64) {
-        Self::with_storage(|s| {
-            s.set_nonce(address, nonce);
-            Ok(())
-        })
-        .unwrap()
+        Self::with_storage(|s| s.set_nonce(address, nonce))
     }
 
     #[cfg(any(test, feature = "test-utils"))]
     pub fn set_timestamp(&mut self, timestamp: U256) {
-        Self::with_storage(|s| {
-            s.set_timestamp(timestamp);
-            Ok(())
-        })
-        .unwrap()
+        Self::with_storage(|s| s.set_timestamp(timestamp))
     }
 
     #[cfg(any(test, feature = "test-utils"))]
     pub fn set_beneficiary(&mut self, beneficiary: Address) {
-        Self::with_storage(|s| {
-            s.set_beneficiary(beneficiary);
-            Ok(())
-        })
-        .unwrap()
+        Self::with_storage(|s| s.set_beneficiary(beneficiary))
     }
 
     #[cfg(any(test, feature = "test-utils"))]
     pub fn set_spec(&mut self, spec: TempoHardfork) {
-        Self::with_storage(|s| {
-            s.set_spec(spec);
-            Ok(())
-        })
-        .unwrap()
+        Self::with_storage(|s| s.set_spec(spec))
     }
 }
 
@@ -216,10 +207,8 @@ mod tests {
             // first borrow
             StorageContext::with_storage(|_| {
                 // re-entrant call should panic
-                StorageContext::with_storage(|_| Ok(())).unwrap();
-                Ok(())
+                StorageContext::with_storage(|_| ())
             })
-            .unwrap();
         });
     }
 }
