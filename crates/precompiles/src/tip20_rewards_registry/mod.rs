@@ -130,7 +130,7 @@ impl TIP20RewardsRegistry {
 
     /// Helper method to get the count of streams at a given end time (for testing)
     #[cfg(test)]
-    pub(crate) fn get_stream_count_at(&mut self, end_time: u128) -> Result<usize> {
+    pub(crate) fn get_stream_count_at(&self, end_time: u128) -> Result<usize> {
         self.ending_streams.at(end_time).len()
     }
 }

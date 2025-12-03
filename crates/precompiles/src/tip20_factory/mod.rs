@@ -113,7 +113,7 @@ impl TIP20Factory {
         Ok(token_address)
     }
 
-    pub fn token_id_counter(&mut self) -> Result<U256> {
+    pub fn token_id_counter(&self) -> Result<U256> {
         let counter = self.token_id_counter.read()?;
 
         // Pre Allegreto, start the counter at 1

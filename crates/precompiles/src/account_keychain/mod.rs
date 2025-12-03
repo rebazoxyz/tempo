@@ -251,7 +251,7 @@ impl AccountKeychain {
     }
 
     /// Get key information
-    pub fn get_key(&mut self, call: getKeyCall) -> Result<KeyInfo> {
+    pub fn get_key(&self, call: getKeyCall) -> Result<KeyInfo> {
         let key = self.keys.at(call.account).at(call.keyId).read()?;
 
         // Key doesn't exist if expiry == 0, or key has been revoked
@@ -283,14 +283,14 @@ impl AccountKeychain {
     }
 
     /// Get remaining spending limit
-    pub fn get_remaining_limit(&mut self, call: getRemainingLimitCall) -> Result<U256> {
+    pub fn get_remaining_limit(&self, call: getRemainingLimitCall) -> Result<U256> {
         let limit_key = Self::spending_limit_key(call.account, call.keyId);
         self.spending_limits.at(limit_key).at(call.token).read()
     }
 
     /// Get the transaction key used in the current transaction
     pub fn get_transaction_key(
-        &mut self,
+        &self,
         _call: getTransactionKeyCall,
         _msg_sender: Address,
     ) -> Result<Address> {
@@ -319,7 +319,7 @@ impl AccountKeychain {
     ///
     /// Note: This does NOT check expiry against current timestamp.
     /// Callers should check expiry separately if needed.
-    fn load_active_key(&mut self, account: Address, key_id: Address) -> Result<AuthorizedKey> {
+    fn load_active_key(&self, account: Address, key_id: Address) -> Result<AuthorizedKey> {
         let key = self.keys.at(account).at(key_id).read()?;
 
         if key.is_revoked {
@@ -338,7 +338,7 @@ impl AccountKeychain {
     /// This consolidates all validation checks into one method.
     /// Returns Ok(()) if the key is valid and authorized, Err otherwise.
     pub fn validate_keychain_authorization(
-        &mut self,
+        &self,
         account: Address,
         key_id: Address,
         current_timestamp: u64,

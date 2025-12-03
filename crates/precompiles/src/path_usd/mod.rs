@@ -211,7 +211,7 @@ impl PathUSD {
         self.token.unpause(sender, call)
     }
 
-    pub fn paused(&mut self) -> Result<bool> {
+    pub fn paused(&self) -> Result<bool> {
         self.token.paused()
     }
 

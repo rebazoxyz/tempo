@@ -379,11 +379,11 @@ impl TipFeeManager {
         Ok(())
     }
 
-    pub fn user_tokens(&mut self, call: IFeeManager::userTokensCall) -> Result<Address> {
+    pub fn user_tokens(&self, call: IFeeManager::userTokensCall) -> Result<Address> {
         self.user_tokens.at(call.user).read()
     }
 
-    pub fn validator_tokens(&mut self, call: IFeeManager::validatorTokensCall) -> Result<Address> {
+    pub fn validator_tokens(&self, call: IFeeManager::validatorTokensCall) -> Result<Address> {
         let token = self.validator_tokens.at(call.validator).read()?;
 
         if token.is_zero() {
@@ -394,7 +394,7 @@ impl TipFeeManager {
     }
 
     pub fn get_fee_token_balance(
-        &mut self,
+        &self,
         call: IFeeManager::getFeeTokenBalanceCall,
     ) -> Result<IFeeManager::getFeeTokenBalanceReturn> {
         let mut token = self.user_tokens.at(call.sender).read()?;

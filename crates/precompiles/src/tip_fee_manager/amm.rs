@@ -74,7 +74,7 @@ impl TipFeeManager {
     }
 
     /// Retrieves a pool for a given `pool_id` from storage
-    pub fn get_pool(&mut self, call: ITIPFeeAMM::getPoolCall) -> Result<Pool> {
+    pub fn get_pool(&self, call: ITIPFeeAMM::getPoolCall) -> Result<Pool> {
         let pool_id = self.pool_id(call.userToken, call.validatorToken);
         self.pools.at(pool_id).read()
     }
@@ -110,7 +110,7 @@ impl TipFeeManager {
     }
 
     /// Calculate validator token reserve minus pending swaps
-    fn get_effective_validator_reserve(&mut self, pool_id: B256) -> Result<U256> {
+    fn get_effective_validator_reserve(&self, pool_id: B256) -> Result<U256> {
         let pool = self.pools.at(pool_id).read()?;
         let pending_fee_swap_in = self.get_pending_fee_swap_in(pool_id)?;
         let pending_out = compute_amount_out(U256::from(pending_fee_swap_in))?;
@@ -121,7 +121,7 @@ impl TipFeeManager {
     }
 
     /// Calculate user token reserve plus pending swaps
-    fn get_effective_user_reserve(&mut self, pool_id: B256) -> Result<U256> {
+    fn get_effective_user_reserve(&self, pool_id: B256) -> Result<U256> {
         let pool = self.pools.at(pool_id).read()?;
         let pending_fee_swap_in = U256::from(self.get_pending_fee_swap_in(pool_id)?);
 
@@ -577,7 +577,7 @@ impl TipFeeManager {
 
     /// Calculate burn amounts for liquidity withdrawal
     fn calculate_burn_amounts(
-        &mut self,
+        &self,
         pool: &Pool,
         pool_id: B256,
         liquidity: U256,
@@ -653,7 +653,7 @@ impl TipFeeManager {
     }
 
     /// Get total supply of LP tokens for a pool
-    pub fn get_total_supply(&mut self, pool_id: B256) -> Result<U256> {
+    pub fn get_total_supply(&self, pool_id: B256) -> Result<U256> {
         self.total_supply.at(pool_id).read()
     }
 
@@ -663,7 +663,7 @@ impl TipFeeManager {
     }
 
     /// Get user's LP token balance
-    pub fn get_liquidity_balances(&mut self, pool_id: B256, user: Address) -> Result<U256> {
+    pub fn get_liquidity_balances(&self, pool_id: B256, user: Address) -> Result<U256> {
         self.liquidity_balances.at(pool_id).at(user).read()
     }
 
@@ -678,7 +678,7 @@ impl TipFeeManager {
     }
 
     /// Get pending fee swap amount for a pool
-    pub fn get_pending_fee_swap_in(&mut self, pool_id: B256) -> Result<u128> {
+    pub fn get_pending_fee_swap_in(&self, pool_id: B256) -> Result<u128> {
         self.pending_fee_swap_in.at(pool_id).read()
     }
 

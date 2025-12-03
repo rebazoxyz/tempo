@@ -8,7 +8,7 @@ use crate::{
     error::{Result, TempoPrecompileError},
     storage::{Handler, Mapping},
 };
-use alloy::primitives::{Address, IntoLogData};
+use alloy::primitives::Address;
 
 #[contract]
 pub struct TIP403Registry {
@@ -38,13 +38,13 @@ impl TIP403Registry {
     }
 
     // View functions
-    pub fn policy_id_counter(&mut self) -> Result<u64> {
+    pub fn policy_id_counter(&self) -> Result<u64> {
         // Initialize policy ID counter to 2 if it's 0 (skip special policies)
         self.policy_id_counter.read().map(|counter| counter.max(2))
     }
 
     pub fn policy_data(
-        &mut self,
+        &self,
         call: ITIP403Registry::policyDataCall,
     ) -> Result<ITIP403Registry::policyDataReturn> {
         let data = self.get_policy_data(call.policyId)?;
@@ -57,7 +57,7 @@ impl TIP403Registry {
         })
     }
 
-    pub fn is_authorized(&mut self, call: ITIP403Registry::isAuthorizedCall) -> Result<bool> {
+    pub fn is_authorized(&self, call: ITIP403Registry::isAuthorizedCall) -> Result<bool> {
         self.is_authorized_internal(call.policyId, call.user)
     }
 
@@ -266,7 +266,7 @@ impl TIP403Registry {
     }
 
     // Internal helper functions
-    fn get_policy_data(&mut self, policy_id: u64) -> Result<PolicyData> {
+    fn get_policy_data(&self, policy_id: u64) -> Result<PolicyData> {
         self.policy_data.at(policy_id).read()
     }
 
@@ -278,7 +278,7 @@ impl TIP403Registry {
         self.policy_set.at(policy_id).at(account).write(value)
     }
 
-    fn is_authorized_internal(&mut self, policy_id: u64, user: Address) -> Result<bool> {
+    fn is_authorized_internal(&self, policy_id: u64, user: Address) -> Result<bool> {
         // Special case for always-allow and always-reject policies
         if policy_id < 2 {
             // policyId == 0 is the "always-reject" policy
