@@ -13,60 +13,6 @@ use alloy::{
 use revm::precompile::PrecompileError;
 use tempo_contracts::precompiles::{TIP20_FACTORY_ADDRESS, UnknownFunctionSelector};
 
-/// A macro to generate a new precompile test case
-///
-/// The `test_precompile!` macro's first argument is the name of the test, the second argument is
-/// an optional hardfork spec (i.e. `TempoHardfork::Moderato`). The third argument uses closure-like
-/// `|vars|` syntax that bind random `Address` values to those vars. Finally there is the test body.
-///
-/// The macro builds a `HashMapStorageProvider`, and wraps the body in `StorageContext::enter`.
-#[macro_export]
-macro_rules! test_precompile {
-    // With hardfork spec and addresses
-    ($(#[$attr:meta])* $name:ident, $spec_head:ident $(:: $spec_tail:ident)+, |$($addr:ident),+| $body:block) => {
-        #[test]
-        $(#[$attr])*
-        fn $name() -> eyre::Result<()> {
-            let mut storage = $crate::storage::hashmap::HashMapStorageProvider::new(1)
-                .with_spec($spec_head $(:: $spec_tail)+);
-            $(let $addr = alloy::primitives::Address::random();)+
-            $crate::storage::StorageContext::enter(&mut storage, || $body)
-        }
-    };
-
-    // With hardfork spec, no addresses
-    ($(#[$attr:meta])* $name:ident, $spec_head:ident $(:: $spec_tail:ident)+, || $body:block) => {
-        #[test]
-        $(#[$attr])*
-        fn $name() -> eyre::Result<()> {
-            let mut storage = $crate::storage::hashmap::HashMapStorageProvider::new(1)
-                .with_spec($spec_head $(:: $spec_tail)+);
-            $crate::storage::StorageContext::enter(&mut storage, || $body)
-        }
-    };
-
-    // No spec, with addresses
-    ($(#[$attr:meta])* $name:ident, |$($addr:ident),+| $body:block) => {
-        #[test]
-        $(#[$attr])*
-        fn $name() -> eyre::Result<()> {
-            let mut storage = $crate::storage::hashmap::HashMapStorageProvider::new(1);
-            $(let $addr = alloy::primitives::Address::random();)+
-            $crate::storage::StorageContext::enter(&mut storage, || $body)
-        }
-    };
-
-    // No spec, no addresses
-    ($(#[$attr:meta])* $name:ident, || $body:block) => {
-        #[test]
-        $(#[$attr])*
-        fn $name() -> eyre::Result<()> {
-            let mut storage = $crate::storage::hashmap::HashMapStorageProvider::new(1);
-            $crate::storage::StorageContext::enter(&mut storage, || $body)
-        }
-    };
-}
-
 /// Checks that all selectors in an interface have dispatch handlers.
 ///
 /// Calls each selector with dummy parameters and checks for "Unknown function selector" errors.
