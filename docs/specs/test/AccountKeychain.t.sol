@@ -378,11 +378,9 @@ contract AccountKeychainTest is Test {
         vm.stopPrank();
     }
 
-    function testFuzz_KeyIsolationBetweenAccounts(
-        address account1,
-        address account2,
-        address keyId
-    ) public {
+    function testFuzz_KeyIsolationBetweenAccounts(address account1, address account2, address keyId)
+        public
+    {
         vm.assume(account1 != address(0));
         vm.assume(account2 != address(0));
         vm.assume(account1 != account2);
