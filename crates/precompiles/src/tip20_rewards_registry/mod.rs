@@ -140,48 +140,59 @@ mod tests {
     use super::*;
     use crate::{
         error::TempoPrecompileError,
-        storage::{ContractStorage, StorageContext},
-        test_precompile,
+        storage::{ContractStorage, StorageContext, hashmap::HashMapStorageProvider},
         test_util::TIP20Builder,
         tip20_rewards_registry::TIP20RewardsRegistry,
     };
+    use alloy::primitives::Address;
     use tempo_contracts::precompiles::ITIP20;
 
-    test_precompile!(add_stream, |token, token2| {
-        StorageContext.set_timestamp(U256::from(1000));
+    #[test]
+    fn test_add_stream() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let token = Address::random();
+        let token2 = Address::random();
+        StorageContext::enter(&mut storage, || {
+            StorageContext.set_timestamp(U256::from(1000));
 
-        let mut registry = TIP20RewardsRegistry::new();
-        registry.initialize()?;
+            let mut registry = TIP20RewardsRegistry::new();
+            registry.initialize()?;
 
-        let end_time = 2000u128;
+            let end_time = 2000u128;
 
-        registry.add_stream(token, end_time)?;
+            registry.add_stream(token, end_time)?;
 
-        let streams = registry.ending_streams.at(end_time).read()?;
-        assert_eq!(streams.len(), 1);
-        assert_eq!(streams[0], token);
+            let streams = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams.len(), 1);
+            assert_eq!(streams[0], token);
 
-        let stream_key = keccak256((token, end_time).abi_encode());
-        let index = registry.stream_index.at(stream_key).read()?;
-        assert_eq!(index, U256::ZERO);
+            let stream_key = keccak256((token, end_time).abi_encode());
+            let index = registry.stream_index.at(stream_key).read()?;
+            assert_eq!(index, U256::ZERO);
 
-        registry.add_stream(token2, end_time)?;
+            registry.add_stream(token2, end_time)?;
 
-        let streams = registry.ending_streams.at(end_time).read()?;
-        assert_eq!(streams.len(), 2);
-        assert!(streams.contains(&token));
-        assert!(streams.contains(&token2));
+            let streams = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams.len(), 2);
+            assert!(streams.contains(&token));
+            assert!(streams.contains(&token2));
 
-        let stream_key2 = keccak256((token2, end_time).abi_encode());
-        let index2 = registry.stream_index.at(stream_key2).read()?;
-        assert_eq!(index2, U256::ONE);
+            let stream_key2 = keccak256((token2, end_time).abi_encode());
+            let index2 = registry.stream_index.at(stream_key2).read()?;
+            assert_eq!(index2, U256::ONE);
 
-        Ok(())
-    });
+            Ok(())
+        })
+    }
 
-    test_precompile!(
-        remove_stream,
-        |token1, token2, token3, non_existent_token| {
+    #[test]
+    fn test_remove_stream() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let token1 = Address::random();
+        let token2 = Address::random();
+        let token3 = Address::random();
+        let non_existent_token = Address::random();
+        StorageContext::enter(&mut storage, || {
             StorageContext.set_timestamp(U256::from(1000));
 
             let mut registry = TIP20RewardsRegistry::new();
@@ -235,100 +246,116 @@ mod tests {
             assert!(result.is_err());
 
             Ok(())
-        }
-    );
+        })
+    }
 
-    test_precompile!(streams_ending_at, |token1, token2, token3, token4| {
-        StorageContext.set_timestamp(U256::from(1000));
+    #[test]
+    fn test_streams_ending_at() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let token1 = Address::random();
+        let token2 = Address::random();
+        let token3 = Address::random();
+        let token4 = Address::random();
+        StorageContext::enter(&mut storage, || {
+            StorageContext.set_timestamp(U256::from(1000));
 
-        let mut registry = TIP20RewardsRegistry::new();
-        registry.initialize()?;
+            let mut registry = TIP20RewardsRegistry::new();
+            registry.initialize()?;
 
-        let timestamp = 2000u128;
+            let timestamp = 2000u128;
 
-        let empty_streams = registry.ending_streams.at(timestamp).read()?;
-        assert_eq!(empty_streams.len(), 0);
+            let empty_streams = registry.ending_streams.at(timestamp).read()?;
+            assert_eq!(empty_streams.len(), 0);
 
-        registry.add_stream(token1, timestamp)?;
-        registry.add_stream(token2, timestamp)?;
-        registry.add_stream(token3, timestamp)?;
+            registry.add_stream(token1, timestamp)?;
+            registry.add_stream(token2, timestamp)?;
+            registry.add_stream(token3, timestamp)?;
 
-        let streams = registry.ending_streams.at(timestamp).read()?;
-        assert_eq!(streams.len(), 3);
-        assert_eq!(streams[0], token1);
-        assert_eq!(streams[1], token2);
-        assert_eq!(streams[2], token3);
+            let streams = registry.ending_streams.at(timestamp).read()?;
+            assert_eq!(streams.len(), 3);
+            assert_eq!(streams[0], token1);
+            assert_eq!(streams[1], token2);
+            assert_eq!(streams[2], token3);
 
-        let other_timestamp = 3000u128;
-        let other_streams = registry.ending_streams.at(other_timestamp).read()?;
-        assert_eq!(other_streams.len(), 0);
+            let other_timestamp = 3000u128;
+            let other_streams = registry.ending_streams.at(other_timestamp).read()?;
+            assert_eq!(other_streams.len(), 0);
 
-        registry.add_stream(token4, other_timestamp)?;
+            registry.add_stream(token4, other_timestamp)?;
 
-        let streams1 = registry.ending_streams.at(timestamp).read()?;
-        let streams2 = registry.ending_streams.at(other_timestamp).read()?;
+            let streams1 = registry.ending_streams.at(timestamp).read()?;
+            let streams2 = registry.ending_streams.at(other_timestamp).read()?;
 
-        assert_eq!(streams1.len(), 3);
-        assert_eq!(streams2.len(), 1);
-        assert_eq!(streams2[0], token4);
+            assert_eq!(streams1.len(), 3);
+            assert_eq!(streams2.len(), 1);
+            assert_eq!(streams2[0], token4);
 
-        Ok(())
-    });
+            Ok(())
+        })
+    }
 
-    test_precompile!(finalize_streams, |admin, unauthorized| {
-        StorageContext.set_timestamp(U256::from(1500));
+    #[test]
+    fn test_finalize_streams() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        let unauthorized = Address::random();
+        StorageContext::enter(&mut storage, || {
+            StorageContext.set_timestamp(U256::from(1500));
 
-        let mut registry = TIP20RewardsRegistry::new();
-        registry.initialize()?;
+            let mut registry = TIP20RewardsRegistry::new();
+            registry.initialize()?;
 
-        let mut token = TIP20Builder::new("Test", "TST", admin)
-            .with_issuer(admin)
-            .with_mint(admin, U256::from(100e18 as u128))
-            .build()?;
-        let token_addr = token.address();
+            let mut token = TIP20Builder::new("Test", "TST", admin)
+                .with_issuer(admin)
+                .with_mint(admin, U256::from(100e18 as u128))
+                .build()?;
+            let token_addr = token.address();
 
-        // Start a reward stream that lasts 5 seconds from current time (1500)
-        let current_time = token.storage().timestamp().to::<u128>();
-        let stream_duration = 5;
-        let stream_id = token.start_reward(
-            admin,
-            ITIP20::startRewardCall {
-                amount: U256::from(100e18 as u128),
-                secs: stream_duration,
-            },
-        )?;
-        assert_eq!(stream_id, 1);
+            // Start a reward stream that lasts 5 seconds from current time (1500)
+            let current_time = token.storage().timestamp().to::<u128>();
+            let stream_duration = 5;
+            let stream_id = token.start_reward(
+                admin,
+                ITIP20::startRewardCall {
+                    amount: U256::from(100e18 as u128),
+                    secs: stream_duration,
+                },
+            )?;
+            assert_eq!(stream_id, 1);
 
-        // Test unauthorized caller
-        let result = registry.finalize_streams(unauthorized);
-        assert!(matches!(
-            result.unwrap_err(),
-            TempoPrecompileError::TIP20RewardsRegistry(TIP20RewardsRegistryError::Unauthorized(_))
-        ));
+            // Test unauthorized caller
+            let result = registry.finalize_streams(unauthorized);
+            assert!(matches!(
+                result.unwrap_err(),
+                TempoPrecompileError::TIP20RewardsRegistry(
+                    TIP20RewardsRegistryError::Unauthorized(_)
+                )
+            ));
 
-        let result = registry.finalize_streams(Address::ZERO);
-        assert!(result.is_ok());
+            let result = registry.finalize_streams(Address::ZERO);
+            assert!(result.is_ok());
 
-        // Verify the stream was added to registry at the correct end time
-        let end_time = current_time + stream_duration as u128;
-        let streams_before = registry.ending_streams.at(end_time).read()?;
-        assert_eq!(streams_before.len(), 1);
-        assert_eq!(streams_before[0], token_addr);
+            // Verify the stream was added to registry at the correct end time
+            let end_time = current_time + stream_duration as u128;
+            let streams_before = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams_before.len(), 1);
+            assert_eq!(streams_before[0], token_addr);
 
-        // Fast forward to the end time to simulate stream completion
-        registry.storage.set_timestamp(U256::from(end_time));
-        registry.finalize_streams(Address::ZERO)?;
+            // Fast forward to the end time to simulate stream completion
+            registry.storage.set_timestamp(U256::from(end_time));
+            registry.finalize_streams(Address::ZERO)?;
 
-        let last_updated = registry.last_updated_timestamp.read()?;
-        assert_eq!(last_updated, end_time);
+            let last_updated = registry.last_updated_timestamp.read()?;
+            assert_eq!(last_updated, end_time);
 
-        // Verify streams were cleared from the registry
-        let streams_after = registry.ending_streams.at(end_time).read()?;
-        assert_eq!(streams_after.len(), 0);
+            // Verify streams were cleared from the registry
+            let streams_after = registry.ending_streams.at(end_time).read()?;
+            assert_eq!(streams_after.len(), 0);
 
-        let result = registry.finalize_streams(Address::ZERO);
-        assert!(result.is_ok());
+            let result = registry.finalize_streams(Address::ZERO);
+            assert!(result.is_ok());
 
-        Ok(())
-    });
+            Ok(())
+        })
+    }
 }

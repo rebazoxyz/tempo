@@ -118,117 +118,140 @@ impl NonceManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::TempoPrecompileError, test_precompile};
+    use crate::{
+        error::TempoPrecompileError,
+        storage::{StorageContext, hashmap::HashMapStorageProvider},
+    };
     use tempo_chainspec::hardfork::TempoHardfork;
 
     use super::*;
     use alloy::primitives::address;
 
-    test_precompile!(get_nonce_returns_zero_for_new_key, || {
-        let mut mgr = NonceManager::new();
+    #[test]
+    fn test_get_nonce_returns_zero_for_new_key() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        StorageContext::enter(&mut storage, || {
+            let mut mgr = NonceManager::new();
 
-        let account = address!("0x1111111111111111111111111111111111111111");
-        let nonce = mgr.get_nonce(INonce::getNonceCall {
-            account,
-            nonceKey: U256::from(5),
-        })?;
+            let account = address!("0x1111111111111111111111111111111111111111");
+            let nonce = mgr.get_nonce(INonce::getNonceCall {
+                account,
+                nonceKey: U256::from(5),
+            })?;
 
-        assert_eq!(nonce, 0);
-        Ok(())
-    });
+            assert_eq!(nonce, 0);
+            Ok(())
+        })
+    }
 
-    test_precompile!(get_nonce_rejects_protocol_nonce, || {
-        let mut mgr = NonceManager::new();
+    #[test]
+    fn test_get_nonce_rejects_protocol_nonce() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        StorageContext::enter(&mut storage, || {
+            let mut mgr = NonceManager::new();
 
-        let account = address!("0x1111111111111111111111111111111111111111");
-        let result = mgr.get_nonce(INonce::getNonceCall {
-            account,
-            nonceKey: U256::ZERO,
-        });
+            let account = address!("0x1111111111111111111111111111111111111111");
+            let result = mgr.get_nonce(INonce::getNonceCall {
+                account,
+                nonceKey: U256::ZERO,
+            });
 
-        assert_eq!(
-            result.unwrap_err(),
-            TempoPrecompileError::NonceError(NonceError::protocol_nonce_not_supported())
-        );
-        Ok(())
-    });
+            assert_eq!(
+                result.unwrap_err(),
+                TempoPrecompileError::NonceError(NonceError::protocol_nonce_not_supported())
+            );
+            Ok(())
+        })
+    }
 
-    test_precompile!(increment_nonce, || {
-        let mut mgr = NonceManager::new();
+    #[test]
+    fn test_increment_nonce() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        StorageContext::enter(&mut storage, || {
+            let mut mgr = NonceManager::new();
 
-        let account = address!("0x1111111111111111111111111111111111111111");
-        let nonce_key = U256::from(5);
+            let account = address!("0x1111111111111111111111111111111111111111");
+            let nonce_key = U256::from(5);
 
-        let new_nonce = mgr.increment_nonce(account, nonce_key)?;
-        assert_eq!(new_nonce, 1);
+            let new_nonce = mgr.increment_nonce(account, nonce_key)?;
+            assert_eq!(new_nonce, 1);
 
-        let new_nonce = mgr.increment_nonce(account, nonce_key)?;
-        assert_eq!(new_nonce, 2);
-        Ok(())
-    });
+            let new_nonce = mgr.increment_nonce(account, nonce_key)?;
+            assert_eq!(new_nonce, 2);
+            Ok(())
+        })
+    }
 
-    test_precompile!(active_key_count, || {
-        let mut mgr = NonceManager::new();
+    #[test]
+    fn test_active_key_count() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        StorageContext::enter(&mut storage, || {
+            let mut mgr = NonceManager::new();
 
-        let account = address!("0x1111111111111111111111111111111111111111");
+            let account = address!("0x1111111111111111111111111111111111111111");
 
-        // Initially, no active keys
-        let count =
-            mgr.get_active_nonce_key_count(INonce::getActiveNonceKeyCountCall { account })?;
-        assert_eq!(count, U256::ZERO);
+            // Initially, no active keys
+            let count =
+                mgr.get_active_nonce_key_count(INonce::getActiveNonceKeyCountCall { account })?;
+            assert_eq!(count, U256::ZERO);
 
-        // Increment a nonce key - should increase active count
-        mgr.increment_nonce(account, U256::ONE)?;
-        let count =
-            mgr.get_active_nonce_key_count(INonce::getActiveNonceKeyCountCall { account })?;
-        assert_eq!(count, U256::ONE);
+            // Increment a nonce key - should increase active count
+            mgr.increment_nonce(account, U256::ONE)?;
+            let count =
+                mgr.get_active_nonce_key_count(INonce::getActiveNonceKeyCountCall { account })?;
+            assert_eq!(count, U256::ONE);
 
-        // Increment same key again - count should stay the same
-        mgr.increment_nonce(account, U256::ONE)?;
-        let count =
-            mgr.get_active_nonce_key_count(INonce::getActiveNonceKeyCountCall { account })?;
-        assert_eq!(count, U256::ONE);
+            // Increment same key again - count should stay the same
+            mgr.increment_nonce(account, U256::ONE)?;
+            let count =
+                mgr.get_active_nonce_key_count(INonce::getActiveNonceKeyCountCall { account })?;
+            assert_eq!(count, U256::ONE);
 
-        // Increment a different key - count should increase
-        mgr.increment_nonce(account, U256::from(2))?;
-        let count =
-            mgr.get_active_nonce_key_count(INonce::getActiveNonceKeyCountCall { account })?;
-        assert_eq!(count, U256::from(2));
-        Ok(())
-    });
+            // Increment a different key - count should increase
+            mgr.increment_nonce(account, U256::from(2))?;
+            let count =
+                mgr.get_active_nonce_key_count(INonce::getActiveNonceKeyCountCall { account })?;
+            assert_eq!(count, U256::from(2));
+            Ok(())
+        })
+    }
 
-    test_precompile!(different_accounts_independent, || {
-        let mut mgr = NonceManager::new();
+    #[test]
+    fn test_different_accounts_independent() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        StorageContext::enter(&mut storage, || {
+            let mut mgr = NonceManager::new();
 
-        let account1 = address!("0x1111111111111111111111111111111111111111");
-        let account2 = address!("0x2222222222222222222222222222222222222222");
-        let nonce_key = U256::from(5);
+            let account1 = address!("0x1111111111111111111111111111111111111111");
+            let account2 = address!("0x2222222222222222222222222222222222222222");
+            let nonce_key = U256::from(5);
 
-        for _ in 0..10 {
-            mgr.increment_nonce(account1, nonce_key)?;
-        }
-        for _ in 0..20 {
-            mgr.increment_nonce(account2, nonce_key)?;
-        }
+            for _ in 0..10 {
+                mgr.increment_nonce(account1, nonce_key)?;
+            }
+            for _ in 0..20 {
+                mgr.increment_nonce(account2, nonce_key)?;
+            }
 
-        let nonce1 = mgr.get_nonce(INonce::getNonceCall {
-            account: account1,
-            nonceKey: nonce_key,
-        })?;
-        let nonce2 = mgr.get_nonce(INonce::getNonceCall {
-            account: account2,
-            nonceKey: nonce_key,
-        })?;
+            let nonce1 = mgr.get_nonce(INonce::getNonceCall {
+                account: account1,
+                nonceKey: nonce_key,
+            })?;
+            let nonce2 = mgr.get_nonce(INonce::getNonceCall {
+                account: account2,
+                nonceKey: nonce_key,
+            })?;
 
-        assert_eq!(nonce1, 10);
-        assert_eq!(nonce2, 20);
-        Ok(())
-    });
+            assert_eq!(nonce1, 10);
+            assert_eq!(nonce2, 20);
+            Ok(())
+        })
+    }
 
-    test_precompile!(
-        active_key_count_event_emitted_post_moderato,
-        TempoHardfork::Moderato,
-        || {
+    #[test]
+    fn test_active_key_count_event_emitted_post_moderato() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Moderato);
+        StorageContext::enter(&mut storage, || {
             let account = address!("0x1111111111111111111111111111111111111111");
             let nonce_key = U256::from(5);
 
@@ -267,13 +290,13 @@ mod tests {
             assert_eq!(mgr.emited_events().len(), 2);
 
             Ok(())
-        }
-    );
+        })
+    }
 
-    test_precompile!(
-        active_key_count_event_not_emitted_pre_moderato,
-        TempoHardfork::Adagio,
-        || {
+    #[test]
+    fn test_active_key_count_event_not_emitted_pre_moderato() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Adagio);
+        StorageContext::enter(&mut storage, || {
             let account = address!("0x1111111111111111111111111111111111111111");
             let nonce_key = U256::from(5);
 
@@ -293,13 +316,13 @@ mod tests {
                 "No events should be emitted pre-Moderato"
             );
             Ok(())
-        }
-    );
+        })
+    }
 
-    test_precompile!(
-        increment_nonce_post_allegretto,
-        TempoHardfork::Allegretto,
-        || {
+    #[test]
+    fn test_increment_nonce_post_allegretto() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::Allegretto);
+        StorageContext::enter(&mut storage, || {
             let account = address!("0x1111111111111111111111111111111111111111");
             let nonce_key = U256::from(5);
 
@@ -341,6 +364,6 @@ mod tests {
             ]);
 
             Ok(())
-        }
-    );
+        })
+    }
 }

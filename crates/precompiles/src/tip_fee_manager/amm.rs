@@ -696,9 +696,12 @@ mod tests {
 
     use super::*;
     use crate::{
-        error::TempoPrecompileError, storage::ContractStorage, test_precompile,
-        test_util::TIP20Builder, tip_fee_manager::TIPFeeAMMError,
+        error::TempoPrecompileError,
+        storage::{ContractStorage, StorageContext, hashmap::HashMapStorageProvider},
+        test_util::TIP20Builder,
+        tip_fee_manager::TIPFeeAMMError,
     };
+    use alloy::primitives::Address;
 
     /// Sets up a pool with initial liquidity for testing
     fn setup_pool_with_liquidity(
@@ -719,184 +722,217 @@ mod tests {
         Ok(pool_id)
     }
 
-    test_precompile!(mint_identical_addresses, |admin| {
-        let token = TIP20Builder::new("Test", "TST", admin).build()?;
-        let mut amm = TipFeeManager::new();
-        let result = amm.mint(
-            admin,
-            token.address(),
-            token.address(),
-            U256::from(1000),
-            U256::from(1000),
-            admin,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIPFeeAMMError(
-                TIPFeeAMMError::IdenticalAddresses(_)
-            ))
-        ));
-        Ok(())
-    });
+    #[test]
+    fn test_mint_identical_addresses() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let token = TIP20Builder::new("Test", "TST", admin).build()?;
+            let mut amm = TipFeeManager::new();
+            let result = amm.mint(
+                admin,
+                token.address(),
+                token.address(),
+                U256::from(1000),
+                U256::from(1000),
+                admin,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIPFeeAMMError(
+                    TIPFeeAMMError::IdenticalAddresses(_)
+                ))
+            ));
+            Ok(())
+        })
+    }
 
-    test_precompile!(burn_identical_addresses, |admin| {
-        let token = TIP20Builder::new("Test", "TST", admin).build()?;
-        let mut amm = TipFeeManager::new();
-        let result = amm.burn(
-            admin,
-            token.address(),
-            token.address(),
-            U256::from(1000),
-            admin,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIPFeeAMMError(
-                TIPFeeAMMError::IdenticalAddresses(_)
-            ))
-        ));
-        Ok(())
-    });
+    #[test]
+    fn test_burn_identical_addresses() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let token = TIP20Builder::new("Test", "TST", admin).build()?;
+            let mut amm = TipFeeManager::new();
+            let result = amm.burn(
+                admin,
+                token.address(),
+                token.address(),
+                U256::from(1000),
+                admin,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIPFeeAMMError(
+                    TIPFeeAMMError::IdenticalAddresses(_)
+                ))
+            ));
+            Ok(())
+        })
+    }
 
-    test_precompile!(fee_swap, |admin| {
-        let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
-        let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
+    #[test]
+    fn test_fee_swap() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
+            let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
 
-        let mut amm = TipFeeManager::new();
-        let liquidity = uint!(100000_U256) * uint!(10_U256).pow(U256::from(6));
-        let pool_id = setup_pool_with_liquidity(
-            &mut amm,
-            user_token.address(),
-            validator_token.address(),
-            liquidity,
-            liquidity,
-        )?;
+            let mut amm = TipFeeManager::new();
+            let liquidity = uint!(100000_U256) * uint!(10_U256).pow(U256::from(6));
+            let pool_id = setup_pool_with_liquidity(
+                &mut amm,
+                user_token.address(),
+                validator_token.address(),
+                liquidity,
+                liquidity,
+            )?;
 
-        let amount_in = uint!(1000_U256) * uint!(10_U256).pow(U256::from(6));
-        amm.reserve_liquidity(user_token.address(), validator_token.address(), amount_in)?;
+            let amount_in = uint!(1000_U256) * uint!(10_U256).pow(U256::from(6));
+            amm.reserve_liquidity(user_token.address(), validator_token.address(), amount_in)?;
 
-        let pending_in = amm.get_pending_fee_swap_in(pool_id)?;
-        assert_eq!(
-            pending_in,
-            amount_in.try_into().unwrap(),
-            "Pending input should match amount in"
-        );
+            let pending_in = amm.get_pending_fee_swap_in(pool_id)?;
+            assert_eq!(
+                pending_in,
+                amount_in.try_into().unwrap(),
+                "Pending input should match amount in"
+            );
 
-        let expected_out = (amount_in * M) / SCALE;
-        assert_eq!(expected_out, amount_in * M / SCALE);
-        Ok(())
-    });
+            let expected_out = (amount_in * M) / SCALE;
+            assert_eq!(expected_out, amount_in * M / SCALE);
+            Ok(())
+        })
+    }
 
-    test_precompile!(fee_swap_insufficient_liquidity, |admin| {
-        let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
-        let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
+    #[test]
+    fn test_fee_swap_insufficient_liquidity() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
+            let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
 
-        let mut amm = TipFeeManager::new();
-        let small_liquidity = uint!(100_U256) * uint!(10_U256).pow(U256::from(6));
-        setup_pool_with_liquidity(
-            &mut amm,
-            user_token.address(),
-            validator_token.address(),
-            small_liquidity,
-            small_liquidity,
-        )?;
+            let mut amm = TipFeeManager::new();
+            let small_liquidity = uint!(100_U256) * uint!(10_U256).pow(U256::from(6));
+            setup_pool_with_liquidity(
+                &mut amm,
+                user_token.address(),
+                validator_token.address(),
+                small_liquidity,
+                small_liquidity,
+            )?;
 
-        // Try to swap 201 tokens (output ~200.7, but only 100 available)
-        let too_large = uint!(201_U256) * uint!(10_U256).pow(U256::from(6));
-        let result =
-            amm.reserve_liquidity(user_token.address(), validator_token.address(), too_large);
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIPFeeAMMError(
-                TIPFeeAMMError::InsufficientLiquidity(_)
-            ))
-        ));
-        Ok(())
-    });
+            // Try to swap 201 tokens (output ~200.7, but only 100 available)
+            let too_large = uint!(201_U256) * uint!(10_U256).pow(U256::from(6));
+            let result =
+                amm.reserve_liquidity(user_token.address(), validator_token.address(), too_large);
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIPFeeAMMError(
+                    TIPFeeAMMError::InsufficientLiquidity(_)
+                ))
+            ));
+            Ok(())
+        })
+    }
 
-    test_precompile!(fee_swap_rounding_consistency, |admin| {
-        let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
-        let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
+    #[test]
+    fn test_fee_swap_rounding_consistency() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
+            let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
 
-        let mut amm = TipFeeManager::new();
-        let liquidity = uint!(100000_U256) * uint!(10_U256).pow(U256::from(6));
-        let pool_id = setup_pool_with_liquidity(
-            &mut amm,
-            user_token.address(),
-            validator_token.address(),
-            liquidity,
-            liquidity,
-        )?;
+            let mut amm = TipFeeManager::new();
+            let liquidity = uint!(100000_U256) * uint!(10_U256).pow(U256::from(6));
+            let pool_id = setup_pool_with_liquidity(
+                &mut amm,
+                user_token.address(),
+                validator_token.address(),
+                liquidity,
+                liquidity,
+            )?;
 
-        let amount_in = uint!(10000_U256) * uint!(10_U256).pow(U256::from(6));
-        amm.reserve_liquidity(user_token.address(), validator_token.address(), amount_in)?;
+            let amount_in = uint!(10000_U256) * uint!(10_U256).pow(U256::from(6));
+            amm.reserve_liquidity(user_token.address(), validator_token.address(), amount_in)?;
 
-        let expected_out = (amount_in * M) / SCALE;
-        let actual_out =
-            amm.execute_pending_fee_swaps(user_token.address(), validator_token.address())?;
-        assert_eq!(actual_out, expected_out, "Output should match expected");
+            let expected_out = (amount_in * M) / SCALE;
+            let actual_out =
+                amm.execute_pending_fee_swaps(user_token.address(), validator_token.address())?;
+            assert_eq!(actual_out, expected_out, "Output should match expected");
 
-        let pool = amm.pools.at(pool_id).read()?;
-        assert_eq!(
-            U256::from(pool.reserve_user_token),
-            liquidity + amount_in,
-            "User reserve should increase"
-        );
-        assert_eq!(
-            U256::from(pool.reserve_validator_token),
-            liquidity - actual_out,
-            "Validator reserve should decrease"
-        );
-        Ok(())
-    });
+            let pool = amm.pools.at(pool_id).read()?;
+            assert_eq!(
+                U256::from(pool.reserve_user_token),
+                liquidity + amount_in,
+                "User reserve should increase"
+            );
+            assert_eq!(
+                U256::from(pool.reserve_validator_token),
+                liquidity - actual_out,
+                "Validator reserve should decrease"
+            );
+            Ok(())
+        })
+    }
 
-    test_precompile!(execute_pending_fee_swaps, |admin| {
-        let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
-        let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
+    #[test]
+    fn test_execute_pending_fee_swaps() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
+            let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
 
-        let mut amm = TipFeeManager::new();
-        let initial = uint!(100000_U256) * uint!(10_U256).pow(U256::from(6));
-        let pool_id = setup_pool_with_liquidity(
-            &mut amm,
-            user_token.address(),
-            validator_token.address(),
-            initial,
-            initial,
-        )?;
+            let mut amm = TipFeeManager::new();
+            let initial = uint!(100000_U256) * uint!(10_U256).pow(U256::from(6));
+            let pool_id = setup_pool_with_liquidity(
+                &mut amm,
+                user_token.address(),
+                validator_token.address(),
+                initial,
+                initial,
+            )?;
 
-        let swap1 = uint!(1000_U256) * uint!(10_U256).pow(U256::from(6));
-        let swap2 = uint!(2000_U256) * uint!(10_U256).pow(U256::from(6));
-        let swap3 = uint!(3000_U256) * uint!(10_U256).pow(U256::from(6));
+            let swap1 = uint!(1000_U256) * uint!(10_U256).pow(U256::from(6));
+            let swap2 = uint!(2000_U256) * uint!(10_U256).pow(U256::from(6));
+            let swap3 = uint!(3000_U256) * uint!(10_U256).pow(U256::from(6));
 
-        amm.reserve_liquidity(user_token.address(), validator_token.address(), swap1)?;
-        amm.reserve_liquidity(user_token.address(), validator_token.address(), swap2)?;
-        amm.reserve_liquidity(user_token.address(), validator_token.address(), swap3)?;
+            amm.reserve_liquidity(user_token.address(), validator_token.address(), swap1)?;
+            amm.reserve_liquidity(user_token.address(), validator_token.address(), swap2)?;
+            amm.reserve_liquidity(user_token.address(), validator_token.address(), swap3)?;
 
-        let total_pending = swap1 + swap2 + swap3;
-        assert_eq!(
-            amm.get_pending_fee_swap_in(pool_id)?,
-            total_pending.try_into().unwrap()
-        );
+            let total_pending = swap1 + swap2 + swap3;
+            assert_eq!(
+                amm.get_pending_fee_swap_in(pool_id)?,
+                total_pending.try_into().unwrap()
+            );
 
-        let total_out =
-            amm.execute_pending_fee_swaps(user_token.address(), validator_token.address())?;
-        let expected_out = (total_pending * M) / SCALE;
-        assert_eq!(total_out, expected_out);
-        assert_eq!(amm.get_pending_fee_swap_in(pool_id)?, 0);
+            let total_out =
+                amm.execute_pending_fee_swaps(user_token.address(), validator_token.address())?;
+            let expected_out = (total_pending * M) / SCALE;
+            assert_eq!(total_out, expected_out);
+            assert_eq!(amm.get_pending_fee_swap_in(pool_id)?, 0);
 
-        let pool = amm.pools.at(pool_id).read()?;
-        assert_eq!(U256::from(pool.reserve_user_token), initial + total_pending);
-        assert_eq!(
-            U256::from(pool.reserve_validator_token),
-            initial - total_out
-        );
-        Ok(())
-    });
+            let pool = amm.pools.at(pool_id).read()?;
+            assert_eq!(U256::from(pool.reserve_user_token), initial + total_pending);
+            assert_eq!(
+                U256::from(pool.reserve_validator_token),
+                initial - total_out
+            );
+            Ok(())
+        })
+    }
 
-    test_precompile!(
-        #[ignore = "Overflow in calculateLiquidity when called during rebalanceSwap (same as Solidity disabled test)"]
-        test_rebalance_swap,
-        |admin, to| {
+    #[test]
+    #[ignore = "Overflow in calculateLiquidity when called during rebalanceSwap (same as Solidity disabled test)"]
+    fn test_rebalance_swap() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        let to = Address::random();
+        StorageContext::enter(&mut storage, || {
             let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
             let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
 
@@ -968,207 +1004,244 @@ mod tests {
             );
 
             Ok(())
-        }
-    );
+        })
+    }
 
-    test_precompile!(rebalance_swap_insufficient_funds, |admin, to| {
-        let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
-        let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
+    #[test]
+    fn test_rebalance_swap_insufficient_funds() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        let to = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
+            let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
 
-        let mut amm = TipFeeManager::new();
-        let amount = uint!(100000_U256) * uint!(10_U256).pow(U256::from(6));
-        setup_pool_with_liquidity(
-            &mut amm,
-            user_token.address(),
-            validator_token.address(),
-            amount,
-            amount,
-        )?;
+            let mut amm = TipFeeManager::new();
+            let amount = uint!(100000_U256) * uint!(10_U256).pow(U256::from(6));
+            setup_pool_with_liquidity(
+                &mut amm,
+                user_token.address(),
+                validator_token.address(),
+                amount,
+                amount,
+            )?;
 
-        let result = amm.rebalance_swap(
-            admin,
-            user_token.address(),
-            validator_token.address(),
-            amount + U256::ONE,
-            to,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIPFeeAMMError(
-                TIPFeeAMMError::InvalidAmount(_)
-            ))
-        ));
-        Ok(())
-    });
+            let result = amm.rebalance_swap(
+                admin,
+                user_token.address(),
+                validator_token.address(),
+                amount + U256::ONE,
+                to,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIPFeeAMMError(
+                    TIPFeeAMMError::InvalidAmount(_)
+                ))
+            ));
+            Ok(())
+        })
+    }
 
-    test_precompile!(reserve_liquidity_boundary, |admin| {
-        let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
-        let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
+    #[test]
+    fn test_reserve_liquidity_boundary() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
+            let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
 
-        let mut amm = TipFeeManager::new();
-        let liquidity = uint!(100_U256) * uint!(10_U256).pow(U256::from(6));
-        setup_pool_with_liquidity(
-            &mut amm,
-            user_token.address(),
-            validator_token.address(),
-            liquidity,
-            liquidity,
-        )?;
+            let mut amm = TipFeeManager::new();
+            let liquidity = uint!(100_U256) * uint!(10_U256).pow(U256::from(6));
+            setup_pool_with_liquidity(
+                &mut amm,
+                user_token.address(),
+                validator_token.address(),
+                liquidity,
+                liquidity,
+            )?;
 
-        let ok_amount = uint!(100_U256) * uint!(10_U256).pow(U256::from(6));
-        assert!(
-            amm.reserve_liquidity(user_token.address(), validator_token.address(), ok_amount)
-                .is_ok()
-        );
+            let ok_amount = uint!(100_U256) * uint!(10_U256).pow(U256::from(6));
+            assert!(
+                amm.reserve_liquidity(user_token.address(), validator_token.address(), ok_amount)
+                    .is_ok()
+            );
 
-        let too_much = uint!(101_U256) * uint!(10_U256).pow(U256::from(6));
-        assert!(
-            amm.reserve_liquidity(user_token.address(), validator_token.address(), too_much)
-                .is_err()
-        );
-        Ok(())
-    });
+            let too_much = uint!(101_U256) * uint!(10_U256).pow(U256::from(6));
+            assert!(
+                amm.reserve_liquidity(user_token.address(), validator_token.address(), too_much)
+                    .is_err()
+            );
+            Ok(())
+        })
+    }
 
-    test_precompile!(mint_rejects_non_usd_user_token, |admin| {
-        let eur_token = TIP20Builder::new("EuroToken", "EUR", admin)
-            .currency("EUR")
-            .build()?;
-        let usd_token = TIP20Builder::new("USDToken", "USD", admin).build()?;
-        let mut amm = TipFeeManager::new();
+    #[test]
+    fn test_mint_rejects_non_usd_user_token() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let eur_token = TIP20Builder::new("EuroToken", "EUR", admin)
+                .currency("EUR")
+                .build()?;
+            let usd_token = TIP20Builder::new("USDToken", "USD", admin).build()?;
+            let mut amm = TipFeeManager::new();
 
-        let result = amm.mint(
-            admin,
-            eur_token.address(),
-            usd_token.address(),
-            U256::from(1000),
-            U256::from(1000),
-            admin,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
-        ));
+            let result = amm.mint(
+                admin,
+                eur_token.address(),
+                usd_token.address(),
+                U256::from(1000),
+                U256::from(1000),
+                admin,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
+            ));
 
-        let result = amm.mint(
-            admin,
-            usd_token.address(),
-            eur_token.address(),
-            U256::from(1000),
-            U256::from(1000),
-            admin,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
-        ));
-        Ok(())
-    });
+            let result = amm.mint(
+                admin,
+                usd_token.address(),
+                eur_token.address(),
+                U256::from(1000),
+                U256::from(1000),
+                admin,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
+            ));
+            Ok(())
+        })
+    }
 
-    test_precompile!(burn_rejects_non_usd_tokens, |admin| {
-        let eur_token = TIP20Builder::new("EuroToken", "EUR", admin)
-            .currency("EUR")
-            .build()?;
-        let usd_token = TIP20Builder::new("USDToken", "USD", admin).build()?;
-        let mut amm = TipFeeManager::new();
+    #[test]
+    fn test_burn_rejects_non_usd_tokens() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let eur_token = TIP20Builder::new("EuroToken", "EUR", admin)
+                .currency("EUR")
+                .build()?;
+            let usd_token = TIP20Builder::new("USDToken", "USD", admin).build()?;
+            let mut amm = TipFeeManager::new();
 
-        let result = amm.burn(
-            admin,
-            eur_token.address(),
-            usd_token.address(),
-            U256::from(1000),
-            admin,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
-        ));
+            let result = amm.burn(
+                admin,
+                eur_token.address(),
+                usd_token.address(),
+                U256::from(1000),
+                admin,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
+            ));
 
-        let result = amm.burn(
-            admin,
-            usd_token.address(),
-            eur_token.address(),
-            U256::from(1000),
-            admin,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
-        ));
-        Ok(())
-    });
+            let result = amm.burn(
+                admin,
+                usd_token.address(),
+                eur_token.address(),
+                U256::from(1000),
+                admin,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
+            ));
+            Ok(())
+        })
+    }
 
-    test_precompile!(rebalance_swap_rejects_non_usd_tokens, |admin, to| {
-        let eur_token = TIP20Builder::new("EuroToken", "EUR", admin)
-            .currency("EUR")
-            .build()?;
-        let usd_token = TIP20Builder::new("USDToken", "USD", admin).build()?;
-        let mut amm = TipFeeManager::new();
+    #[test]
+    fn test_rebalance_swap_rejects_non_usd_tokens() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        let to = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let eur_token = TIP20Builder::new("EuroToken", "EUR", admin)
+                .currency("EUR")
+                .build()?;
+            let usd_token = TIP20Builder::new("USDToken", "USD", admin).build()?;
+            let mut amm = TipFeeManager::new();
 
-        let result = amm.rebalance_swap(
-            admin,
-            eur_token.address(),
-            usd_token.address(),
-            U256::from(1000),
-            to,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
-        ));
+            let result = amm.rebalance_swap(
+                admin,
+                eur_token.address(),
+                usd_token.address(),
+                U256::from(1000),
+                to,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
+            ));
 
-        let result = amm.rebalance_swap(
-            admin,
-            usd_token.address(),
-            eur_token.address(),
-            U256::from(1000),
-            to,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
-        ));
-        Ok(())
-    });
+            let result = amm.rebalance_swap(
+                admin,
+                usd_token.address(),
+                eur_token.address(),
+                U256::from(1000),
+                to,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(_)))
+            ));
+            Ok(())
+        })
+    }
 
-    test_precompile!(mint_with_validator_token_identical_addresses, |admin| {
-        let token = TIP20Builder::new("Test", "TST", admin).build()?;
-        let mut amm = TipFeeManager::new();
-        let result = amm.mint_with_validator_token(
-            admin,
-            token.address(),
-            token.address(),
-            U256::from(10000),
-            admin,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIPFeeAMMError(
-                TIPFeeAMMError::IdenticalAddresses(_)
-            ))
-        ));
-        Ok(())
-    });
+    #[test]
+    fn test_mint_with_validator_token_identical_addresses() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let token = TIP20Builder::new("Test", "TST", admin).build()?;
+            let mut amm = TipFeeManager::new();
+            let result = amm.mint_with_validator_token(
+                admin,
+                token.address(),
+                token.address(),
+                U256::from(10000),
+                admin,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIPFeeAMMError(
+                    TIPFeeAMMError::IdenticalAddresses(_)
+                ))
+            ));
+            Ok(())
+        })
+    }
 
-    test_precompile!(mint_with_validator_token_insufficient_amount, |admin| {
-        let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
-        let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
-        let mut amm = TipFeeManager::new();
+    #[test]
+    fn test_mint_with_validator_token_insufficient_amount() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let admin = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let user_token = TIP20Builder::new("UserToken", "UTK", admin).build()?;
+            let validator_token = TIP20Builder::new("ValidatorToken", "VTK", admin).build()?;
+            let mut amm = TipFeeManager::new();
 
-        // MIN_LIQUIDITY = 1000, amount/2 must be > 1000, so 2000 should fail
-        let insufficient = uint!(2000_U256);
-        let result = amm.mint_with_validator_token(
-            admin,
-            user_token.address(),
-            validator_token.address(),
-            insufficient,
-            admin,
-        );
-        assert!(matches!(
-            result,
-            Err(TempoPrecompileError::TIPFeeAMMError(
-                TIPFeeAMMError::InsufficientLiquidity(_)
-            ))
-        ));
-        Ok(())
-    });
+            // MIN_LIQUIDITY = 1000, amount/2 must be > 1000, so 2000 should fail
+            let insufficient = uint!(2000_U256);
+            let result = amm.mint_with_validator_token(
+                admin,
+                user_token.address(),
+                validator_token.address(),
+                insufficient,
+                admin,
+            );
+            assert!(matches!(
+                result,
+                Err(TempoPrecompileError::TIPFeeAMMError(
+                    TIPFeeAMMError::InsufficientLiquidity(_)
+                ))
+            ));
+            Ok(())
+        })
+    }
 }

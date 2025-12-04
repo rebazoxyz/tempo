@@ -468,7 +468,10 @@ impl AccountKeychain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{error::TempoPrecompileError, test_precompile};
+    use crate::{
+        error::TempoPrecompileError,
+        storage::{StorageContext, hashmap::HashMapStorageProvider},
+    };
     use alloy::primitives::{Address, U256};
     use tempo_contracts::precompiles::IAccountKeychain::SignatureType;
 
@@ -485,47 +488,58 @@ mod tests {
         }
     }
 
-    test_precompile!(transaction_key_transient_storage, |access_key_addr| {
-        let mut keychain = AccountKeychain::new();
+    #[test]
+    fn test_transaction_key_transient_storage() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let access_key_addr = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let mut keychain = AccountKeychain::new();
 
-        // Test 1: Initially transaction key should be zero
-        let initial_key = keychain.transaction_key.t_read()?;
-        assert_eq!(
-            initial_key,
-            Address::ZERO,
-            "Initial transaction key should be zero"
-        );
+            // Test 1: Initially transaction key should be zero
+            let initial_key = keychain.transaction_key.t_read()?;
+            assert_eq!(
+                initial_key,
+                Address::ZERO,
+                "Initial transaction key should be zero"
+            );
 
-        // Test 2: Set transaction key to an access key address
-        keychain.set_transaction_key(access_key_addr)?;
+            // Test 2: Set transaction key to an access key address
+            keychain.set_transaction_key(access_key_addr)?;
 
-        // Test 3: Verify it was stored
-        let loaded_key = keychain.transaction_key.t_read()?;
-        assert_eq!(loaded_key, access_key_addr, "Transaction key should be set");
+            // Test 3: Verify it was stored
+            let loaded_key = keychain.transaction_key.t_read()?;
+            assert_eq!(loaded_key, access_key_addr, "Transaction key should be set");
 
-        // Test 4: Verify getTransactionKey works
-        let get_tx_key_call = getTransactionKeyCall {};
-        let result = keychain.get_transaction_key(get_tx_key_call, Address::ZERO)?;
-        assert_eq!(
-            result, access_key_addr,
-            "getTransactionKey should return the set key"
-        );
+            // Test 4: Verify getTransactionKey works
+            let get_tx_key_call = getTransactionKeyCall {};
+            let result = keychain.get_transaction_key(get_tx_key_call, Address::ZERO)?;
+            assert_eq!(
+                result, access_key_addr,
+                "getTransactionKey should return the set key"
+            );
 
-        // Test 5: Clear transaction key
-        keychain.set_transaction_key(Address::ZERO)?;
-        let cleared_key = keychain.transaction_key.t_read()?;
-        assert_eq!(
-            cleared_key,
-            Address::ZERO,
-            "Transaction key should be cleared"
-        );
+            // Test 5: Clear transaction key
+            keychain.set_transaction_key(Address::ZERO)?;
+            let cleared_key = keychain.transaction_key.t_read()?;
+            assert_eq!(
+                cleared_key,
+                Address::ZERO,
+                "Transaction key should be cleared"
+            );
 
-        Ok(())
-    });
+            Ok(())
+        })
+    }
 
-    test_precompile!(
-        admin_operations_blocked_with_access_key,
-        |msg_sender, existing_key, access_key, token, other| {
+    #[test]
+    fn test_admin_operations_blocked_with_access_key() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let msg_sender = Address::random();
+        let existing_key = Address::random();
+        let access_key = Address::random();
+        let token = Address::random();
+        let other = Address::random();
+        StorageContext::enter(&mut storage, || {
             // Initialize the keychain
             let mut keychain = AccountKeychain::new();
             keychain.initialize()?;
@@ -584,12 +598,15 @@ mod tests {
             assert_unauthorized_error(update_result.unwrap_err());
 
             Ok(())
-        }
-    );
+        })
+    }
 
-    test_precompile!(
-        replay_protection_revoked_key_cannot_be_reauthorized,
-        |account, key_id| {
+    #[test]
+    fn test_replay_protection_revoked_key_cannot_be_reauthorized() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let account = Address::random();
+        let key_id = Address::random();
+        StorageContext::enter(&mut storage, || {
             let mut keychain = AccountKeychain::new();
             keychain.initialize()?;
 
@@ -645,12 +662,16 @@ mod tests {
                 e => panic!("Expected AccountKeychainError, got: {e:?}"),
             }
             Ok(())
-        }
-    );
+        })
+    }
 
-    test_precompile!(
-        different_key_id_can_be_authorized_after_revocation,
-        |account, key_id_1, key_id_2| {
+    #[test]
+    fn test_different_key_id_can_be_authorized_after_revocation() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let account = Address::random();
+        let key_id_1 = Address::random();
+        let key_id_2 = Address::random();
+        StorageContext::enter(&mut storage, || {
             let mut keychain = AccountKeychain::new();
             keychain.initialize()?;
 
@@ -689,6 +710,6 @@ mod tests {
             assert!(!key_info.isRevoked);
 
             Ok(())
-        }
-    );
+        })
+    }
 }

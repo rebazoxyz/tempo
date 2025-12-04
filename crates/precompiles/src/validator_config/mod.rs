@@ -268,39 +268,50 @@ pub fn ensure_address_is_ip_port(input: &str) -> core::result::Result<(), IpWith
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_precompile;
+    use crate::storage::{StorageContext, hashmap::HashMapStorageProvider};
     use alloy::primitives::Address;
     use alloy_primitives::FixedBytes;
 
-    test_precompile!(owner_initialization_and_change, |owner1, owner2| {
-        let mut validator_config = ValidatorConfig::new();
+    #[test]
+    fn test_owner_initialization_and_change() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let owner1 = Address::random();
+        let owner2 = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let mut validator_config = ValidatorConfig::new();
 
-        // Initialize with owner1
-        validator_config.initialize(owner1)?;
+            // Initialize with owner1
+            validator_config.initialize(owner1)?;
 
-        // Check that owner is owner1
-        let current_owner = validator_config.owner()?;
-        assert_eq!(
-            current_owner, owner1,
-            "Owner should be owner1 after initialization"
-        );
+            // Check that owner is owner1
+            let current_owner = validator_config.owner()?;
+            assert_eq!(
+                current_owner, owner1,
+                "Owner should be owner1 after initialization"
+            );
 
-        // Change owner to owner2
-        validator_config.change_owner(
-            owner1,
-            IValidatorConfig::changeOwnerCall { newOwner: owner2 },
-        )?;
+            // Change owner to owner2
+            validator_config.change_owner(
+                owner1,
+                IValidatorConfig::changeOwnerCall { newOwner: owner2 },
+            )?;
 
-        // Check that owner is now owner2
-        let current_owner = validator_config.owner()?;
-        assert_eq!(current_owner, owner2, "Owner should be owner2 after change");
+            // Check that owner is now owner2
+            let current_owner = validator_config.owner()?;
+            assert_eq!(current_owner, owner2, "Owner should be owner2 after change");
 
-        Ok(())
-    });
+            Ok(())
+        })
+    }
 
-    test_precompile!(
-        owner_only_functions,
-        |owner1, owner2, validator1, validator2| {
+    #[test]
+    fn test_owner_only_functions() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let owner1 = Address::random();
+        let owner2 = Address::random();
+        let validator1 = Address::random();
+        let validator2 = Address::random();
+        StorageContext::enter(&mut storage, || {
             let mut validator_config = ValidatorConfig::new();
 
             // Initialize with owner1
@@ -363,275 +374,289 @@ mod tests {
             assert_eq!(res, Err(ValidatorConfigError::unauthorized().into()));
 
             Ok(())
-        }
-    );
+        })
+    }
 
-    test_precompile!(validator_lifecycle, || {
-        let owner = Address::from([0x01; 20]);
+    #[test]
+    fn test_validator_lifecycle() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        StorageContext::enter(&mut storage, || {
+            let owner = Address::from([0x01; 20]);
 
-        let mut validator_config = ValidatorConfig::new();
-        validator_config.initialize(owner)?;
+            let mut validator_config = ValidatorConfig::new();
+            validator_config.initialize(owner)?;
 
-        let validator1 = Address::from([0x11; 20]);
-        let public_key1 = FixedBytes::<32>::from([0x21; 32]);
-        let inbound1 = "192.168.1.1:8000".to_string();
-        let outbound1 = "192.168.1.1:9000".to_string();
-        validator_config.add_validator(
-            owner,
-            IValidatorConfig::addValidatorCall {
-                newValidatorAddress: validator1,
-                publicKey: public_key1,
-                inboundAddress: inbound1.clone(),
-                active: true,
-                outboundAddress: outbound1,
-            },
-        )?;
+            let validator1 = Address::from([0x11; 20]);
+            let public_key1 = FixedBytes::<32>::from([0x21; 32]);
+            let inbound1 = "192.168.1.1:8000".to_string();
+            let outbound1 = "192.168.1.1:9000".to_string();
+            validator_config.add_validator(
+                owner,
+                IValidatorConfig::addValidatorCall {
+                    newValidatorAddress: validator1,
+                    publicKey: public_key1,
+                    inboundAddress: inbound1.clone(),
+                    active: true,
+                    outboundAddress: outbound1,
+                },
+            )?;
 
-        // Try adding duplicate validator - should fail
-        let result = validator_config.add_validator(
-            owner,
-            IValidatorConfig::addValidatorCall {
-                newValidatorAddress: validator1,
-                publicKey: FixedBytes::<32>::from([0x22; 32]),
-                inboundAddress: "192.168.1.1:8000".to_string(),
-                active: true,
-                outboundAddress: "192.168.1.1:9000".to_string(),
-            },
-        );
-        assert_eq!(
-            result,
-            Err(ValidatorConfigError::validator_already_exists().into()),
-            "Should return ValidatorAlreadyExists error"
-        );
+            // Try adding duplicate validator - should fail
+            let result = validator_config.add_validator(
+                owner,
+                IValidatorConfig::addValidatorCall {
+                    newValidatorAddress: validator1,
+                    publicKey: FixedBytes::<32>::from([0x22; 32]),
+                    inboundAddress: "192.168.1.1:8000".to_string(),
+                    active: true,
+                    outboundAddress: "192.168.1.1:9000".to_string(),
+                },
+            );
+            assert_eq!(
+                result,
+                Err(ValidatorConfigError::validator_already_exists().into()),
+                "Should return ValidatorAlreadyExists error"
+            );
 
-        // Add 4 more unique validators
-        let validator2 = Address::from([0x12; 20]);
-        let public_key2 = FixedBytes::<32>::from([0x22; 32]);
-        validator_config.add_validator(
-            owner,
-            IValidatorConfig::addValidatorCall {
-                newValidatorAddress: validator2,
-                publicKey: public_key2,
-                inboundAddress: "192.168.1.2:8000".to_string(),
-                active: true,
-                outboundAddress: "192.168.1.2:9000".to_string(),
-            },
-        )?;
+            // Add 4 more unique validators
+            let validator2 = Address::from([0x12; 20]);
+            let public_key2 = FixedBytes::<32>::from([0x22; 32]);
+            validator_config.add_validator(
+                owner,
+                IValidatorConfig::addValidatorCall {
+                    newValidatorAddress: validator2,
+                    publicKey: public_key2,
+                    inboundAddress: "192.168.1.2:8000".to_string(),
+                    active: true,
+                    outboundAddress: "192.168.1.2:9000".to_string(),
+                },
+            )?;
 
-        let validator3 = Address::from([0x13; 20]);
-        let public_key3 = FixedBytes::<32>::from([0x23; 32]);
-        validator_config.add_validator(
-            owner,
-            IValidatorConfig::addValidatorCall {
-                newValidatorAddress: validator3,
-                publicKey: public_key3,
-                inboundAddress: "192.168.1.3:8000".to_string(),
-                active: false,
-                outboundAddress: "192.168.1.3:9000".to_string(),
-            },
-        )?;
+            let validator3 = Address::from([0x13; 20]);
+            let public_key3 = FixedBytes::<32>::from([0x23; 32]);
+            validator_config.add_validator(
+                owner,
+                IValidatorConfig::addValidatorCall {
+                    newValidatorAddress: validator3,
+                    publicKey: public_key3,
+                    inboundAddress: "192.168.1.3:8000".to_string(),
+                    active: false,
+                    outboundAddress: "192.168.1.3:9000".to_string(),
+                },
+            )?;
 
-        let validator4 = Address::from([0x14; 20]);
-        let public_key4 = FixedBytes::<32>::from([0x24; 32]);
-        validator_config.add_validator(
-            owner,
-            IValidatorConfig::addValidatorCall {
-                newValidatorAddress: validator4,
-                publicKey: public_key4,
-                inboundAddress: "192.168.1.4:8000".to_string(),
-                active: true,
-                outboundAddress: "192.168.1.4:9000".to_string(),
-            },
-        )?;
+            let validator4 = Address::from([0x14; 20]);
+            let public_key4 = FixedBytes::<32>::from([0x24; 32]);
+            validator_config.add_validator(
+                owner,
+                IValidatorConfig::addValidatorCall {
+                    newValidatorAddress: validator4,
+                    publicKey: public_key4,
+                    inboundAddress: "192.168.1.4:8000".to_string(),
+                    active: true,
+                    outboundAddress: "192.168.1.4:9000".to_string(),
+                },
+            )?;
 
-        let validator5 = Address::from([0x15; 20]);
-        let public_key5 = FixedBytes::<32>::from([0x25; 32]);
-        validator_config.add_validator(
-            owner,
-            IValidatorConfig::addValidatorCall {
-                newValidatorAddress: validator5,
-                publicKey: public_key5,
-                inboundAddress: "192.168.1.5:8000".to_string(),
-                active: true,
-                outboundAddress: "192.168.1.5:9000".to_string(),
-            },
-        )?;
+            let validator5 = Address::from([0x15; 20]);
+            let public_key5 = FixedBytes::<32>::from([0x25; 32]);
+            validator_config.add_validator(
+                owner,
+                IValidatorConfig::addValidatorCall {
+                    newValidatorAddress: validator5,
+                    publicKey: public_key5,
+                    inboundAddress: "192.168.1.5:8000".to_string(),
+                    active: true,
+                    outboundAddress: "192.168.1.5:9000".to_string(),
+                },
+            )?;
 
-        // Get all validators
-        let mut validators = validator_config.get_validators()?;
+            // Get all validators
+            let mut validators = validator_config.get_validators()?;
 
-        // Verify count
-        assert_eq!(validators.len(), 5, "Should have 5 validators");
+            // Verify count
+            assert_eq!(validators.len(), 5, "Should have 5 validators");
 
-        // Sort by validator address for consistent checking
-        validators.sort_by_key(|v| v.validatorAddress);
+            // Sort by validator address for consistent checking
+            validators.sort_by_key(|v| v.validatorAddress);
 
-        // Verify each validator
-        assert_eq!(validators[0].validatorAddress, validator1);
-        assert_eq!(validators[0].publicKey, public_key1);
-        assert_eq!(validators[0].inboundAddress, inbound1);
-        assert!(validators[0].active);
+            // Verify each validator
+            assert_eq!(validators[0].validatorAddress, validator1);
+            assert_eq!(validators[0].publicKey, public_key1);
+            assert_eq!(validators[0].inboundAddress, inbound1);
+            assert!(validators[0].active);
 
-        assert_eq!(validators[1].validatorAddress, validator2);
-        assert_eq!(validators[1].publicKey, public_key2);
-        assert_eq!(validators[1].inboundAddress, "192.168.1.2:8000");
-        assert!(validators[1].active);
+            assert_eq!(validators[1].validatorAddress, validator2);
+            assert_eq!(validators[1].publicKey, public_key2);
+            assert_eq!(validators[1].inboundAddress, "192.168.1.2:8000");
+            assert!(validators[1].active);
 
-        assert_eq!(validators[2].validatorAddress, validator3);
-        assert_eq!(validators[2].publicKey, public_key3);
-        assert_eq!(validators[2].inboundAddress, "192.168.1.3:8000");
-        assert!(!validators[2].active);
+            assert_eq!(validators[2].validatorAddress, validator3);
+            assert_eq!(validators[2].publicKey, public_key3);
+            assert_eq!(validators[2].inboundAddress, "192.168.1.3:8000");
+            assert!(!validators[2].active);
 
-        assert_eq!(validators[3].validatorAddress, validator4);
-        assert_eq!(validators[3].publicKey, public_key4);
-        assert_eq!(validators[3].inboundAddress, "192.168.1.4:8000");
-        assert!(validators[3].active);
+            assert_eq!(validators[3].validatorAddress, validator4);
+            assert_eq!(validators[3].publicKey, public_key4);
+            assert_eq!(validators[3].inboundAddress, "192.168.1.4:8000");
+            assert!(validators[3].active);
 
-        assert_eq!(validators[4].validatorAddress, validator5);
-        assert_eq!(validators[4].publicKey, public_key5);
-        assert_eq!(validators[4].inboundAddress, "192.168.1.5:8000");
-        assert!(validators[4].active);
+            assert_eq!(validators[4].validatorAddress, validator5);
+            assert_eq!(validators[4].publicKey, public_key5);
+            assert_eq!(validators[4].inboundAddress, "192.168.1.5:8000");
+            assert!(validators[4].active);
 
-        // Validator1 updates from long to short address (tests update_string slot clearing)
-        let public_key1_new = FixedBytes::<32>::from([0x31; 32]);
-        let short_inbound1 = "10.0.0.1:8000".to_string();
-        let short_outbound1 = "10.0.0.1:9000".to_string();
-        validator_config.update_validator(
-            validator1,
-            IValidatorConfig::updateValidatorCall {
-                newValidatorAddress: validator1,
-                publicKey: public_key1_new,
-                inboundAddress: short_inbound1.clone(),
-                outboundAddress: short_outbound1,
-            },
-        )?;
+            // Validator1 updates from long to short address (tests update_string slot clearing)
+            let public_key1_new = FixedBytes::<32>::from([0x31; 32]);
+            let short_inbound1 = "10.0.0.1:8000".to_string();
+            let short_outbound1 = "10.0.0.1:9000".to_string();
+            validator_config.update_validator(
+                validator1,
+                IValidatorConfig::updateValidatorCall {
+                    newValidatorAddress: validator1,
+                    publicKey: public_key1_new,
+                    inboundAddress: short_inbound1.clone(),
+                    outboundAddress: short_outbound1,
+                },
+            )?;
 
-        // Validator2 rotates to new address, keeps IP and publicKey
-        let validator2_new = Address::from([0x22; 20]);
-        validator_config.update_validator(
-            validator2,
-            IValidatorConfig::updateValidatorCall {
-                newValidatorAddress: validator2_new,
-                publicKey: public_key2,
-                inboundAddress: "192.168.1.2:8000".to_string(),
-                outboundAddress: "192.168.1.2:9000".to_string(),
-            },
-        )?;
+            // Validator2 rotates to new address, keeps IP and publicKey
+            let validator2_new = Address::from([0x22; 20]);
+            validator_config.update_validator(
+                validator2,
+                IValidatorConfig::updateValidatorCall {
+                    newValidatorAddress: validator2_new,
+                    publicKey: public_key2,
+                    inboundAddress: "192.168.1.2:8000".to_string(),
+                    outboundAddress: "192.168.1.2:9000".to_string(),
+                },
+            )?;
 
-        // Validator3 rotates to new address with long host (tests delete_string on old slot)
-        let validator3_new = Address::from([0x23; 20]);
-        let long_inbound3 = "192.169.1.3:8000".to_string();
-        let long_outbound3 = "192.168.1.3:9000".to_string();
-        validator_config.update_validator(
-            validator3,
-            IValidatorConfig::updateValidatorCall {
-                newValidatorAddress: validator3_new,
-                publicKey: public_key3,
-                inboundAddress: long_inbound3.clone(),
-                outboundAddress: long_outbound3,
-            },
-        )?;
+            // Validator3 rotates to new address with long host (tests delete_string on old slot)
+            let validator3_new = Address::from([0x23; 20]);
+            let long_inbound3 = "192.169.1.3:8000".to_string();
+            let long_outbound3 = "192.168.1.3:9000".to_string();
+            validator_config.update_validator(
+                validator3,
+                IValidatorConfig::updateValidatorCall {
+                    newValidatorAddress: validator3_new,
+                    publicKey: public_key3,
+                    inboundAddress: long_inbound3.clone(),
+                    outboundAddress: long_outbound3,
+                },
+            )?;
 
-        // Get all validators again
-        let mut validators = validator_config.get_validators()?;
+            // Get all validators again
+            let mut validators = validator_config.get_validators()?;
 
-        // Should still have 5 validators
-        assert_eq!(validators.len(), 5, "Should still have 5 validators");
+            // Should still have 5 validators
+            assert_eq!(validators.len(), 5, "Should still have 5 validators");
 
-        // Sort by validator address
-        validators.sort_by_key(|v| v.validatorAddress);
+            // Sort by validator address
+            validators.sort_by_key(|v| v.validatorAddress);
 
-        // Verify validator1 - updated from long to short address
-        assert_eq!(validators[0].validatorAddress, validator1);
-        assert_eq!(
-            validators[0].publicKey, public_key1_new,
-            "PublicKey should be updated"
-        );
-        assert_eq!(
-            validators[0].inboundAddress, short_inbound1,
-            "Address should be updated to short"
-        );
-        assert!(validators[0].active);
+            // Verify validator1 - updated from long to short address
+            assert_eq!(validators[0].validatorAddress, validator1);
+            assert_eq!(
+                validators[0].publicKey, public_key1_new,
+                "PublicKey should be updated"
+            );
+            assert_eq!(
+                validators[0].inboundAddress, short_inbound1,
+                "Address should be updated to short"
+            );
+            assert!(validators[0].active);
 
-        // Verify validator4 - unchanged
-        assert_eq!(validators[1].validatorAddress, validator4);
-        assert_eq!(validators[1].publicKey, public_key4);
-        assert_eq!(validators[1].inboundAddress, "192.168.1.4:8000");
-        assert!(validators[1].active);
+            // Verify validator4 - unchanged
+            assert_eq!(validators[1].validatorAddress, validator4);
+            assert_eq!(validators[1].publicKey, public_key4);
+            assert_eq!(validators[1].inboundAddress, "192.168.1.4:8000");
+            assert!(validators[1].active);
 
-        // Verify validator5 - unchanged
-        assert_eq!(validators[2].validatorAddress, validator5);
-        assert_eq!(validators[2].publicKey, public_key5);
-        assert_eq!(validators[2].inboundAddress, "192.168.1.5:8000");
-        assert!(validators[2].active);
+            // Verify validator5 - unchanged
+            assert_eq!(validators[2].validatorAddress, validator5);
+            assert_eq!(validators[2].publicKey, public_key5);
+            assert_eq!(validators[2].inboundAddress, "192.168.1.5:8000");
+            assert!(validators[2].active);
 
-        // Verify validator2_new - rotated address, kept IP and publicKey
-        assert_eq!(validators[3].validatorAddress, validator2_new);
-        assert_eq!(
-            validators[3].publicKey, public_key2,
-            "PublicKey should be same"
-        );
-        assert_eq!(
-            validators[3].inboundAddress, "192.168.1.2:8000",
-            "IP should be same"
-        );
-        assert!(validators[3].active);
+            // Verify validator2_new - rotated address, kept IP and publicKey
+            assert_eq!(validators[3].validatorAddress, validator2_new);
+            assert_eq!(
+                validators[3].publicKey, public_key2,
+                "PublicKey should be same"
+            );
+            assert_eq!(
+                validators[3].inboundAddress, "192.168.1.2:8000",
+                "IP should be same"
+            );
+            assert!(validators[3].active);
 
-        // Verify validator3_new - rotated address with long host, kept publicKey
-        assert_eq!(validators[4].validatorAddress, validator3_new);
-        assert_eq!(
-            validators[4].publicKey, public_key3,
-            "PublicKey should be same"
-        );
-        assert_eq!(
-            validators[4].inboundAddress, long_inbound3,
-            "Address should be updated to long"
-        );
-        assert!(!validators[4].active);
+            // Verify validator3_new - rotated address with long host, kept publicKey
+            assert_eq!(validators[4].validatorAddress, validator3_new);
+            assert_eq!(
+                validators[4].publicKey, public_key3,
+                "PublicKey should be same"
+            );
+            assert_eq!(
+                validators[4].inboundAddress, long_inbound3,
+                "Address should be updated to long"
+            );
+            assert!(!validators[4].active);
 
-        Ok(())
-    });
+            Ok(())
+        })
+    }
 
-    test_precompile!(owner_cannot_update_validator, |owner, validator| {
-        let mut validator_config = ValidatorConfig::new();
-        validator_config.initialize(owner)?;
+    #[test]
+    fn test_owner_cannot_update_validator() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let owner = Address::random();
+        let validator = Address::random();
+        StorageContext::enter(&mut storage, || {
+            let mut validator_config = ValidatorConfig::new();
+            validator_config.initialize(owner)?;
 
-        // Owner adds a validator
-        let public_key = FixedBytes::<32>::from([0x21; 32]);
-        validator_config.add_validator(
-            owner,
-            IValidatorConfig::addValidatorCall {
-                newValidatorAddress: validator,
-                publicKey: public_key,
-                inboundAddress: "192.168.1.1:8000".to_string(),
-                active: true,
-                outboundAddress: "192.168.1.1:9000".to_string(),
-            },
-        )?;
+            // Owner adds a validator
+            let public_key = FixedBytes::<32>::from([0x21; 32]);
+            validator_config.add_validator(
+                owner,
+                IValidatorConfig::addValidatorCall {
+                    newValidatorAddress: validator,
+                    publicKey: public_key,
+                    inboundAddress: "192.168.1.1:8000".to_string(),
+                    active: true,
+                    outboundAddress: "192.168.1.1:9000".to_string(),
+                },
+            )?;
 
-        // Owner tries to update validator - should fail
-        let result = validator_config.update_validator(
-            owner,
-            IValidatorConfig::updateValidatorCall {
-                newValidatorAddress: validator,
-                publicKey: FixedBytes::<32>::from([0x22; 32]),
-                inboundAddress: "10.0.0.1:8000".to_string(),
-                outboundAddress: "10.0.0.1:9000".to_string(),
-            },
-        );
+            // Owner tries to update validator - should fail
+            let result = validator_config.update_validator(
+                owner,
+                IValidatorConfig::updateValidatorCall {
+                    newValidatorAddress: validator,
+                    publicKey: FixedBytes::<32>::from([0x22; 32]),
+                    inboundAddress: "10.0.0.1:8000".to_string(),
+                    outboundAddress: "10.0.0.1:9000".to_string(),
+                },
+            );
 
-        assert_eq!(
-            result,
-            Err(ValidatorConfigError::validator_not_found().into()),
-            "Should return ValidatorNotFound error"
-        );
+            assert_eq!(
+                result,
+                Err(ValidatorConfigError::validator_not_found().into()),
+                "Should return ValidatorNotFound error"
+            );
 
-        Ok(())
-    });
+            Ok(())
+        })
+    }
 
-    test_precompile!(
-        validator_rotation_clears_all_slots,
-        |owner, validator1, validator2| {
+    #[test]
+    fn test_validator_rotation_clears_all_slots() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        let owner = Address::random();
+        let validator1 = Address::random();
+        let validator2 = Address::random();
+        StorageContext::enter(&mut storage, || {
             let mut validator_config = ValidatorConfig::new();
             validator_config.initialize(owner)?;
 
@@ -690,16 +715,16 @@ mod tests {
             );
 
             Ok(())
-        }
-    );
+        })
+    }
 
     #[test]
-    fn ipv4_with_port_is_host_port() {
+    fn test_ipv4_with_port_is_host_port() {
         ensure_address_is_ip_port("127.0.0.1:8000").unwrap();
     }
 
     #[test]
-    fn ipv6_with_port_is_host_port() {
+    fn test_ipv6_with_port_is_host_port() {
         ensure_address_is_ip_port("[::1]:8000").unwrap();
     }
 }
