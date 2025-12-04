@@ -2070,18 +2070,16 @@ mod tests {
             assert_eq!(level.total_liquidity, 0);
 
             // Verify balance was reduced by the escrow amount
-            {
-                let mut base_tip20 = TIP20Token::from_address(base_token);
-                let remaining_balance =
-                    base_tip20.balance_of(ITIP20::balanceOfCall { account: alice })?;
-                assert_eq!(remaining_balance, U256::ZERO); // All tokens should be escrowed
+            let base_tip20 = TIP20Token::from_address(base_token);
+            let remaining_balance =
+                base_tip20.balance_of(ITIP20::balanceOfCall { account: alice })?;
+            assert_eq!(remaining_balance, U256::ZERO); // All tokens should be escrowed
 
-                // Verify exchange received the base tokens
-                let exchange_balance = base_tip20.balance_of(ITIP20::balanceOfCall {
-                    account: exchange.address,
-                })?;
-                assert_eq!(exchange_balance, U256::from(min_order_amount));
-            }
+            // Verify exchange received the base tokens
+            let exchange_balance = base_tip20.balance_of(ITIP20::balanceOfCall {
+                account: exchange.address,
+            })?;
+            assert_eq!(exchange_balance, U256::from(min_order_amount));
 
             Ok(())
         })

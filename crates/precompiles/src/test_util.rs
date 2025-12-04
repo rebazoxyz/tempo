@@ -329,7 +329,9 @@ impl TIP20Setup {
 
         // Apply mints
         for (to, amount) in self.mints {
-            let admin = get_tip20_admin(token.address()).expect("unable to get token admin");
+            let admin = self.admin.unwrap_or_else(|| {
+                get_tip20_admin(token.address()).expect("unable to get token admin")
+            });
             token.mint(admin, ITIP20::mintCall { to, amount })?;
         }
 
@@ -345,7 +347,9 @@ impl TIP20Setup {
 
         // Start reward streams
         for (amount, secs) in self.reward_streams {
-            let admin = get_tip20_admin(token.address()).expect("unable to get token admin");
+            let admin = self.admin.unwrap_or_else(|| {
+                get_tip20_admin(token.address()).expect("unable to get token admin")
+            });
             token.start_reward(admin, ITIP20::startRewardCall { amount, secs })?;
         }
 
