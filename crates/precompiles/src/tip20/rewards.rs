@@ -5,7 +5,7 @@ use crate::{
     tip20::TIP20Token,
     tip20_rewards_registry::TIP20RewardsRegistry,
 };
-use alloy::primitives::{Address, IntoLogData, U256, uint};
+use alloy::primitives::{Address, U256, uint};
 use tempo_contracts::precompiles::{ITIP20, TIP20Error, TIP20Event};
 use tempo_precompiles_macros::Storable;
 
@@ -646,12 +646,8 @@ mod tests {
         storage::{PrecompileStorageProvider, StorageContext},
         test_util::setup_storage,
         tip20::{ISSUER_ROLE, tests::initialize_path_usd},
-        tip20_rewards_registry::TIP20RewardsRegistry,
-        tip403_registry::TIP403Registry,
     };
     use alloy::primitives::{Address, U256};
-    use tempo_chainspec::hardfork::TempoHardfork;
-    use tempo_contracts::precompiles::ITIP403Registry;
 
     #[test]
     fn test_start_reward() -> eyre::Result<()> {

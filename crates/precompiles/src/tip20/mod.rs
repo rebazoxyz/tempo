@@ -336,7 +336,7 @@ impl TIP20Token {
     }
 
     /// Gets the current fee recipient
-    pub fn get_fee_recipient(&mut self, msg_sender: Address) -> Result<Address> {
+    pub fn get_fee_recipient(&mut self, _msg_sender: Address) -> Result<Address> {
         self.fee_recipient.read()
     }
 
@@ -377,7 +377,7 @@ impl TIP20Token {
         // Check if the `to` address is authorized to receive tokens
         if self.storage.spec().is_allegretto() {
             let transfer_policy_id = self.transfer_policy_id()?;
-            let mut registry = TIP403Registry::new();
+            let registry = TIP403Registry::new();
             if !registry.is_authorized(ITIP403Registry::isAuthorizedCall {
                 policyId: transfer_policy_id,
                 user: to,
@@ -457,7 +457,7 @@ impl TIP20Token {
 
         // Check if the address is blocked from transferring
         let transfer_policy_id = self.transfer_policy_id()?;
-        let mut registry = TIP403Registry::new();
+        let registry = TIP403Registry::new();
         if registry.is_authorized(ITIP403Registry::isAuthorizedCall {
             policyId: transfer_policy_id,
             user: call.from,
@@ -747,7 +747,7 @@ impl TIP20Token {
     /// Checks if the transfer is authorized.
     pub fn is_transfer_authorized(&self, from: Address, to: Address) -> Result<bool> {
         let transfer_policy_id = self.transfer_policy_id()?;
-        let mut registry = TIP403Registry::new();
+        let registry = TIP403Registry::new();
 
         // Check if 'from' address is authorized
         let from_authorized = registry.is_authorized(ITIP403Registry::isAuthorizedCall {
@@ -1170,24 +1170,23 @@ pub(crate) mod tests {
 
     #[test]
     fn test_mint_with_memo() -> eyre::Result<()> {
-        let (mut storage, admin) = setup_storage();
-        let from = Address::random();
+        let (mut storage, from) = setup_storage();
         let to = Address::random();
         let memo = FixedBytes::random();
         let token_id = 1;
 
         StorageContext::enter(&mut storage, || {
-            initialize_path_usd(admin)?;
+            initialize_path_usd(from)?;
             let mut token = TIP20Token::new(token_id);
             token
-                .initialize("Test", "TST", "USD", PATH_USD_ADDRESS, admin, Address::ZERO)
+                .initialize("Test", "TST", "USD", PATH_USD_ADDRESS, from, Address::ZERO)
                 .unwrap();
 
-            token.grant_role_internal(admin, *ISSUER_ROLE)?;
+            token.grant_role_internal(from, *ISSUER_ROLE)?;
 
             let amount = U256::random().min(U256::from(u128::MAX)) % token.supply_cap()?;
             token
-                .mint_with_memo(admin, ITIP20::mintWithMemoCall { to, amount, memo })
+                .mint_with_memo(from, ITIP20::mintWithMemoCall { to, amount, memo })
                 .unwrap();
 
             token.assert_emited_events(vec![
@@ -1198,7 +1197,7 @@ pub(crate) mod tests {
                 }),
                 TIP20Event::Mint(ITIP20::Mint { to, amount }),
                 TIP20Event::TransferWithMemo(ITIP20::TransferWithMemo {
-                    from: admin,
+                    from: from,
                     to,
                     amount,
                     memo,

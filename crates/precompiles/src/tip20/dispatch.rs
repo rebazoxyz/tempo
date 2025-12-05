@@ -259,13 +259,13 @@ impl Precompile for TIP20Token {
 mod tests {
     use crate::{
         PATH_USD_ADDRESS,
-        storage::{PrecompileStorageProvider, StorageContext},
+        storage::StorageContext,
         test_util::setup_storage,
         tip20::{ISSUER_ROLE, PAUSE_ROLE, TIP20Token, UNPAUSE_ROLE, tests::initialize_path_usd},
     };
 
     use alloy::{
-        primitives::{Bytes, U256, keccak256},
+        primitives::{Bytes, U256},
         sol_types::{SolInterface, SolValue},
     };
     use tempo_chainspec::hardfork::TempoHardfork;

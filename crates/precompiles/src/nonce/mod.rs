@@ -131,7 +131,7 @@ mod tests {
     fn test_get_nonce_returns_zero_for_new_key() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
         StorageContext::enter(&mut storage, || {
-            let mut mgr = NonceManager::new();
+            let mgr = NonceManager::new();
 
             let account = address!("0x1111111111111111111111111111111111111111");
             let nonce = mgr.get_nonce(INonce::getNonceCall {
@@ -148,7 +148,7 @@ mod tests {
     fn test_get_nonce_rejects_protocol_nonce() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
         StorageContext::enter(&mut storage, || {
-            let mut mgr = NonceManager::new();
+            let mgr = NonceManager::new();
 
             let account = address!("0x1111111111111111111111111111111111111111");
             let result = mgr.get_nonce(INonce::getNonceCall {
@@ -158,7 +158,7 @@ mod tests {
 
             assert_eq!(
                 result.unwrap_err(),
-                TempoPrecompileError::NonceError(NonceError::protocol_nonce_not_supported())
+                TempoPrecompileEmut rror::NonceError(NonceError::protocol_nonce_not_supported())
             );
             Ok(())
         })

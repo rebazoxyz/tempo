@@ -4,11 +4,7 @@
 //! Orders support price-time priority matching, partial fills, and flip orders that
 //! automatically place opposite-side orders when filled.
 
-use crate::{
-    error::TempoPrecompileError,
-    stablecoin_exchange::{IStablecoinExchange, error::OrderError},
-    storage::{Slot, StorageOps},
-};
+use crate::stablecoin_exchange::{IStablecoinExchange, error::OrderError};
 use alloy::primitives::{Address, B256};
 use tempo_precompiles_macros::Storable;
 
@@ -63,11 +59,6 @@ pub struct Order {
     /// For ask flips: flip_tick must be < tick
     pub flip_tick: i16,
 }
-
-// Helper type to easily interact with u128 fields (order_id, prev, next)
-type OrderId = Slot<u128>;
-// Helper type to easily interact with u128 fields (amount, remaining)
-type OrderAmount = Slot<u128>;
 
 impl Order {
     /// Creates a new order with `prev` and `next` initialized to 0.
@@ -310,312 +301,317 @@ impl From<Order> for IStablecoinExchange::Order {
 
 #[cfg(test)]
 mod tests {
-    // use crate::{
-    //     stablecoin_exchange::StablecoinExchange, storage::hashmap::HashMapStorageProvider,
-    // };
-
-    // use super::*;
-    // use alloy::primitives::{address, b256};
-
-    // const TEST_MAKER: Address = address!("0x1111111111111111111111111111111111111111");
-    // const TEST_BOOK_KEY: B256 =
-    //     b256!("0x0000000000000000000000000000000000000000000000000000000000000001");
-
-    // #[test]
-    // fn test_new_bid_order() {
-    //     let order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-
-    //     assert_eq!(order.order_id(), 1);
-    //     assert_eq!(order.maker(), TEST_MAKER);
-    //     assert_eq!(order.book_key(), TEST_BOOK_KEY);
-    //     assert!(order.is_bid());
-    //     assert_eq!(order.amount(), 1000);
-    //     assert_eq!(order.remaining(), 1000);
-    //     assert!(order.is_bid());
-    //     assert!(!order.is_ask());
-    //     assert_eq!(order.tick(), 5);
-    //     assert!(!order.is_flip());
-    //     assert_eq!(order.flip_tick(), 0);
-    // }
-
-    // #[test]
-    // fn test_new_ask_order() {
-    //     let order = Order::new_ask(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-
-    //     assert_eq!(order.order_id(), 1);
-    //     assert!(!order.is_bid());
-    //     assert!(!order.is_bid());
-    //     assert!(order.is_ask());
-    //     assert!(!order.is_flip());
-    // }
-
-    // #[test]
-    // fn test_new_flip_order_bid() {
-    //     let order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
-
-    //     assert!(order.is_flip());
-    //     assert_eq!(order.flip_tick(), 10);
-    //     assert_eq!(order.tick(), 5);
-    //     assert!(order.is_bid());
-    // }
-
-    // #[test]
-    // fn test_new_flip_order_ask() {
-    //     let order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, false, 2).unwrap();
-
-    //     assert!(order.is_flip());
-    //     assert_eq!(order.flip_tick(), 2);
-    //     assert_eq!(order.tick(), 5);
-    //     assert!(!order.is_bid());
-    //     assert!(order.is_ask());
-    // }
-
-    // #[test]
-    // fn test_new_flip_order_bid_invalid_flip_tick() {
-    //     let result = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 3);
-
-    //     assert!(matches!(result, Err(OrderError::InvalidBidFlipTick { .. })));
-    // }
-
-    // #[test]
-    // fn test_new_flip_order_ask_invalid_flip_tick() {
-    //     let result = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, false, 7);
-
-    //     assert!(matches!(result, Err(OrderError::InvalidAskFlipTick { .. })));
-    // }
-
-    // #[test]
-    // fn test_fill_bid_order_partial() {
-    //     let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-
-    //     assert!(!order.is_fully_filled());
-
-    //     order.fill(400).unwrap();
-
-    //     assert_eq!(order.remaining(), 600);
-    //     assert_eq!(order.amount(), 1000);
-    //     assert!(!order.is_fully_filled());
-    // }
-
-    // #[test]
-    // fn test_fill_ask_order_complete() {
-    //     let mut order = Order::new_ask(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-
-    //     order.fill(1000).unwrap();
-
-    //     assert_eq!(order.remaining(), 0);
-    //     assert_eq!(order.amount(), 1000);
-    //     assert!(order.is_fully_filled());
-    // }
-
-    // #[test]
-    // fn test_fill_order_overfill() {
-    //     let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-
-    //     let result = order.fill(1001);
-    //     assert!(matches!(
-    //         result,
-    //         Err(OrderError::FillAmountExceedsRemaining { .. })
-    //     ));
-    // }
-
-    // #[test]
-    // fn test_create_flipped_order_bid_to_ask() {
-    //     let mut order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
-
-    //     // Fully fill the order
-    //     order.fill(1000).unwrap();
-    //     assert!(order.is_fully_filled());
-
-    //     // Create flipped order
-    //     let flipped = order.create_flipped_order(2).unwrap();
-
-    //     assert_eq!(flipped.order_id(), 2);
-    //     assert_eq!(flipped.maker(), order.maker());
-    //     assert_eq!(flipped.book_key(), order.book_key());
-    //     assert_eq!(flipped.amount(), 1000); // Same as original
-    //     assert_eq!(flipped.remaining(), 1000); // Reset to full amount
-    //     assert!(!flipped.is_bid()); // Flipped from bid to ask
-    //     assert!(flipped.is_ask());
-    //     assert_eq!(flipped.tick(), 10); // Old flip_tick
-    //     assert_eq!(flipped.flip_tick(), 5); // Old tick
-    //     assert!(flipped.is_flip());
-    // }
-
-    // #[test]
-    // fn test_create_flipped_order_ask_to_bid() {
-    //     let mut order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 10, false, 5).unwrap();
-
-    //     order.fill(1000).unwrap();
-    //     let flipped = order.create_flipped_order(2).unwrap();
-
-    //     assert!(flipped.is_bid()); // Flipped from ask to bid
-    //     assert!(!flipped.is_ask());
-    //     assert_eq!(flipped.tick(), 5); // Old flip_tick
-    //     assert_eq!(flipped.flip_tick(), 10); // Old tick
-    // }
-
-    // #[test]
-    // fn test_create_flipped_order_non_flip() {
-    //     let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-
-    //     order.fill(1000).unwrap();
-    //     let result = order.create_flipped_order(2);
-    //     assert!(matches!(result, Err(OrderError::NotAFlipOrder)));
-    // }
-
-    // #[test]
-    // fn test_create_flipped_order_not_filled() {
-    //     let order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
-
-    //     let result = order.create_flipped_order(2);
-    //     assert!(matches!(
-    //         result,
-    //         Err(OrderError::OrderNotFullyFilled { .. })
-    //     ));
-    // }
-
-    // #[test]
-    // fn test_multiple_fills() {
-    //     let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-
-    //     // Multiple partial fills
-    //     order.fill(300).unwrap();
-    //     assert_eq!(order.remaining(), 700);
-
-    //     order.fill(200).unwrap();
-    //     assert_eq!(order.remaining(), 500);
-
-    //     order.fill(500).unwrap();
-    //     assert_eq!(order.remaining(), 0);
-    //     assert!(order.is_fully_filled());
-    // }
-
-    // #[test]
-    // fn test_multiple_flips() {
-    //     // Test that an order can flip multiple times
-    //     let mut order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
-
-    //     // First flip: bid -> ask
-    //     order.fill(1000).unwrap();
-    //     let mut flipped1 = order.create_flipped_order(2).unwrap();
-
-    //     assert!(!flipped1.is_bid());
-    //     assert!(flipped1.is_ask());
-    //     assert_eq!(flipped1.tick(), 10);
-    //     assert_eq!(flipped1.flip_tick(), 5);
-
-    //     // Second flip: ask -> bid
-    //     flipped1.fill(1000).unwrap();
-    //     let flipped2 = flipped1.create_flipped_order(3).unwrap();
-
-    //     assert!(flipped2.is_bid());
-    //     assert!(!flipped2.is_ask());
-    //     assert_eq!(flipped2.tick(), 5);
-    //     assert_eq!(flipped2.flip_tick(), 10);
-    // }
-
-    // #[test]
-    // fn test_tick_price_encoding() {
-    //     // Tick represents price offset from peg
-
-    //     let order_above = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 2);
-    //     assert_eq!(order_above.tick(), 2);
-
-    //     let order_below = Order::new_ask(2, TEST_MAKER, TEST_BOOK_KEY, 1000, -2);
-    //     assert_eq!(order_below.tick(), -2);
-
-    //     let order_par = Order::new_bid(3, TEST_MAKER, TEST_BOOK_KEY, 1000, 0);
-    //     assert_eq!(order_par.tick(), 0);
-    // }
-
-    // #[test]
-    // fn test_linked_list_pointers_initialization() {
-    //     let order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-    //     // Linked list pointers should be initialized to 0
-    //     assert_eq!(order.prev(), 0);
-    //     assert_eq!(order.next(), 0);
-    // }
-
-    // #[test]
-    // fn test_set_linked_list_pointers() {
-    //     let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
-
-    //     // Set prev and next pointers
-    //     order.set_prev(42);
-    //     order.set_next(43);
-
-    //     assert_eq!(order.prev(), 42);
-    //     assert_eq!(order.next(), 43);
-    // }
-
-    // #[test]
-    // fn test_flipped_order_resets_linked_list_pointers() {
-    //     let mut order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
-
-    //     // Set linked list pointers on original order
-    //     order.set_prev(100);
-    //     order.set_next(200);
-
-    //     // Fill the order
-    //     order.fill(1000).unwrap();
-
-    //     // Create flipped order
-    //     let flipped = order.create_flipped_order(2).unwrap();
-
-    //     // Flipped order should have reset pointers
-    //     assert_eq!(flipped.prev(), 0);
-    //     assert_eq!(flipped.next(), 0);
-    // }
-
-    // #[test]
-    // fn test_store_order() -> eyre::Result<()> {
-    //     let mut storage = HashMapStorageProvider::new(1);
-    //     let mut exchange = StablecoinExchange::new();
-
-    //     let id = 42;
-    //     let order = Order::new_flip(id, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
-    //     exchange.sstore_orders(id, order)?;
-
-    //     let loaded_order = exchange.sload_orders(id)?;
-    //     assert_eq!(loaded_order.order_id(), 42);
-    //     assert_eq!(loaded_order.maker(), TEST_MAKER);
-    //     assert_eq!(loaded_order.book_key(), TEST_BOOK_KEY);
-    //     assert_eq!(loaded_order.amount(), 1000);
-    //     assert_eq!(loaded_order.remaining(), 1000);
-    //     assert_eq!(loaded_order.tick(), 5);
-    //     assert!(loaded_order.is_bid());
-    //     assert!(loaded_order.is_flip());
-    //     assert_eq!(loaded_order.flip_tick(), 10);
-    //     assert_eq!(loaded_order.prev(), 0);
-    //     assert_eq!(loaded_order.next(), 0);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // fn test_delete_order() -> eyre::Result<()> {
-    //     let mut storage = HashMapStorageProvider::new(1);
-    //     let mut exchange = StablecoinExchange::new();
-
-    //     let id = 42;
-    //     let order = Order::new_flip(id, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
-    //     exchange.sstore_orders(id, order)?;
-    //     exchange.clear_orders(id)?;
-
-    //     let deleted_order = exchange.sload_orders(id)?;
-    //     assert_eq!(deleted_order.order_id(), 0);
-    //     assert_eq!(deleted_order.maker(), Address::ZERO);
-    //     assert_eq!(deleted_order.book_key(), B256::ZERO);
-    //     assert_eq!(deleted_order.amount(), 0);
-    //     assert_eq!(deleted_order.remaining(), 0);
-    //     assert_eq!(deleted_order.tick(), 0);
-    //     assert!(!deleted_order.is_bid());
-    //     assert!(!deleted_order.is_flip());
-    //     assert_eq!(deleted_order.flip_tick(), 0);
-    //     assert_eq!(deleted_order.prev(), 0);
-    //     assert_eq!(deleted_order.next(), 0);
-
-    //     Ok(())
-    // }
+    use crate::{
+        stablecoin_exchange::StablecoinExchange,
+        storage::{Handler, StorageContext, hashmap::HashMapStorageProvider},
+    };
+
+    use super::*;
+    use alloy::primitives::{address, b256};
+
+    const TEST_MAKER: Address = address!("0x1111111111111111111111111111111111111111");
+    const TEST_BOOK_KEY: B256 =
+        b256!("0x0000000000000000000000000000000000000000000000000000000000000001");
+
+    #[test]
+    fn test_new_bid_order() {
+        let order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+
+        assert_eq!(order.order_id(), 1);
+        assert_eq!(order.maker(), TEST_MAKER);
+        assert_eq!(order.book_key(), TEST_BOOK_KEY);
+        assert!(order.is_bid());
+        assert_eq!(order.amount(), 1000);
+        assert_eq!(order.remaining(), 1000);
+        assert!(order.is_bid());
+        assert!(!order.is_ask());
+        assert_eq!(order.tick(), 5);
+        assert!(!order.is_flip());
+        assert_eq!(order.flip_tick(), 0);
+    }
+
+    #[test]
+    fn test_new_ask_order() {
+        let order = Order::new_ask(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+
+        assert_eq!(order.order_id(), 1);
+        assert!(!order.is_bid());
+        assert!(!order.is_bid());
+        assert!(order.is_ask());
+        assert!(!order.is_flip());
+    }
+
+    #[test]
+    fn test_new_flip_order_bid() {
+        let order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
+
+        assert!(order.is_flip());
+        assert_eq!(order.flip_tick(), 10);
+        assert_eq!(order.tick(), 5);
+        assert!(order.is_bid());
+    }
+
+    #[test]
+    fn test_new_flip_order_ask() {
+        let order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, false, 2).unwrap();
+
+        assert!(order.is_flip());
+        assert_eq!(order.flip_tick(), 2);
+        assert_eq!(order.tick(), 5);
+        assert!(!order.is_bid());
+        assert!(order.is_ask());
+    }
+
+    #[test]
+    fn test_new_flip_order_bid_invalid_flip_tick() {
+        let result = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 3);
+
+        assert!(matches!(result, Err(OrderError::InvalidBidFlipTick { .. })));
+    }
+
+    #[test]
+    fn test_new_flip_order_ask_invalid_flip_tick() {
+        let result = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, false, 7);
+
+        assert!(matches!(result, Err(OrderError::InvalidAskFlipTick { .. })));
+    }
+
+    #[test]
+    fn test_fill_bid_order_partial() {
+        let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+
+        assert!(!order.is_fully_filled());
+
+        order.fill(400).unwrap();
+
+        assert_eq!(order.remaining(), 600);
+        assert_eq!(order.amount(), 1000);
+        assert!(!order.is_fully_filled());
+    }
+
+    #[test]
+    fn test_fill_ask_order_complete() {
+        let mut order = Order::new_ask(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+
+        order.fill(1000).unwrap();
+
+        assert_eq!(order.remaining(), 0);
+        assert_eq!(order.amount(), 1000);
+        assert!(order.is_fully_filled());
+    }
+
+    #[test]
+    fn test_fill_order_overfill() {
+        let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+
+        let result = order.fill(1001);
+        assert!(matches!(
+            result,
+            Err(OrderError::FillAmountExceedsRemaining { .. })
+        ));
+    }
+
+    #[test]
+    fn test_create_flipped_order_bid_to_ask() {
+        let mut order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
+
+        // Fully fill the order
+        order.fill(1000).unwrap();
+        assert!(order.is_fully_filled());
+
+        // Create flipped order
+        let flipped = order.create_flipped_order(2).unwrap();
+
+        assert_eq!(flipped.order_id(), 2);
+        assert_eq!(flipped.maker(), order.maker());
+        assert_eq!(flipped.book_key(), order.book_key());
+        assert_eq!(flipped.amount(), 1000); // Same as original
+        assert_eq!(flipped.remaining(), 1000); // Reset to full amount
+        assert!(!flipped.is_bid()); // Flipped from bid to ask
+        assert!(flipped.is_ask());
+        assert_eq!(flipped.tick(), 10); // Old flip_tick
+        assert_eq!(flipped.flip_tick(), 5); // Old tick
+        assert!(flipped.is_flip());
+    }
+
+    #[test]
+    fn test_create_flipped_order_ask_to_bid() {
+        let mut order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 10, false, 5).unwrap();
+
+        order.fill(1000).unwrap();
+        let flipped = order.create_flipped_order(2).unwrap();
+
+        assert!(flipped.is_bid()); // Flipped from ask to bid
+        assert!(!flipped.is_ask());
+        assert_eq!(flipped.tick(), 5); // Old flip_tick
+        assert_eq!(flipped.flip_tick(), 10); // Old tick
+    }
+
+    #[test]
+    fn test_create_flipped_order_non_flip() {
+        let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+
+        order.fill(1000).unwrap();
+        let result = order.create_flipped_order(2);
+        assert!(matches!(result, Err(OrderError::NotAFlipOrder)));
+    }
+
+    #[test]
+    fn test_create_flipped_order_not_filled() {
+        let order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
+
+        let result = order.create_flipped_order(2);
+        assert!(matches!(
+            result,
+            Err(OrderError::OrderNotFullyFilled { .. })
+        ));
+    }
+
+    #[test]
+    fn test_multiple_fills() {
+        let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+
+        // Multiple partial fills
+        order.fill(300).unwrap();
+        assert_eq!(order.remaining(), 700);
+
+        order.fill(200).unwrap();
+        assert_eq!(order.remaining(), 500);
+
+        order.fill(500).unwrap();
+        assert_eq!(order.remaining(), 0);
+        assert!(order.is_fully_filled());
+    }
+
+    #[test]
+    fn test_multiple_flips() {
+        // Test that an order can flip multiple times
+        let mut order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
+
+        // First flip: bid -> ask
+        order.fill(1000).unwrap();
+        let mut flipped1 = order.create_flipped_order(2).unwrap();
+
+        assert!(!flipped1.is_bid());
+        assert!(flipped1.is_ask());
+        assert_eq!(flipped1.tick(), 10);
+        assert_eq!(flipped1.flip_tick(), 5);
+
+        // Second flip: ask -> bid
+        flipped1.fill(1000).unwrap();
+        let flipped2 = flipped1.create_flipped_order(3).unwrap();
+
+        assert!(flipped2.is_bid());
+        assert!(!flipped2.is_ask());
+        assert_eq!(flipped2.tick(), 5);
+        assert_eq!(flipped2.flip_tick(), 10);
+    }
+
+    #[test]
+    fn test_tick_price_encoding() {
+        // Tick represents price offset from peg
+
+        let order_above = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 2);
+        assert_eq!(order_above.tick(), 2);
+
+        let order_below = Order::new_ask(2, TEST_MAKER, TEST_BOOK_KEY, 1000, -2);
+        assert_eq!(order_below.tick(), -2);
+
+        let order_par = Order::new_bid(3, TEST_MAKER, TEST_BOOK_KEY, 1000, 0);
+        assert_eq!(order_par.tick(), 0);
+    }
+
+    #[test]
+    fn test_linked_list_pointers_initialization() {
+        let order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+        // Linked list pointers should be initialized to 0
+        assert_eq!(order.prev(), 0);
+        assert_eq!(order.next(), 0);
+    }
+
+    #[test]
+    fn test_set_linked_list_pointers() {
+        let mut order = Order::new_bid(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5);
+
+        // Set prev and next pointers
+        order.set_prev(42);
+        order.set_next(43);
+
+        assert_eq!(order.prev(), 42);
+        assert_eq!(order.next(), 43);
+    }
+
+    #[test]
+    fn test_flipped_order_resets_linked_list_pointers() {
+        let mut order = Order::new_flip(1, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
+
+        // Set linked list pointers on original order
+        order.set_prev(100);
+        order.set_next(200);
+
+        // Fill the order
+        order.fill(1000).unwrap();
+
+        // Create flipped order
+        let flipped = order.create_flipped_order(2).unwrap();
+
+        // Flipped order should have reset pointers
+        assert_eq!(flipped.prev(), 0);
+        assert_eq!(flipped.next(), 0);
+    }
+
+    #[test]
+    fn test_store_order() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        StorageContext::enter(&mut storage, || {
+            let exchange = StablecoinExchange::new();
+
+            let id = 42;
+            let order = Order::new_flip(id, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
+            exchange.orders.at(id).write(order)?;
+
+            let loaded_order = exchange.orders.at(id).read()?;
+            assert_eq!(loaded_order.order_id(), 42);
+            assert_eq!(loaded_order.maker(), TEST_MAKER);
+            assert_eq!(loaded_order.book_key(), TEST_BOOK_KEY);
+            assert_eq!(loaded_order.amount(), 1000);
+            assert_eq!(loaded_order.remaining(), 1000);
+            assert_eq!(loaded_order.tick(), 5);
+            assert!(loaded_order.is_bid());
+            assert!(loaded_order.is_flip());
+            assert_eq!(loaded_order.flip_tick(), 10);
+            assert_eq!(loaded_order.prev(), 0);
+            assert_eq!(loaded_order.next(), 0);
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn test_delete_order() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+        StorageContext::enter(&mut storage, || {
+            let exchange = StablecoinExchange::new();
+
+            let id = 42;
+            let order = Order::new_flip(id, TEST_MAKER, TEST_BOOK_KEY, 1000, 5, true, 10).unwrap();
+            exchange.orders.at(id).write(order)?;
+            exchange.orders.at(id).delete()?;
+
+            let deleted_order = exchange.orders.at(id).read()?;
+            assert_eq!(deleted_order.order_id(), 0);
+            assert_eq!(deleted_order.maker(), Address::ZERO);
+            assert_eq!(deleted_order.book_key(), B256::ZERO);
+            assert_eq!(deleted_order.amount(), 0);
+            assert_eq!(deleted_order.remaining(), 0);
+            assert_eq!(deleted_order.tick(), 0);
+            assert!(!deleted_order.is_bid());
+            assert!(!deleted_order.is_flip());
+            assert_eq!(deleted_order.flip_tick(), 0);
+            assert_eq!(deleted_order.prev(), 0);
+            assert_eq!(deleted_order.next(), 0);
+
+            Ok(())
+        })
+    }
 }

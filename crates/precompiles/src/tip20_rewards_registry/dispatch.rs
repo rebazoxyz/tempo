@@ -38,14 +38,15 @@ impl Precompile for TIP20RewardsRegistry {
 mod tests {
     use super::*;
     use crate::{
-        storage::StorageContext,
-        test_util::{assert_full_coverage, check_selector_coverage, setup_storage},
+        storage::{StorageContext, hashmap::HashMapStorageProvider},
+        test_util::{assert_full_coverage, check_selector_coverage},
     };
     use tempo_contracts::precompiles::ITIP20RewardsRegistry::ITIP20RewardsRegistryCalls;
 
     #[test]
     fn tip20_rewards_registry_test_selector_coverage() {
-        let (mut storage, admin) = setup_storage();
+        let mut storage = HashMapStorageProvider::new(1);
+
         StorageContext::enter(&mut storage, || {
             let mut registry = TIP20RewardsRegistry::new();
 

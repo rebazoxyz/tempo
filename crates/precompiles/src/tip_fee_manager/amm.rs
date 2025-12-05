@@ -5,7 +5,7 @@ use crate::{
     tip20::{ITIP20, TIP20Token, validate_usd_currency},
 };
 use alloy::{
-    primitives::{Address, B256, IntoLogData, U256, keccak256, uint},
+    primitives::{Address, B256, U256, keccak256, uint},
     sol_types::SolValue,
 };
 use tempo_precompiles_macros::Storable;

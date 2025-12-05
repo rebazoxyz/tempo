@@ -274,7 +274,6 @@ mod tests {
     use super::*;
     use crate::{
         error::TempoPrecompileError,
-        storage::PrecompileStorageProvider,
         test_util::setup_storage,
         tip20::{IRolesAuth, ISSUER_ROLE, PAUSE_ROLE, UNPAUSE_ROLE},
     };
@@ -292,7 +291,7 @@ mod tests {
         let (mut storage, admin) = setup_storage();
 
         StorageContext::enter(&mut storage, || {
-            let mut path_usd = transfer_test_setup(admin)?;
+            let path_usd = transfer_test_setup(admin)?;
 
             assert_eq!(path_usd.name()?, NAME_PRE_ALLEGRETTO);
             assert_eq!(path_usd.symbol()?, NAME_PRE_ALLEGRETTO);
@@ -307,7 +306,7 @@ mod tests {
         storage.set_spec(TempoHardfork::Allegretto);
 
         StorageContext::enter(&mut storage, || {
-            let mut path_usd = transfer_test_setup(admin)?;
+            let path_usd = transfer_test_setup(admin)?;
 
             assert_eq!(path_usd.name()?, NAME_POST_ALLEGRETTO);
             assert_eq!(path_usd.symbol()?, NAME_POST_ALLEGRETTO);

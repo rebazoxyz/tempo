@@ -1,7 +1,4 @@
-use crate::{
-    Precompile, fill_precompile_output, input_cost, mutate, storage::PrecompileStorageProvider,
-    unknown_selector,
-};
+use crate::{Precompile, fill_precompile_output, input_cost, mutate, unknown_selector};
 use alloy::{primitives::Address, sol_types::SolCall};
 use revm::precompile::{PrecompileError, PrecompileResult};
 

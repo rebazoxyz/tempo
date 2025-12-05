@@ -199,7 +199,6 @@ mod tests {
     #[test]
     fn test_role_admin_functions() -> eyre::Result<()> {
         let (mut storage, admin) = setup_storage();
-        let user = Address::random();
         let custom_role = keccak256(b"CUSTOM_ROLE");
         let admin_role = keccak256(b"ADMIN_ROLE");
         let token_id = 1;

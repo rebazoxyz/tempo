@@ -19,7 +19,7 @@ pub mod tip_account_registrar;
 pub mod tip_fee_manager;
 pub mod validator_config;
 
-// #[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_util;
 
 use crate::{
@@ -27,7 +27,7 @@ use crate::{
     nonce::NonceManager,
     path_usd::PathUSD,
     stablecoin_exchange::StablecoinExchange,
-    storage::{PrecompileStorageProvider, StorageContext, evm::EvmPrecompileStorageProvider},
+    storage::StorageContext,
     tip_account_registrar::TipAccountRegistrar,
     tip_fee_manager::TipFeeManager,
     tip20::{TIP20Token, address_to_token_id_unchecked, is_tip20},
@@ -76,39 +76,39 @@ pub trait Precompile {
 }
 
 pub fn extend_tempo_precompiles(precompiles: &mut PrecompilesMap, cfg: &CfgEnv<TempoHardfork>) {
-    // let chain_id = cfg.chain_id;
-    // let spec = cfg.spec;
-    // precompiles.set_precompile_lookup(move |address: &Address| {
-    //     if is_tip20(*address) {
-    //         let token_id = address_to_token_id_unchecked(*address);
-    //         if token_id == 0 {
-    //             Some(PathUSDPrecompile::create(chain_id, spec))
-    //         } else {
-    //             Some(TIP20Precompile::create(*address, chain_id, spec))
-    //         }
-    //     } else if *address == TIP20_FACTORY_ADDRESS {
-    //         Some(TIP20FactoryPrecompile::create(chain_id, spec))
-    //     } else if *address == TIP20_REWARDS_REGISTRY_ADDRESS {
-    //         Some(TIP20RewardsRegistryPrecompile::create(chain_id, spec))
-    //     } else if *address == TIP403_REGISTRY_ADDRESS {
-    //         Some(TIP403RegistryPrecompile::create(chain_id, spec))
-    //     } else if *address == TIP_FEE_MANAGER_ADDRESS {
-    //         Some(TipFeeManagerPrecompile::create(chain_id, spec))
-    //     } else if *address == TIP_ACCOUNT_REGISTRAR {
-    //         Some(TipAccountRegistrarPrecompile::create(chain_id, spec))
-    //     } else if *address == STABLECOIN_EXCHANGE_ADDRESS {
-    //         Some(StablecoinExchangePrecompile::create(chain_id, spec))
-    //     } else if *address == NONCE_PRECOMPILE_ADDRESS {
-    //         Some(NoncePrecompile::create(chain_id, spec))
-    //     } else if *address == VALIDATOR_CONFIG_ADDRESS {
-    //         Some(ValidatorConfigPrecompile::create(chain_id, spec))
-    //     } else if *address == ACCOUNT_KEYCHAIN_ADDRESS && spec.is_allegretto() {
-    //         // AccountKeychain is only available after Allegretto hardfork
-    //         Some(AccountKeychainPrecompile::create(chain_id, spec))
-    //     } else {
-    //         None
-    //     }
-    // });
+    let chain_id = cfg.chain_id;
+    let spec = cfg.spec;
+    precompiles.set_precompile_lookup(move |address: &Address| {
+        if is_tip20(*address) {
+            let token_id = address_to_token_id_unchecked(*address);
+            if token_id == 0 {
+                Some(PathUSDPrecompile::create(chain_id, spec))
+            } else {
+                Some(TIP20Precompile::create(*address, chain_id, spec))
+            }
+        } else if *address == TIP20_FACTORY_ADDRESS {
+            Some(TIP20FactoryPrecompile::create(chain_id, spec))
+        } else if *address == TIP20_REWARDS_REGISTRY_ADDRESS {
+            Some(TIP20RewardsRegistryPrecompile::create(chain_id, spec))
+        } else if *address == TIP403_REGISTRY_ADDRESS {
+            Some(TIP403RegistryPrecompile::create(chain_id, spec))
+        } else if *address == TIP_FEE_MANAGER_ADDRESS {
+            Some(TipFeeManagerPrecompile::create(chain_id, spec))
+        } else if *address == TIP_ACCOUNT_REGISTRAR {
+            Some(TipAccountRegistrarPrecompile::create(chain_id, spec))
+        } else if *address == STABLECOIN_EXCHANGE_ADDRESS {
+            Some(StablecoinExchangePrecompile::create(chain_id, spec))
+        } else if *address == NONCE_PRECOMPILE_ADDRESS {
+            Some(NoncePrecompile::create(chain_id, spec))
+        } else if *address == VALIDATOR_CONFIG_ADDRESS {
+            Some(ValidatorConfigPrecompile::create(chain_id, spec))
+        } else if *address == ACCOUNT_KEYCHAIN_ADDRESS && spec.is_allegretto() {
+            // AccountKeychain is only available after Allegretto hardfork
+            Some(AccountKeychainPrecompile::create(chain_id, spec))
+        } else {
+            None
+        }
+    });
 }
 
 sol! {
@@ -318,59 +318,52 @@ where
     }
 }
 
-// TODO(rusowsky): enable once migration is done
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::{storage::evm::EvmPrecompileStorageProvider, tip20::TIP20Token};
-//     use alloy::primitives::{Address, Bytes, U256};
-//     use alloy_evm::{
-//         EthEvmFactory, EvmEnv, EvmFactory, EvmInternals,
-//         precompiles::{Precompile as AlloyEvmPrecompile, PrecompileInput},
-//     };
-//     use revm::{
-//         context::ContextTr,
-//         database::{CacheDB, EmptyDB},
-//     };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tip20::TIP20Token;
+    use alloy::primitives::{Address, Bytes, U256};
+    use alloy_evm::{
+        EthEvmFactory, EvmEnv, EvmFactory, EvmInternals,
+        precompiles::{Precompile as AlloyEvmPrecompile, PrecompileInput},
+    };
+    use revm::{
+        context::ContextTr,
+        database::{CacheDB, EmptyDB},
+    };
 
-//     #[test]
-//     fn test_precompile_delegatecall() {
-//         let precompile = tempo_precompile!("TIP20Token", |input| TIP20Token::new(
-//             1,
-//             &mut EvmPrecompileStorageProvider::new(
-//                 input.internals,
-//                 input.gas,
-//                 1,
-//                 Default::default()
-//             ),
-//         ));
+    #[test]
+    fn test_precompile_delegatecall() {
+        let (chain_id, spec) = (1, TempoHardfork::default());
+        let precompile =
+            tempo_precompile!("TIP20Token", chain_id, spec, |input| { TIP20Token::new(1) });
 
-//         let db = CacheDB::new(EmptyDB::new());
-//         let mut evm = EthEvmFactory::default().create_evm(db, EvmEnv::default());
-//         let block = evm.block.clone();
-//         let evm_internals = EvmInternals::new(evm.journal_mut(), &block);
+        let db = CacheDB::new(EmptyDB::new());
+        let mut evm = EthEvmFactory::default().create_evm(db, EvmEnv::default());
+        let block = evm.block.clone();
+        let evm_internals = EvmInternals::new(evm.journal_mut(), &block);
 
-//         let target_address = Address::random();
-//         let bytecode_address = Address::random();
-//         let input = PrecompileInput {
-//             data: &Bytes::new(),
-//             caller: Address::ZERO,
-//             internals: evm_internals,
-//             gas: 0,
-//             value: U256::ZERO,
-//             target_address,
-//             bytecode_address,
-//         };
+        let target_address = Address::random();
+        let bytecode_address = Address::random();
+        let input = PrecompileInput {
+            data: &Bytes::new(),
+            caller: Address::ZERO,
+            internals: evm_internals,
+            gas: 0,
+            value: U256::ZERO,
+            target_address,
+            bytecode_address,
+        };
 
-//         let result = AlloyEvmPrecompile::call(&precompile, input);
+        let result = AlloyEvmPrecompile::call(&precompile, input);
 
-//         match result {
-//             Ok(output) => {
-//                 assert!(output.reverted);
-//                 let decoded = DelegateCallNotAllowed::abi_decode(&output.bytes).unwrap();
-//                 assert!(matches!(decoded, DelegateCallNotAllowed {}));
-//             }
-//             Err(_) => panic!("expected reverted output"),
-//         }
-//     }
-// }
+        match result {
+            Ok(output) => {
+                assert!(output.reverted);
+                let decoded = DelegateCallNotAllowed::abi_decode(&output.bytes).unwrap();
+                assert!(matches!(decoded, DelegateCallNotAllowed {}));
+            }
+            Err(_) => panic!("expected reverted output"),
+        }
+    }
+}

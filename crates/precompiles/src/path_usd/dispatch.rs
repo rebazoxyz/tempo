@@ -226,7 +226,7 @@ impl Precompile for PathUSD {
 mod tests {
     use super::*;
     use crate::{
-        storage::{PrecompileStorageProvider, StorageContext},
+        storage::StorageContext,
         test_util::{assert_full_coverage, check_selector_coverage, setup_storage},
     };
     use alloy::{

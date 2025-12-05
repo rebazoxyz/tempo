@@ -7,7 +7,7 @@ use crate::{
     tip20_factory::{self, TIP20Factory},
 };
 use alloy::{
-    primitives::{Address, B256, Bytes, U256},
+    primitives::{Address, B256, U256},
     sol_types::SolError,
 };
 use revm::precompile::PrecompileError;

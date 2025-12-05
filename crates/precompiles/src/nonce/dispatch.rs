@@ -1,6 +1,5 @@
 use crate::{
-    Precompile, fill_precompile_output, input_cost, nonce::NonceManager,
-    storage::PrecompileStorageProvider, unknown_selector, view,
+    Precompile, fill_precompile_output, input_cost, nonce::NonceManager, unknown_selector, view,
 };
 use alloy::{primitives::Address, sol_types::SolCall};
 use revm::precompile::{PrecompileError, PrecompileResult};

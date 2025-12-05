@@ -43,14 +43,14 @@ impl Precompile for TIP20Factory {
 mod tests {
     use super::*;
     use crate::{
-        storage::StorageContext,
-        test_util::{assert_full_coverage, check_selector_coverage, setup_storage},
+        storage::{StorageContext, hashmap::HashMapStorageProvider},
+        test_util::{assert_full_coverage, check_selector_coverage},
     };
     use tempo_contracts::precompiles::ITIP20Factory::ITIP20FactoryCalls;
 
     #[test]
     fn tip20_factory_test_selector_coverage() {
-        let (mut storage, sender) = setup_storage();
+        let mut storage = HashMapStorageProvider::new(1);
 
         StorageContext::enter(&mut storage, || {
             let mut factory = TIP20Factory::new();
