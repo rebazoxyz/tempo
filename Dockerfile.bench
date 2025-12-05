@@ -1,5 +1,14 @@
 FROM rust:1.88-bookworm AS chef
 
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+    pkg-config \
+    libssl-dev \
+    build-essential \
+    clang \
+    libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN cargo install cargo-chef sccache
 
 ENV RUSTC_WRAPPER=sccache \
@@ -15,26 +24,10 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y \
-    pkg-config \
-    libssl-dev \
-    build-essential \
-    clang \
-    libclang-dev \
-    && rm -rf /var/lib/apt/lists/*
-
 ENV RUSTC_WRAPPER=sccache \
     SCCACHE_DIR=/sccache
 
 COPY Cargo.toml Cargo.lock ./
-
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo chef cook --release --recipe-path recipe.json
-
-COPY . .
 
 ARG RUST_BINARY
 ARG RUST_PROFILE
@@ -42,7 +35,14 @@ ARG RUST_FEATURES
 ARG VERGEN_GIT_SHA
 ARG VERGEN_GIT_SHA_SHORT
 
-# Install nightly Rust and build the tempo binary
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo chef cook --profile ${RUST_PROFILE} --recipe-path recipe.json
+
+COPY . .
+
+# Build the tempo binary
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
