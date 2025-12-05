@@ -1,5 +1,8 @@
 /// Basic 2D nonce pool for user nonces (nonce_key > 0) that are tracked on chain.
-use crate::{metrics::AA2dPoolMetrics, transaction::TempoPooledTransaction};
+use crate::{
+    metrics::AA2dPoolMetrics,
+    transaction::{TempoPoolTransactionError, TempoPooledTransaction},
+};
 use alloy_primitives::{Address, B256, TxHash, U256, map::HashMap};
 use reth_primitives_traits::transaction::error::InvalidTransactionError;
 use reth_tracing::tracing::trace;
@@ -158,16 +161,27 @@ impl AA2dPool {
         // try to insert the transaction
         let replaced = match self.by_id.entry(tx_id) {
             Entry::Occupied(mut entry) => {
-                // Ensure the replacement transaction is not underpriced
-                if entry
-                    .get()
-                    .inner
-                    .transaction
-                    .is_underpriced(&tx.inner.transaction, &self.config.price_bump_config)
+                let prev_valid_after = entry.get().inner.transaction.transaction.valid_after();
+
+                // If no changes to `valid_after` but transaction is underpriced, reject the replacement
+                if prev_valid_after == delayed_until
+                    && entry
+                        .get()
+                        .inner
+                        .transaction
+                        .is_underpriced(&tx.inner.transaction, &self.config.price_bump_config)
                 {
                     return Err(PoolError::new(
                         *transaction.hash(),
                         PoolErrorKind::ReplacementUnderpriced,
+                    ));
+                } else if prev_valid_after < delayed_until {
+                    // If this attempts to increase the delay, reject the replacement
+                    return Err(PoolError::new(
+                        *transaction.hash(),
+                        PoolErrorKind::InvalidTransaction(InvalidPoolTransactionError::other(
+                            TempoPoolTransactionError::InvalidValidAfterReplacement,
+                        )),
                     ));
                 }
 
@@ -2653,6 +2667,76 @@ mod tests {
         assert!(!second.is_pending());
         assert!(!second.has_queued_ancestors_or_nonce_gap);
         assert!(second.is_delayed);
+
+        pool.assert_invariants();
+    }
+
+    #[test_case::test_case(U256::ZERO)]
+    #[test_case::test_case(U256::random())]
+    fn replace_delayed_transaction(nonce_key: U256) {
+        let mut pool = AA2dPool::default();
+        let sender = Address::random();
+
+        // Create a delayed transactions and a transaction blocked by it
+        let tx1 = create_aa_tx_with_valid_after(sender, nonce_key, 0, 1000);
+        let tx2 = create_aa_tx(sender, nonce_key, 1);
+
+        pool.add_transaction(
+            Arc::new(wrap_valid_tx(tx1.clone(), TransactionOrigin::Local)),
+            0,
+        )
+        .unwrap();
+        pool.add_transaction(
+            Arc::new(wrap_valid_tx(tx2.clone(), TransactionOrigin::Local)),
+            0,
+        )
+        .unwrap();
+
+        // Assert that both transactions are queued
+        let (pending_count, queued_count) = pool.pending_and_queued_txn_count();
+        assert_eq!(pending_count, 0);
+        assert_eq!(queued_count, 2);
+
+        let replacement = create_aa_tx_with_gas_and_valid_after(
+            sender,
+            nonce_key,
+            0,
+            10_000_000_000,
+            10_000_000_000,
+            Some(2000),
+        );
+
+        // Assert that we can't replace with further `valid_after` even if we pay more fees.
+        assert!(
+            pool.add_transaction(
+                Arc::new(wrap_valid_tx(replacement.clone(), TransactionOrigin::Local)),
+                0,
+            )
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Can't replace a transaction with a higher `valid_after` timestamp")
+        );
+
+        let replacement = create_aa_tx(sender, nonce_key, 0);
+
+        // Now insert the replacement and make sure that it promotes the blocked tx
+        let result = pool.add_transaction(
+            Arc::new(wrap_valid_tx(replacement.clone(), TransactionOrigin::Local)),
+            0,
+        );
+        assert_eq!(result.unwrap().as_pending().unwrap().promoted.len(), 1);
+
+        // Assert that both transactions are now ready to be included
+        let (pending_count, queued_count) = pool.pending_and_queued_txn_count();
+        assert_eq!(pending_count, 2);
+        assert_eq!(queued_count, 0);
+        assert_eq!(
+            pool.best_transactions()
+                .map(|tx| *tx.hash())
+                .collect::<Vec<_>>(),
+            vec![*replacement.hash(), *tx2.hash()]
+        );
 
         pool.assert_invariants();
     }

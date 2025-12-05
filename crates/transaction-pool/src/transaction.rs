@@ -154,6 +154,10 @@ pub enum TempoPoolTransactionError {
         "Insufficient liquidity for fee token: {0}, please see https://docs.tempo.xyz/documentation/protocol/fees for more"
     )]
     InsufficientLiquidity(Address),
+
+    /// Thrown when a new transaction attempts to replace another one, but has a higher `valid_after` timestamp.
+    #[error("Can't replace a transaction with a higher `valid_after` timestamp")]
+    InvalidValidAfterReplacement,
 }
 
 impl PoolTransactionError for TempoPoolTransactionError {
@@ -166,7 +170,8 @@ impl PoolTransactionError for TempoPoolTransactionError {
             | Self::InvalidValidBefore { .. }
             | Self::InvalidValidAfter { .. }
             | Self::Keychain(_)
-            | Self::InsufficientLiquidity(_) => false,
+            | Self::InsufficientLiquidity(_)
+            | Self::InvalidValidAfterReplacement => false,
             Self::NonZeroValue | Self::SubblockNonceKey => true,
         }
     }
