@@ -2619,11 +2619,8 @@ mod tests {
         let tx2 = create_aa_tx_with_valid_after(sender, nonce_key, 1, 1000);
         let tx3 = create_aa_tx_with_valid_after(sender, nonce_key, 2, 2000);
 
-        pool.add_transaction(
-            Arc::new(wrap_valid_tx(tx3.clone(), TransactionOrigin::Local)),
-            0,
-        )
-        .unwrap();
+        pool.add_transaction(Arc::new(wrap_valid_tx(tx3, TransactionOrigin::Local)), 0)
+            .unwrap();
         pool.add_transaction(
             Arc::new(wrap_valid_tx(tx2.clone(), TransactionOrigin::Local)),
             0,
@@ -2681,11 +2678,8 @@ mod tests {
         let tx1 = create_aa_tx_with_valid_after(sender, nonce_key, 0, 1000);
         let tx2 = create_aa_tx(sender, nonce_key, 1);
 
-        pool.add_transaction(
-            Arc::new(wrap_valid_tx(tx1.clone(), TransactionOrigin::Local)),
-            0,
-        )
-        .unwrap();
+        pool.add_transaction(Arc::new(wrap_valid_tx(tx1, TransactionOrigin::Local)), 0)
+            .unwrap();
         pool.add_transaction(
             Arc::new(wrap_valid_tx(tx2.clone(), TransactionOrigin::Local)),
             0,
@@ -2709,7 +2703,7 @@ mod tests {
         // Assert that we can't replace with further `valid_after` even if we pay more fees.
         assert!(
             pool.add_transaction(
-                Arc::new(wrap_valid_tx(replacement.clone(), TransactionOrigin::Local)),
+                Arc::new(wrap_valid_tx(replacement, TransactionOrigin::Local)),
                 0,
             )
             .err()
