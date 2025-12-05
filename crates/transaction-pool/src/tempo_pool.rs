@@ -96,7 +96,7 @@ where
         if transactions.iter().any(|outcome| {
             outcome
                 .as_valid_transaction()
-                .map(|tx| tx.transaction().is_aa_2d())
+                .map(|tx| tx.transaction().should_add_to_aa_pool())
                 .unwrap_or(false)
         }) {
             // mixed or 2d only
@@ -126,7 +126,10 @@ where
                 propagate,
                 authorities,
             } => {
-                if transaction.transaction().is_aa_2d() {
+                // Route 2D transactions or transactions with valid_after to our custom pool.
+                if transaction.transaction().should_add_to_aa_pool()
+                    || transaction.transaction().valid_after().is_some()
+                {
                     let transaction = transaction.into_transaction();
                     let sender_id = self
                         .protocol_pool
