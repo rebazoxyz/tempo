@@ -109,10 +109,9 @@ where
 {
     let mut events = pool.client().canonical_state_stream();
     while let Some(notification) = events.next().await {
-        let timestamp = notification.tip().header().timestamp();
         pool.notify_aa_pool_on_state_and_timestamp(
             notification.committed().execution_outcome().state().state(),
-            timestamp,
+            notification.tip().header().timestamp(),
         );
     }
 }
