@@ -38,6 +38,12 @@ impl TIP20Factory {
         self.__initialize()
     }
 
+    /// Returns true if the factory has been initialized (has code set).
+    pub fn is_initialized(&self) -> Result<bool> {
+        self.storage
+            .with_account_info(TIP20_FACTORY_ADDRESS, |info| Ok(info.code.is_some()))
+    }
+
     pub fn create_token(
         &mut self,
         sender: Address,

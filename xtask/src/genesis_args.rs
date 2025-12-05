@@ -31,7 +31,7 @@ use tempo_precompiles::{
     PATH_USD_ADDRESS,
     nonce::NonceManager,
     stablecoin_exchange::StablecoinExchange,
-    storage::{ContractStorage, evm::EvmPrecompileStorageProvider},
+    storage::{ContractStorage, StorageContext, evm::EvmPrecompileStorageProvider},
     tip_fee_manager::{IFeeManager, TipFeeManager},
     tip20::{ISSUER_ROLE, ITIP20, TIP20Token, address_to_token_id_unchecked},
     tip20_factory::TIP20Factory,
@@ -405,10 +405,7 @@ fn initialize_tip20_factory(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre::Resul
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
 
-    let mut factory = TIP20Factory::new(&mut provider);
-    factory
-        .initialize()
-        .expect("Could not initialize tip20 factory");
+    StorageContext::enter(&mut provider, || TIP20Factory::new().initialize())?;
     Ok(())
 }
 
@@ -423,46 +420,48 @@ fn create_path_usd_token(
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
 
-    // Create PathUSD through factory with address(0) as quote token (required for first token post-Allegretto)
-    let token_address = {
-        let mut factory = TIP20Factory::new(&mut provider);
-        factory
-            .create_token(
-                admin,
-                ITIP20Factory::createTokenCall {
-                    name: "pathUSD".into(),
-                    symbol: "pathUSD".into(),
-                    currency: "USD".into(),
-                    quoteToken: Address::ZERO, // First token must use address(0) as quote token
+    StorageContext::enter(&mut provider, || {
+        // Create PathUSD through factory with address(0) as quote token (required for first token post-Allegretto)
+        let token_address = {
+            let mut factory = TIP20Factory::new();
+            factory
+                .create_token(
                     admin,
-                },
-            )
-            .expect("Could not create PathUSD token")
-    };
+                    ITIP20Factory::createTokenCall {
+                        name: "pathUSD".into(),
+                        symbol: "pathUSD".into(),
+                        currency: "USD".into(),
+                        quoteToken: Address::ZERO, // First token must use address(0) as quote token
+                        admin,
+                    },
+                )
+                .expect("Could not create PathUSD token")
+        };
 
-    // Verify it was created at the expected address (token_id=0)
-    assert_eq!(
-        token_address, PATH_USD_ADDRESS,
-        "PathUSD should be created at token_id=0 address"
-    );
+        // Verify it was created at the expected address (token_id=0)
+        assert_eq!(
+            token_address, PATH_USD_ADDRESS,
+            "PathUSD should be created at token_id=0 address"
+        );
 
-    let mut token = TIP20Token::new(0, &mut provider);
-    token.grant_role_internal(admin, *ISSUER_ROLE)?;
+        let mut token = TIP20Token::new(0);
+        token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-    // Mint to all recipients
-    for recipient in recipients.iter().progress() {
-        token
-            .mint(
-                admin,
-                ITIP20::mintCall {
-                    to: *recipient,
-                    amount: U256::from(u64::MAX),
-                },
-            )
-            .expect("Could not mint pathUSD");
-    }
+        // Mint to all recipients
+        for recipient in recipients.iter().progress() {
+            token
+                .mint(
+                    admin,
+                    ITIP20::mintCall {
+                        to: *recipient,
+                        amount: U256::from(u64::MAX),
+                    },
+                )
+                .expect("Could not mint pathUSD");
+        }
 
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Creates a TIP20 token through the factory (factory must already be initialized)
@@ -481,8 +480,8 @@ fn create_and_mint_token(
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
 
-    let token_id = {
-        let mut factory = TIP20Factory::new(&mut provider);
+    StorageContext::enter(&mut provider, || {
+        let mut factory = TIP20Factory::new();
         assert!(
             factory
                 .is_initialized()
@@ -502,50 +501,50 @@ fn create_and_mint_token(
             )
             .expect("Could not create token");
 
-        address_to_token_id_unchecked(token_address)
-    };
+        let token_id = address_to_token_id_unchecked(token_address);
 
-    let mut token = TIP20Token::new(token_id, &mut provider);
-    token.grant_role_internal(admin, *ISSUER_ROLE)?;
+        let mut token = TIP20Token::new(token_id);
+        token.grant_role_internal(admin, *ISSUER_ROLE)?;
 
-    let result = token.set_supply_cap(
-        admin,
-        ITIP20::setSupplyCapCall {
-            newSupplyCap: U256::from(u128::MAX),
-        },
-    );
-    assert!(result.is_ok());
-
-    token
-        .mint(
+        let result = token.set_supply_cap(
             admin,
-            ITIP20::mintCall {
-                to: admin,
-                amount: mint_amount,
+            ITIP20::setSupplyCapCall {
+                newSupplyCap: U256::from(u128::MAX),
             },
-        )
-        .expect("Token minting failed");
+        );
+        assert!(result.is_ok());
 
-    for address in recipients.iter().progress() {
         token
             .mint(
                 admin,
                 ITIP20::mintCall {
-                    to: *address,
-                    amount: U256::from(u64::MAX),
+                    to: admin,
+                    amount: mint_amount,
                 },
             )
-            .expect("Could not mint fee token");
-    }
+            .expect("Token minting failed");
 
-    Ok((token_id, token.address()))
+        for address in recipients.iter().progress() {
+            token
+                .mint(
+                    admin,
+                    ITIP20::mintCall {
+                        to: *address,
+                        amount: U256::from(u64::MAX),
+                    },
+                )
+                .expect("Could not mint fee token");
+        }
+
+        Ok((token_id, token.address()))
+    })
 }
 
 fn initialize_tip20_rewards_registry(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre::Result<()> {
     let ctx = evm.ctx_mut();
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
-    TIP20RewardsRegistry::new(&mut provider).initialize()?;
+    StorageContext::enter(&mut provider, || TIP20RewardsRegistry::new().initialize())?;
 
     Ok(())
 }
@@ -561,34 +560,36 @@ fn initialize_fee_manager(
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
 
-    let mut fee_manager = TipFeeManager::new(&mut provider);
-    fee_manager
-        .initialize()
-        .expect("Could not init fee manager");
-    for address in initial_accounts.iter().progress() {
+    StorageContext::enter(&mut provider, || {
+        let mut fee_manager = TipFeeManager::new();
         fee_manager
-            .set_user_token(
-                *address,
-                IFeeManager::setUserTokenCall {
-                    token: default_fee_address,
-                },
-            )
-            .expect("Could not set fee token");
-    }
+            .initialize()
+            .expect("Could not init fee manager");
+        for address in initial_accounts.iter().progress() {
+            fee_manager
+                .set_user_token(
+                    *address,
+                    IFeeManager::setUserTokenCall {
+                        token: default_fee_address,
+                    },
+                )
+                .expect("Could not set fee token");
+        }
 
-    // Set validator fee tokens to PathUSD
-    for validator in validators {
-        fee_manager
-            .set_validator_token(
-                validator,
-                IFeeManager::setValidatorTokenCall {
-                    token: PATH_USD_ADDRESS,
-                },
-                // use random address to avoid `CannotChangeWithinBlock` error
-                Address::random(),
-            )
-            .expect("Could not set validator fee token");
-    }
+        // Set validator fee tokens to PathUSD
+        for validator in validators {
+            fee_manager
+                .set_validator_token(
+                    validator,
+                    IFeeManager::setValidatorTokenCall {
+                        token: PATH_USD_ADDRESS,
+                    },
+                    // use random address to avoid `CannotChangeWithinBlock` error
+                    Address::random(),
+                )
+                .expect("Could not set validator fee token");
+        }
+    });
 }
 
 /// Initializes the [`TIP403Registry`] contract.
@@ -596,7 +597,8 @@ fn initialize_registry(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre::Result<()>
     let ctx = evm.ctx_mut();
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
-    TIP403Registry::new(&mut provider).initialize().unwrap();
+    StorageContext::enter(&mut provider, || TIP403Registry::new().initialize())?;
+
     Ok(())
 }
 
@@ -604,9 +606,7 @@ fn initialize_stablecoin_exchange(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre:
     let ctx = evm.ctx_mut();
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
-
-    let mut exchange = StablecoinExchange::new(&mut provider);
-    exchange.initialize()?;
+    StorageContext::enter(&mut provider, || StablecoinExchange::new().initialize())?;
 
     Ok(())
 }
@@ -615,7 +615,7 @@ fn initialize_nonce_manager(evm: &mut TempoEvm<CacheDB<EmptyDB>>) -> eyre::Resul
     let ctx = evm.ctx_mut();
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
-    NonceManager::new(&mut provider).initialize()?;
+    StorageContext::enter(&mut provider, || NonceManager::new().initialize())?;
 
     Ok(())
 }
@@ -631,11 +631,12 @@ fn initialize_validator_config(
     let ctx = evm.ctx_mut();
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
+    StorageContext::enter(&mut provider, || {
+        ValidatorConfig::new()
+            .initialize(admin)
+            .wrap_err("failed to initialize validator config contract")
+    })?;
 
-    let mut validator_config = ValidatorConfig::new(&mut provider);
-    validator_config
-        .initialize(admin)
-        .wrap_err("failed to initialize validator config contract")?;
     Ok(())
 }
 
@@ -696,12 +697,13 @@ fn mint_pairwise_liquidity(
     let ctx = evm.ctx_mut();
     let evm_internals = EvmInternals::new(&mut ctx.journaled_state, &ctx.block);
     let mut provider = EvmPrecompileStorageProvider::new_max_gas(evm_internals, &ctx.cfg);
+    StorageContext::enter(&mut provider, || {
+        let mut fee_manager = TipFeeManager::new();
 
-    let mut fee_manager = TipFeeManager::new(&mut provider);
-
-    for b_token_address in b_tokens {
-        fee_manager
-            .mint(admin, a_token, b_token_address, amount, amount, admin)
-            .expect("Could not mint A -> B Liquidity pool");
-    }
+        for b_token_address in b_tokens {
+            fee_manager
+                .mint(admin, a_token, b_token_address, amount, amount, admin)
+                .expect("Could not mint A -> B Liquidity pool");
+        }
+    });
 }
