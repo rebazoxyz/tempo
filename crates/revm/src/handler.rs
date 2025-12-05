@@ -39,9 +39,9 @@ use tempo_precompiles::{
     account_keychain::{AccountKeychain, TokenLimit, authorizeKeyCall},
     error::TempoPrecompileError,
     nonce::{INonce::getNonceCall, NonceManager},
-    storage::{Mapping, StorageContext, evm::EvmPrecompileStorageProvider},
+    storage::{StorageContext, evm::EvmPrecompileStorageProvider},
     tip_fee_manager::TipFeeManager,
-    tip20::{self, ITIP20::InsufficientBalance, TIP20Error},
+    tip20::{ITIP20::InsufficientBalance, TIP20Error, TIP20Token},
 };
 use tempo_primitives::transaction::{
     PrimitiveSignature, RecoveredTempoAuthorization, SignatureType, TempoSignature,
@@ -1232,9 +1232,7 @@ where
     JOURNAL: JournalTr,
 {
     journal.load_account(token)?;
-    let balance_slot = Mapping::<Address, U256>::new(tip20::slots::BALANCES, token)
-        .at(sender)
-        .slot();
+    let balance_slot = TIP20Token::from_address(token).balances.at(sender).slot();
     let balance = journal.sload(token, balance_slot)?.data;
 
     Ok(balance)
@@ -1347,9 +1345,7 @@ mod tests {
         let expected_balance = U256::random();
 
         // Set up initial balance
-        let balance_slot = Mapping::<Address, U256>::new(tip20::slots::BALANCES, token)
-            .at(account)
-            .slot();
+        let balance_slot = TIP20Token::from_address(token).balances.at(account).slot();
         journal.load_account(token)?;
         journal
             .sstore(token, balance_slot, expected_balance)
@@ -1379,12 +1375,7 @@ mod tests {
         let tx_fee_token = Address::random();
 
         // Set validator token
-        let validator_slot = Mapping::<Address, Address>::new(
-            tip_fee_manager::slots::VALIDATOR_TOKENS,
-            TIP_FEE_MANAGER_ADDRESS,
-        )
-        .at(validator)
-        .slot();
+        let validator_slot = TipFeeManager::new().validator_tokens.at(validator).slot();
         ctx.journaled_state.load_account(TIP_FEE_MANAGER_ADDRESS)?;
         ctx.journaled_state
             .sstore(
@@ -1403,12 +1394,7 @@ mod tests {
         assert_eq!(validator_fee_token, fee_token);
 
         // Set user token
-        let user_slot = Mapping::<Address, Address>::new(
-            tip_fee_manager::slots::USER_TOKENS,
-            TIP_FEE_MANAGER_ADDRESS,
-        )
-        .at(user)
-        .slot();
+        let user_slot = TipFeeManager::new().user_tokens.at(user).slot();
         ctx.journaled_state
             .sstore(
                 TIP_FEE_MANAGER_ADDRESS,
