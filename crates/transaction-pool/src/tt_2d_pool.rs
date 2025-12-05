@@ -58,7 +58,7 @@ pub struct AA2dPool {
     ///
     /// This identifies the account and nonce key based on the slot in the `NonceManager`.
     address_slots: HashMap<U256, (Address, U256)>,
-    /// Timestamp of the last block.
+    /// Timestamp of the last block in seconds.
     tip_timestamp: u64,
     /// Settings for this sub-pool.
     config: AA2dPoolConfig,
