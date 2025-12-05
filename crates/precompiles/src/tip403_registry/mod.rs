@@ -6,9 +6,9 @@ use tempo_precompiles_macros::{Storable, contract};
 use crate::{
     TIP403_REGISTRY_ADDRESS,
     error::{Result, TempoPrecompileError},
-    storage::{Handler, Mapping},
+    storage::{Handler, Mapping, packing::extract_packed_value},
 };
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 
 #[contract]
 pub struct TIP403Registry {
@@ -22,6 +22,18 @@ pub struct PolicyData {
     // NOTE: enums are defined as u8, and leverage the sol! macro's `TryInto<u8>` impl
     pub policy_type: u8,
     pub admin: Address,
+}
+
+// NOTE(rusowsky): can be removed once revm uses precompiles rather than directly
+// interacting with storage slots.
+impl PolicyData {
+    pub fn from_word(word: U256) -> Result<Self> {
+        use __packing_policy_data::{ADMIN_LOC as A_LOC, POLICY_TYPE_LOC as PT_LOC};
+        Ok(Self {
+            policy_type: extract_packed_value::<u8>(word, PT_LOC.offset_bytes, PT_LOC.size)?,
+            admin: extract_packed_value::<Address>(word, A_LOC.offset_bytes, A_LOC.size)?,
+        })
+    }
 }
 
 impl TIP403Registry {
