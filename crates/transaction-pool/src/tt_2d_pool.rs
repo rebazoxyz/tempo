@@ -621,7 +621,7 @@ impl AA2dPool {
                     }
                 } else {
                     // If this tx is not pending it means it wasn't pending before the state update either.
-                    // Which means all its descendats are already aware of this transaction blocking them, thus we can exit.
+                    // Which means all its descendants are already aware of this transaction blocking them, thus we can exit.
                     break;
                 }
 
@@ -679,7 +679,7 @@ impl AA2dPool {
                     // The actual resumed tx, update its state.
                     tx.is_delayed = false;
                 } else {
-                    // For all descendats, set the flag to false as we ensure no nonce gaps.
+                    // For all descendants, set the flag to false as we ensure no nonce gaps.
                     tx.has_queued_ancestors_or_nonce_gap = false;
                 }
 
