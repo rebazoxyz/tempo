@@ -755,7 +755,7 @@ mod tests {
 
             // Also verify each element can be extracted correctly
             for (i, &expected) in data.iter().enumerate() {
-                let offset = i * u8::BYTES;
+                let offset = i; // equivalent to: `i * u8::BYTES`
                 let actual =
                     Slot::<u8>::new_with_ctx(data_start, LayoutCtx::packed(offset), address)
                         .read()
@@ -1259,7 +1259,7 @@ mod tests {
 
             // Also verify each element can be extracted
             for (i, &expected) in data.iter().enumerate() {
-                let offset = i * u8::BYTES;
+                let offset = i; // equivalent to: `i * u8::BYTES`
                 let actual =
                     Slot::<u8>::new_with_ctx(data_start, LayoutCtx::packed(offset), address)
                         .read()
@@ -1301,7 +1301,7 @@ mod tests {
 
             // Verify new data can be extracted correctly (even though old data might remain)
             for (i, &expected) in data_short.iter().enumerate() {
-                let offset = i * u8::BYTES;
+                let offset = i; // equivalent to: `i * u8::BYTES`
                 let actual =
                     Slot::<u8>::new_with_ctx(data_start, LayoutCtx::packed(offset), address)
                         .read()
@@ -1337,7 +1337,7 @@ mod tests {
 
             // Also verify each element can still be extracted
             for (i, &expected) in data_short.iter().enumerate() {
-                let offset = i * u8::BYTES;
+                let offset = i; // equivalent to: `i * u8::BYTES`
                 let actual =
                     Slot::<u8>::new_with_ctx(data_start, LayoutCtx::packed(offset), address)
                         .read()

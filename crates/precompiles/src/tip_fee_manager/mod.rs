@@ -458,9 +458,7 @@ mod tests {
         let mut storage = HashMapStorageProvider::new(1);
         let user = Address::random();
         StorageContext::enter(&mut storage, || {
-            let token = TIP20Setup::create("Test", "TST", user)
-                .with_issuer(user)
-                .apply()?;
+            let token = TIP20Setup::create("Test", "TST", user).apply()?;
 
             let mut fee_manager = TipFeeManager::new();
 
