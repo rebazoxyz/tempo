@@ -103,10 +103,7 @@ contract AccountKeychain is IAccountKeychain {
 
         // Store the new key
         keys[msg.sender][keyId] = AuthorizedKey({
-            signatureType: sigType,
-            expiry: expiry,
-            enforceLimits: enforceLimits,
-            isRevoked: false
+            signatureType: sigType, expiry: expiry, enforceLimits: enforceLimits, isRevoked: false
         });
 
         // Set initial spending limits (only if enforce_limits is true)
@@ -136,12 +133,8 @@ contract AccountKeychain is IAccountKeychain {
         // Mark the key as revoked - this prevents replay attacks by ensuring
         // the same key_id can never be re-authorized for this account.
         // We keep isRevoked=true but clear other fields.
-        keys[msg.sender][keyId] = AuthorizedKey({
-            signatureType: 0,
-            expiry: 0,
-            enforceLimits: false,
-            isRevoked: true
-        });
+        keys[msg.sender][keyId] =
+            AuthorizedKey({ signatureType: 0, expiry: 0, enforceLimits: false, isRevoked: true });
 
         // Note: We don't clear spending limits here - they become inaccessible
 
@@ -260,12 +253,9 @@ contract AccountKeychain is IAccountKeychain {
     /// @param keyId The key ID that signed the transaction
     /// @param token The token being transferred
     /// @param amount The amount being transferred
-    function _verifyAndUpdateSpending(
-        address account,
-        address keyId,
-        address token,
-        uint256 amount
-    ) internal {
+    function _verifyAndUpdateSpending(address account, address keyId, address token, uint256 amount)
+        internal
+    {
         // If using main key (zero address), no spending limits apply
         if (keyId == address(0)) {
             return;
