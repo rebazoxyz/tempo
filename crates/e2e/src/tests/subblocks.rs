@@ -169,8 +169,13 @@ fn subblocks_are_included_post_allegretto() {
             }
 
             // Assert that all transactions were successful
-            for receipt in receipts {
-                assert!(receipt.status());
+            for (receipt, tx) in receipts
+                .iter()
+                .zip(block.recovered_block().transactions_recovered())
+            {
+                if !receipt.status() {
+                    panic!("transaction was not successful {receipt:?} {tx:?}");
+                }
             }
 
             if !expected_transactions.is_empty() {
