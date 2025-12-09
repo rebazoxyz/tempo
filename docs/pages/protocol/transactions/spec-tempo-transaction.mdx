@@ -863,11 +863,13 @@ Different signature types incur different base transaction costs to reflect thei
 | **secp256k1** | 21,000 | Standard | Includes 3,000 gas for ecrecover precompile |
 | **P256** | 26,000 | 21,000 + 5,000 | Base 21k + additional 5k for P256 verification |
 | **WebAuthn** | 26,000 + variable data cost | 26,000 + (calldata gas for clientDataJSON) | Base P256 cost plus variable cost for clientDataJSON based on size |
+| **Keychain** | Inner signature + 3,000 | primitive_sig_cost + 3,000 | Inner signature cost + key validation overhead (2,100 SLOAD + 900 buffer) |
 
 **Rationale:**
 - The base 21,000 gas for standard transactions already includes the cost of secp256k1 signature verification via ecrecover (3,000 gas)
-- [EIP 7951](https://eips.ethereum.org/EIPS/eip-7951) sets P256 verification cost at 6,900 gas. We add 1,100 gas to account for the additional 65 bytes of signature size (129 bytes total vs 64 bytes for secp256k1), giving 8,000 gas total. Since the base 21k already includes 3,000 gas for ecrecover (which P256 doesn't use), the net additional cost is 8,000 - 3,000 = **5,000 gas**. 
+- [EIP 7951](https://eips.ethereum.org/EIPS/eip-7951) sets P256 verification cost at 6,900 gas. We add 1,100 gas to account for the additional 65 bytes of signature size (129 bytes total vs 64 bytes for secp256k1), giving 8,000 gas total. Since the base 21k already includes 3,000 gas for ecrecover (which P256 doesn't use), the net additional cost is 8,000 - 3,000 = **5,000 gas**.
 - WebAuthn signatures require additional computation to parse and validate the clientDataJSON structure. We cap the total signature size at 2kb. The signature is also  charged using the same gas schedule as calldata (16 gas per non-zero byte, 4 gas per zero byte) to prevent the use of this signature space from spam.
+- Keychain signatures wrap a primitive signature and are used by access keys. They add 3,000 gas to cover key validation during transaction validation (cold SLOAD to verify key exists + processing overhead).
 - Individual per-signature-type gas costs allow us to add more advanced verification methods in the future like multisigs, which could have dynamic gas pricing.
 
 ### Nonce Key Gas Schedule
@@ -1060,9 +1062,9 @@ def calculate_tempo_tx_base_gas(tx):
 
     # Constants
     BASE_TX_GAS = 21_000
-    P256_VERIFY_GAS = 5_000
     COLD_SSTORE_GAS = 5_000
     NEW_NONCE_KEY_MULTIPLIER = 20_000
+    KEYCHAIN_VALIDATION_GAS = 3_000  # 2,100 SLOAD + 900 processing buffer
 
     # Step 1: Determine signature verification cost
     # For Keychain signatures, use the inner primitive signature
@@ -1072,6 +1074,10 @@ def calculate_tempo_tx_base_gas(tx):
         inner_sig = tx.signature
 
     signature_gas = BASE_TX_GAS + calculate_signature_verification_gas(inner_sig)
+
+    # Add keychain validation overhead if using access key
+    if tx.signature.type == Keychain:
+        signature_gas += KEYCHAIN_VALIDATION_GAS
 
     # Step 2: Calculate nonce key cost
     if tx.nonce_key == 0:
