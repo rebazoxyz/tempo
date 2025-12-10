@@ -2,18 +2,18 @@ import * as React from 'react'
 import { Addresses } from 'tempo.ts/viem'
 import { Hooks } from 'tempo.ts/wagmi'
 import { parseUnits } from 'viem'
-import { useAccount, useAccountEffect } from 'wagmi'
+import { useConnection, useConnectionEffect } from 'wagmi'
 import { Button, ExplorerLink, Step } from '../../Demo'
-import { alphaUsd, linkingUsd } from '../../tokens'
+import { alphaUsd, pathUsd } from '../../tokens'
 import type { DemoStepProps } from '../types'
 
 export function ApproveSpend(props: DemoStepProps) {
   const { stepNumber, last = false } = props
-  const { address } = useAccount()
+  const { address } = useConnection()
 
   const approve = Hooks.token.useApproveSync()
 
-  useAccountEffect({
+  useConnectionEffect({
     onDisconnect() {
       approve.reset()
     },
@@ -39,7 +39,7 @@ export function ApproveSpend(props: DemoStepProps) {
             approve.mutate({
               amount,
               spender: Addresses.stablecoinExchange,
-              token: linkingUsd,
+              token: pathUsd,
               feeToken: alphaUsd,
             })
           }}
@@ -50,7 +50,7 @@ export function ApproveSpend(props: DemoStepProps) {
         </Button>
       }
       number={stepNumber}
-      title="Approve the Stablecoin DEX to spend LinkingUSD"
+      title="Approve the Stablecoin DEX to spend pathUSD"
     >
       {approve.data && (
         <div className="flex mx-6 flex-col gap-3 pb-4">

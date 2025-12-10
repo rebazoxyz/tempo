@@ -66,7 +66,7 @@ pub struct Builder<TBlocker, TContext, TPeerManager> {
 
     pub fee_recipient: alloy_primitives::Address,
 
-    pub execution_node: TempoFullNode,
+    pub execution_node: Option<TempoFullNode>,
 
     pub blocker: TBlocker,
     pub peer_manager: TPeerManager,
@@ -105,38 +105,22 @@ where
             Peers = OrderedAssociated<PublicKey, SocketAddr>,
         >,
 {
+    pub fn with_execution_node(mut self, execution_node: TempoFullNode) -> Self {
+        self.execution_node = Some(execution_node);
+        self
+    }
+
     pub async fn try_init(self) -> eyre::Result<Engine<TBlocker, TContext, TPeerManager>> {
-        let epoch_length = self
+        let execution_node = self
             .execution_node
+            .clone()
+            .ok_or_eyre("execution_node must be set using with_execution_node()")?;
+
+        let epoch_length = execution_node
             .chain_spec()
             .info
             .epoch_length()
             .ok_or_eyre("chainspec did not contain epochLength; cannot go on without it")?;
-
-        let public_polynomial = self
-            .execution_node
-            .chain_spec()
-            .info
-            .public_polynomial()
-            .clone()
-            .ok_or_eyre("chainspec did not contain publicPolynomial; cannot go on without it")?
-            .into_inner();
-
-        let validators = self
-            .execution_node
-            .chain_spec()
-            .info
-            .validators()
-            .clone()
-            .ok_or_eyre("chainspec did not contain validators; cannot go on without them")?
-            .into_inner();
-
-        info!(
-            epoch_length,
-            ?validators,
-            ?public_polynomial,
-            "using values found in chainspec"
-        );
 
         info!(
             identity = %self.signer.public_key(),
@@ -210,7 +194,7 @@ where
             context: self.context.clone(),
             signer: self.signer.clone(),
             scheme_provider: scheme_provider.clone(),
-            node: self.execution_node.clone(),
+            node: execution_node.clone(),
             fee_recipient: self.fee_recipient,
             time_to_build_subblock: self.time_to_build_subblock,
             subblock_broadcast_interval: self.subblock_broadcast_interval,
@@ -223,7 +207,7 @@ where
             fee_recipient: self.fee_recipient,
             mailbox_size: self.mailbox_size,
             marshal: marshal_mailbox.clone(),
-            execution_node: self.execution_node.clone(),
+            execution_node: execution_node.clone(),
             new_payload_wait_time: self.new_payload_wait_time,
             subblocks: subblocks.mailbox(),
             scheme_provider: scheme_provider.clone(),
@@ -258,10 +242,8 @@ where
             dkg::manager::Config {
                 epoch_manager: epoch_manager_mailbox,
                 epoch_length,
-                execution_node: self.execution_node.clone(),
-                initial_public_polynomial: public_polynomial,
+                execution_node,
                 initial_share: self.share.clone(),
-                initial_validators: validators,
                 mailbox_size: self.mailbox_size,
                 marshal: marshal_mailbox,
                 namespace: crate::config::NAMESPACE.to_vec(),

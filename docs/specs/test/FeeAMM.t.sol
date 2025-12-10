@@ -3,9 +3,15 @@ pragma solidity ^0.8.13;
 
 import { FeeAMM } from "../src/FeeAMM.sol";
 import { TIP20 } from "../src/TIP20.sol";
+import { IFeeAMM } from "../src/interfaces/IFeeAMM.sol";
 import { BaseTest } from "./BaseTest.t.sol";
+import { StdStorage, stdStorage } from "forge-std/Test.sol";
 
+/// @notice FeeAMM tests - post-Moderato behavior
+/// Post-Moderato, two-sided mint is disabled. Only mintWithValidatorToken is available.
 contract FeeAMMTest is BaseTest {
+
+    using stdStorage for StdStorage;
 
     TIP20 userToken;
     TIP20 validatorToken;
@@ -14,8 +20,8 @@ contract FeeAMMTest is BaseTest {
         super.setUp();
 
         // Create tokens using TIP20Factory
-        userToken = TIP20(factory.createToken("User", "USR", "USD", linkingUSD, admin));
-        validatorToken = TIP20(factory.createToken("Validator", "VAL", "USD", linkingUSD, admin));
+        userToken = TIP20(factory.createToken("User", "USR", "USD", pathUSD, admin));
+        validatorToken = TIP20(factory.createToken("Validator", "VAL", "USD", pathUSD, admin));
 
         // Grant ISSUER_ROLE to admin so we can mint tokens
         userToken.grantRole(_ISSUER_ROLE, admin);
@@ -24,11 +30,43 @@ contract FeeAMMTest is BaseTest {
         // Fund alice with large balances
         userToken.mintWithMemo(alice, 10_000e18, bytes32(0));
         validatorToken.mintWithMemo(alice, 10_000e18, bytes32(0));
+
+        // Approve FeeAMM to spend tokens
+        vm.startPrank(alice);
+        userToken.approve(address(amm), type(uint256).max);
+        validatorToken.approve(address(amm), type(uint256).max);
+        vm.stopPrank();
     }
+
+    /*//////////////////////////////////////////////////////////////
+                    TWO-SIDED MINT DISABLED (POST-MODERATO)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Two-sided mint is disabled post-Moderato.
+    /// The precompile returns UnknownFunctionSelector, we revert with MintDisabled.
+    function test_Mint_RevertsWithMintDisabled() public {
+        vm.prank(alice);
+        try amm.mint(address(userToken), address(validatorToken), 1e18, 1e18, alice) {
+            revert CallShouldHaveReverted();
+        } catch (bytes memory err) {
+            // In local foundry, we get MintDisabled
+            // In tempo precompile, we get UnknownFunctionSelector(0xfa28d692)
+            // Both indicate the function is disabled
+            bytes4 errorSelector = bytes4(err);
+            assertTrue(
+                errorSelector == IFeeAMM.MintDisabled.selector
+                    || errorSelector == bytes4(0xaa4bc69a), // UnknownFunctionSelector
+                "Expected MintDisabled or UnknownFunctionSelector"
+            );
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        MINT WITH VALIDATOR TOKEN
+    //////////////////////////////////////////////////////////////*/
 
     function test_MintWithValidatorToken_InitialLiquidity_Succeeds() public {
         uint256 amountV = 10_000e18; // above 2*MIN_LIQUIDITY and within alice balance
-
         uint256 minLiq = 1000; // MIN_LIQUIDITY constant
 
         vm.prank(alice);
@@ -50,80 +88,194 @@ contract FeeAMMTest is BaseTest {
     }
 
     function test_MintWithValidatorToken_InitialLiquidity_RevertsIf_TooSmall() public {
-        uint256 minLiq = amm.MIN_LIQUIDITY(); // MIN_LIQUIDITY constant
+        uint256 minLiq = amm.MIN_LIQUIDITY();
         uint256 amountV = 2 * minLiq; // amountV/2 == MIN_LIQUIDITY -> should revert
 
         vm.prank(alice);
         try amm.mintWithValidatorToken(
             address(userToken), address(validatorToken), amountV, alice
         ) {
-            revert("Expected revert but call succeeded");
-        } catch (bytes memory reason) {
-            // Verify it's either InsufficientLiquidity custom error (0xbb55fd27) or Error(string) (0x08c379a0)
-            bytes4 errorSelector = bytes4(reason);
-            assertTrue(errorSelector == bytes4(0xbb55fd27), "Wrong error thrown");
+            revert CallShouldHaveReverted();
+        } catch (bytes memory revertData) {
+            assertEq(bytes4(revertData), IFeeAMM.InsufficientLiquidity.selector);
         }
     }
 
-    function test_MintWithValidatorToken_SubsequentDeposit_ProportionalShares() public {
-        // Initialize pool with equal reserves via two-sided mint
-        uint256 U0 = 1e18;
-        uint256 V0 = 1e18;
+    function test_MintWithValidatorToken_RevertsIf_InvalidInputs() public {
+        vm.startPrank(alice);
 
-        vm.prank(alice);
-        amm.mint(address(userToken), address(validatorToken), U0, V0, alice);
+        // IDENTICAL_ADDRESSES
+        try amm.mintWithValidatorToken(address(userToken), address(userToken), 1e18, alice) {
+            revert CallShouldHaveReverted();
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(IFeeAMM.IdenticalAddresses.selector));
+        }
 
-        bytes32 poolId = amm.getPoolId(address(userToken), address(validatorToken));
-        uint256 s = amm.totalSupply(poolId);
+        // INVALID_TOKEN - userToken
+        try amm.mintWithValidatorToken(address(0x1234), address(validatorToken), 1e18, alice) {
+            revert CallShouldHaveReverted();
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(IFeeAMM.InvalidToken.selector));
+        }
 
-        // Subsequent single-sided validator deposit
-        uint256 vin = 1e18;
+        // INVALID_TOKEN - validatorToken
+        try amm.mintWithValidatorToken(address(userToken), address(0x1234), 1e18, alice) {
+            revert CallShouldHaveReverted();
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(IFeeAMM.InvalidToken.selector));
+        }
 
-        vm.prank(alice);
-        uint256 minted =
-            amm.mintWithValidatorToken(address(userToken), address(validatorToken), vin, alice);
+        // ONLY_USD_TOKENS (valid TIP20 but non-USD currency)
+        TIP20 eurToken = TIP20(factory.createToken("Euro", "EUR", "EUR", pathUSD, admin));
 
-        // Compute expected: floor(s * vin / (V + n*U)), n=N/SCALE
-        (uint128 uRes, uint128 vRes) = _reserves(poolId);
-        // uRes,vRes now include the latest deposit; compute from previous state
-        // Previous reserves were U0,V0. For expected minted we must use prior reserves.
-        uint256 denom = uint256(V0) + (9985 * uint256(U0)) / 10_000; // N=9985, SCALE=10000
-        uint256 expected = (vin * s) / denom;
+        try amm.mintWithValidatorToken(address(eurToken), address(validatorToken), 1e18, alice) {
+            revert CallShouldHaveReverted();
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(IFeeAMM.InvalidCurrency.selector));
+        }
 
-        assertEq(minted, expected);
+        try amm.mintWithValidatorToken(address(validatorToken), address(eurToken), 1e18, alice) {
+            revert CallShouldHaveReverted();
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(IFeeAMM.InvalidCurrency.selector));
+        }
 
-        // Reserves should increase only on validator side by vin
-        assertEq(uint256(uRes), U0);
-        assertEq(uint256(vRes), V0 + vin);
-
-        // Supply and balances updated
-        assertEq(amm.totalSupply(poolId), s + expected);
-        assertEq(amm.liquidityBalances(poolId, alice), s - 1000 + expected); // 1000 is MIN_LIQUIDITY
+        vm.stopPrank();
     }
 
-    function test_MintWithValidatorToken_RoundsDown() public {
-        // Initialize with skewed reserves to create fractional outcome
-        uint256 U0 = 123_456_789_012_345_678; // 0.123456789e18
-        uint256 V0 = 987_654_321_098_765_432; // 0.987654321e18
+    function test_MintWithValidatorToken_RevertsIf_ZeroLiquidityOnSubsequent() public {
+        // Initialize pool with large amount
+        vm.prank(alice);
+        amm.mintWithValidatorToken(address(userToken), address(validatorToken), 5000e18, alice);
+
+        // Try tiny subsequent deposit that rounds to 0 liquidity
+        vm.prank(alice);
+        try amm.mintWithValidatorToken(address(userToken), address(validatorToken), 1, alice) {
+            revert CallShouldHaveReverted();
+        } catch (bytes memory reason) {
+            assertEq(bytes4(reason), IFeeAMM.InsufficientLiquidity.selector);
+        }
+    }
+
+    function test_MintWithValidatorToken_SubsequentDeposit() public {
+        // First, initialize pool with validator token only
+        uint256 initialAmount = 5000e18; // Use half so we have tokens left for subsequent deposit
 
         vm.prank(alice);
-        amm.mint(address(userToken), address(validatorToken), U0, V0, alice);
+        amm.mintWithValidatorToken(
+            address(userToken), address(validatorToken), initialAmount, alice
+        );
 
         bytes32 poolId = amm.getPoolId(address(userToken), address(validatorToken));
-        uint256 s = amm.totalSupply(poolId);
+        uint256 supplyBefore = amm.totalSupply(poolId);
+        uint256 aliceBalanceBefore = amm.liquidityBalances(poolId, alice);
 
-        uint256 vin = 55_555_555_555_555_555; // arbitrary
-
-        // Expected using prior reserves
-        uint256 denom = uint256(V0) + (9985 * uint256(U0)) / 10_000; // N=9985, SCALE=10000
-        uint256 expected = (vin * s) / denom; // integer division floors
+        // Subsequent deposit
+        uint256 additionalAmount = 1000e18;
 
         vm.prank(alice);
-        uint256 minted =
-            amm.mintWithValidatorToken(address(userToken), address(validatorToken), vin, alice);
+        uint256 liquidity = amm.mintWithValidatorToken(
+            address(userToken), address(validatorToken), additionalAmount, alice
+        );
 
-        assertEq(minted, expected);
+        assertGt(liquidity, 0);
+        assertEq(amm.totalSupply(poolId), supplyBefore + liquidity);
+        assertEq(amm.liquidityBalances(poolId, alice), aliceBalanceBefore + liquidity);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                BURN
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Burn_RevertsIf_InsufficientLiquidity() public {
+        vm.prank(alice);
+        amm.mintWithValidatorToken(address(userToken), address(validatorToken), 5000e18, alice);
+
+        bytes32 poolId = amm.getPoolId(address(userToken), address(validatorToken));
+        uint256 aliceLiquidity = amm.liquidityBalances(poolId, alice);
+
+        vm.prank(alice);
+        try amm.burn(address(userToken), address(validatorToken), aliceLiquidity + 1, alice) {
+            revert CallShouldHaveReverted();
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(IFeeAMM.InsufficientLiquidity.selector));
+        }
+    }
+
+    function test_Burn_Succeeds() public {
+        vm.prank(alice);
+        amm.mintWithValidatorToken(address(userToken), address(validatorToken), 5000e18, alice);
+
+        bytes32 poolId = amm.getPoolId(address(userToken), address(validatorToken));
+        uint256 aliceLiquidity = amm.liquidityBalances(poolId, alice);
+        uint256 aliceValidatorBefore = validatorToken.balanceOf(alice);
+
+        vm.prank(alice);
+        (uint256 amountU, uint256 amountV) =
+            amm.burn(address(userToken), address(validatorToken), aliceLiquidity, alice);
+
+        assertEq(amountU, 0);
+        assertEq(amountV, 4_999_999_999_999_999_998_000);
+        assertEq(amm.liquidityBalances(poolId, alice), 0);
+        assertEq(validatorToken.balanceOf(alice), aliceValidatorBefore + amountV);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            REBALANCE SWAP
+    //////////////////////////////////////////////////////////////*/
+
+    function test_RebalanceSwap_Succeeds() public {
+        vm.prank(alice);
+        amm.mintWithValidatorToken(address(userToken), address(validatorToken), 5000e18, alice);
+
+        bytes32 poolId = amm.getPoolId(address(userToken), address(validatorToken));
+
+        uint256 reserveValidatorToken = uint256(5000e18);
+        uint256 reserveUserToken = uint256(1000e18);
+        // Seed userToken into pool - need to pack both reserves into single slot
+        // Pool struct: reserveUserToken (uint128) | reserveValidatorToken (uint128)
+        // reserveValidatorToken is 5000e18, reserveUserToken we set to 1000e18
+        // In TipFeeManager precompile, pools is at slot 5. In FeeAMM reference, it's at slot 0.
+        uint256 poolsSlot = isTempo ? 5 : 0;
+        bytes32 slot = keccak256(abi.encode(poolId, poolsSlot));
+        bytes32 packedValue = bytes32((reserveValidatorToken << 128) | reserveUserToken);
+        vm.store(address(amm), slot, packedValue);
+        userToken.mint(address(amm), 1000e18);
+
+        // Validate that the pool reserves are seeded correctly
+        IFeeAMM.Pool memory pool = amm.getPool(address(userToken), address(validatorToken));
+
+        require(pool.reserveValidatorToken == 5000e18);
+        require(pool.reserveUserToken == 1000e18);
+
+        uint256 aliceUserBefore = userToken.balanceOf(alice);
+
+        vm.prank(alice);
+        uint256 amountIn =
+            amm.rebalanceSwap(address(userToken), address(validatorToken), 100e18, alice);
+
+        // amountIn = (100e18 * 9985) / 10000 + 1
+        assertEq(amountIn, 99_850_000_000_000_000_001);
+        assertEq(userToken.balanceOf(alice), aliceUserBefore + 100e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            GET POOL
+    //////////////////////////////////////////////////////////////*/
+
+    function test_GetPool_ReturnsPoolData() public {
+        vm.prank(alice);
+        amm.mintWithValidatorToken(address(userToken), address(validatorToken), 5000e18, alice);
+
+        IFeeAMM.Pool memory pool = amm.getPool(address(userToken), address(validatorToken));
+
+        assertEq(pool.reserveUserToken, 0);
+        assertEq(pool.reserveValidatorToken, 5000e18);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            HELPER FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     function _reserves(bytes32 poolId) internal view returns (uint128, uint128) {
         (uint128 ru, uint128 rv) = amm.pools(poolId);

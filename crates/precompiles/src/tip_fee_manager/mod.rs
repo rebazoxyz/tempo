@@ -13,7 +13,7 @@ use crate::{
     storage::{Mapping, PrecompileStorageProvider, Slot, StorageKey, VecSlotExt},
     tip_fee_manager::amm::{Pool, compute_amount_out},
     tip20::{
-        ITIP20, TIP20Token, address_to_token_id_unchecked, is_tip20, token_id_to_address,
+        ITIP20, TIP20Token, address_to_token_id_unchecked, is_tip20_prefix, token_id_to_address,
         validate_usd_currency,
     },
 };
@@ -114,7 +114,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         call: IFeeManager::setValidatorTokenCall,
         beneficiary: Address,
     ) -> Result<()> {
-        if !is_tip20(call.token) {
+        if !is_tip20_prefix(call.token) {
             return Err(FeeManagerError::invalid_token().into());
         }
 
@@ -149,12 +149,18 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         sender: Address,
         call: IFeeManager::setUserTokenCall,
     ) -> Result<()> {
-        if !is_tip20(call.token) {
+        if !is_tip20_prefix(call.token) {
             return Err(FeeManagerError::invalid_token().into());
         }
 
-        // Forbid setting PathUSD as the user's fee token (only after Moderato hardfork)
-        if self.storage.spec().is_moderato() && call.token == PATH_USD_ADDRESS {
+        // Depending on the hardfork, allow/disallow PathUSD to be set as the fee token
+        // Pre moderato: Allow
+        // Post moderato: Disallow
+        // Post allegro moderato: Allow
+        if self.storage.spec().is_moderato()
+            && !self.storage.spec().is_allegro_moderato()
+            && call.token == PATH_USD_ADDRESS
+        {
             return Err(FeeManagerError::invalid_token().into());
         }
 
@@ -194,7 +200,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
             self.reserve_liquidity(user_token, validator_token, max_amount)?;
         }
 
-        let mut tip20_token = TIP20Token::from_address(user_token, self.storage);
+        let mut tip20_token = TIP20Token::from_address(user_token, self.storage)?;
 
         // Ensure that user and FeeManager are authorized to interact with the token
         tip20_token.ensure_transfer_authorized(fee_payer, self.address)?;
@@ -217,7 +223,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
         beneficiary: Address,
     ) -> Result<()> {
         // Refund unused tokens to user
-        let mut tip20_token = TIP20Token::from_address(fee_token, self.storage);
+        let mut tip20_token = TIP20Token::from_address(fee_token, self.storage)?;
         tip20_token.transfer_fee_post_tx(fee_payer, refund_amount, actual_spending)?;
 
         // Execute fee swap and track collected fees
@@ -301,7 +307,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
             }
 
             let validator_token = self.get_validator_token(validator)?;
-            let mut token = TIP20Token::from_address(validator_token, self.storage);
+            let mut token = TIP20Token::from_address(validator_token, self.storage)?;
 
             // If FeeManager or validator are blacklisted, we are not transferring any fees
             if token.is_transfer_authorized(self.address, beneficiary)? {
@@ -445,7 +451,7 @@ impl<'a, S: PrecompileStorageProvider> TipFeeManager<'a, S> {
             }
         }
 
-        let mut tip20_token = TIP20Token::from_address(token, self.storage);
+        let mut tip20_token = TIP20Token::from_address(token, self.storage)?;
         let token_balance = tip20_token.balance_of(ITIP20::balanceOfCall {
             account: call.sender,
         })?;
@@ -470,14 +476,14 @@ mod tests {
         tip20::{ISSUER_ROLE, ITIP20, TIP20Token, tests::initialize_path_usd, token_id_to_address},
     };
 
-    fn setup_token_with_balance(
+    fn deploy_token_with_balance(
         storage: &mut HashMapStorageProvider,
         token: Address,
         user: Address,
         amount: U256,
     ) {
         initialize_path_usd(storage, user).unwrap();
-        let mut tip20_token = TIP20Token::from_address(token, storage);
+        let mut tip20_token = TIP20Token::from_address(token, storage).unwrap();
 
         // Initialize token
         tip20_token
@@ -520,7 +526,7 @@ mod tests {
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
-        let mut tip20_token = TIP20Token::from_address(token, &mut storage);
+        let mut tip20_token = TIP20Token::from_address(token, &mut storage).unwrap();
         tip20_token
             .initialize(
                 "TestToken",
@@ -594,6 +600,25 @@ mod tests {
     }
 
     #[test]
+    fn test_set_user_token_allows_path_usd_post_allegro_moderato() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::AllegroModerato);
+        let user = Address::random();
+        initialize_path_usd(&mut storage, user).unwrap();
+
+        let mut fee_manager = TipFeeManager::new(&mut storage);
+
+        let call = IFeeManager::setUserTokenCall {
+            token: PATH_USD_ADDRESS,
+        };
+        let result = fee_manager.set_user_token(user, call);
+
+        // Post Allegro Moderato: should be allowed to set PathUSD as user token
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
     fn test_set_validator_token() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
         let validator = Address::random();
@@ -604,7 +629,7 @@ mod tests {
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
-        let mut tip20_token = TIP20Token::from_address(token, &mut storage);
+        let mut tip20_token = TIP20Token::from_address(token, &mut storage).unwrap();
         tip20_token
             .initialize(
                 "TestToken",
@@ -654,7 +679,7 @@ mod tests {
 
         // Create a USD token to use as fee token
         let token = token_id_to_address(1);
-        let mut tip20_token = TIP20Token::from_address(token, &mut storage);
+        let mut tip20_token = TIP20Token::from_address(token, &mut storage).unwrap();
         tip20_token
             .initialize(
                 "TestToken",
@@ -701,13 +726,13 @@ mod tests {
     }
 
     #[test]
-    fn test_is_tip20_token() {
+    fn test_is_tip20_prefix() {
         let token_id = rand::random::<u64>();
         let token = token_id_to_address(token_id);
-        assert!(is_tip20(token));
+        assert!(is_tip20_prefix(token));
 
         let token = Address::random();
-        assert!(!is_tip20(token));
+        assert!(!is_tip20_prefix(token));
     }
 
     #[test]
@@ -719,7 +744,7 @@ mod tests {
         let max_amount = U256::from(10000);
 
         // Setup token with balance and approval
-        setup_token_with_balance(&mut storage, token, user, U256::from(u64::MAX));
+        deploy_token_with_balance(&mut storage, token, user, U256::from(u64::MAX));
 
         let mut fee_manager = TipFeeManager::new(&mut storage);
 
@@ -759,7 +784,7 @@ mod tests {
         // Initialize token and give fee manager tokens (simulating that collect_fee_pre_tx already happened)
         {
             initialize_path_usd(&mut storage, admin).unwrap();
-            let mut tip20_token = TIP20Token::from_address(token, &mut storage);
+            let mut tip20_token = TIP20Token::from_address(token, &mut storage).unwrap();
             tip20_token
                 .initialize(
                     "TestToken",
@@ -811,7 +836,7 @@ mod tests {
         assert_eq!(tracked_amount, actual_used);
 
         // Verify user got the refund
-        let mut tip20_token = TIP20Token::from_address(token, &mut storage);
+        let mut tip20_token = TIP20Token::from_address(token, &mut storage).unwrap();
         let balance = tip20_token.balance_of(ITIP20::balanceOfCall { account: user })?;
         assert_eq!(balance, refund_amount);
 
@@ -824,7 +849,7 @@ mod tests {
 
         let admin = Address::random();
         let token = token_id_to_address(rand::random::<u64>());
-        let mut tip20_token = TIP20Token::from_address(token, &mut storage);
+        let mut tip20_token = TIP20Token::from_address(token, &mut storage).unwrap();
         tip20_token
             .initialize(
                 "NonUSD",
@@ -875,7 +900,7 @@ mod tests {
         {
             // Initialize token
             initialize_path_usd(&mut storage, admin)?;
-            let mut tip20_token = TIP20Token::from_address(token, &mut storage);
+            let mut tip20_token = TIP20Token::from_address(token, &mut storage).unwrap();
             tip20_token.initialize(
                 "TestToken",
                 "TEST",
@@ -918,7 +943,7 @@ mod tests {
         }
 
         // Verify validator got the available balance
-        let mut tip20_token = TIP20Token::from_address(token, &mut storage);
+        let mut tip20_token = TIP20Token::from_address(token, &mut storage).unwrap();
         let validator_balance =
             tip20_token.balance_of(ITIP20::balanceOfCall { account: validator })?;
         assert_eq!(validator_balance, balance);
