@@ -7,12 +7,13 @@ use crate::{
 use bytes::{Buf, BufMut};
 use commonware_codec::{Encode, EncodeSize, Read, ReadExt, Write};
 use commonware_cryptography::{
-    Signer,
+    Hasher, Signer,
     bls12381::{
         dkg::{Arbiter, Player},
         primitives::{group, poly::Public, variant::MinSig},
     },
     ed25519::{PrivateKey, PublicKey},
+    sha256::Sha256,
 };
 use commonware_p2p::{Recipients, Sender};
 use commonware_utils::{quorum, set::Ordered, union};
@@ -213,6 +214,20 @@ struct Membership {
     connected: HashSet<PublicKey>,
 }
 
+impl Membership {
+    /// Compute SHA256 hash of the participant list.
+    ///
+    /// Used to ensure all nodes have identical participant lists - if they differ,
+    /// signature verification will fail because the namespace (used in signing) won't match.
+    fn participants_hash(&self) -> impl AsRef<[u8]> {
+        let mut hasher = Sha256::default();
+        for p in self.participants.iter() {
+            hasher.update(p.encode().as_ref());
+        }
+        hasher.finalize()
+    }
+}
+
 /// Core DKG ceremony state machine.
 pub struct GenesisCeremony {
     /// Unique namespace to prevent replay attacks across ceremonies.
@@ -231,7 +246,7 @@ impl GenesisCeremony {
     /// Create a new genesis ceremony instance.
     pub fn new(
         context: &mut impl rand_core::CryptoRngCore,
-        namespace: Vec<u8>,
+        mut namespace: Vec<u8>,
         me: PrivateKey,
         participants: Ordered<PublicKey>,
     ) -> Result<Self, Error> {
@@ -242,6 +257,17 @@ impl GenesisCeremony {
             return Err(Error::NotInParticipants);
         }
 
+        let membership = Membership {
+            me,
+            my_public_key: my_public_key.clone(),
+            participants: participants.clone(),
+            indexed,
+            connected: HashSet::new(),
+        };
+
+        // Include participant list hash in namespace to ensure all nodes have identical configs.
+        namespace.extend_from_slice(membership.participants_hash().as_ref());
+
         let (_, commitment, shares) = commonware_cryptography::bls12381::dkg::Dealer::<
             PublicKey,
             MinSig,
@@ -250,13 +276,7 @@ impl GenesisCeremony {
 
         Ok(Self {
             namespace,
-            membership: Membership {
-                me,
-                my_public_key: my_public_key.clone(),
-                participants: participants.clone(),
-                indexed,
-                connected: HashSet::new(),
-            },
+            membership,
             dealer: DealerState {
                 commitment,
                 shares,
