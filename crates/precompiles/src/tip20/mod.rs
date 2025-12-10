@@ -1548,7 +1548,7 @@ pub(crate) mod tests {
             assert_eq!(token.get_balance(TIP_FEE_MANAGER_ADDRESS)?, U256::from(70));
 
             assert_eq!(
-                token.emitted_events().last()?,
+                token.emitted_events().last().unwrap(),
                 &TIP20Event::Transfer(ITIP20::Transfer {
                     from: user,
                     to: TIP_FEE_MANAGER_ADDRESS,
@@ -1609,7 +1609,7 @@ pub(crate) mod tests {
 
             assert!(token.system_transfer_from(from, to, amount).is_ok());
             assert_eq!(
-                token.emitted_events().last()?,
+                token.emitted_events().last().unwrap(),
                 &TIP20Event::Transfer(ITIP20::Transfer { from, to, amount }).into_log_data()
             );
 
@@ -1658,7 +1658,7 @@ pub(crate) mod tests {
 
             // Verify event was emitted
             assert_eq!(
-                token.emitted_events().last()?,
+                token.emitted_events().last().unwrap(),
                 &TIP20Event::NextQuoteTokenSet(ITIP20::NextQuoteTokenSet {
                     updater: admin,
                     nextQuoteToken: quote_token_address,
@@ -1789,7 +1789,7 @@ pub(crate) mod tests {
 
             // Verify event was emitted
             assert_eq!(
-                token.emitted_events().last()?,
+                token.emitted_events().last().unwrap(),
                 &TIP20Event::QuoteTokenUpdate(ITIP20::QuoteTokenUpdate {
                     updater: admin,
                     newQuoteToken: quote_token_address,
