@@ -327,7 +327,7 @@ where
         Ok(Some(element))
     }
 
-    /// Iterator over [`VecHandler`] elements. Reads the length once, then yields handlers without re-reading.
+    /// Returns an iterator over element handlers. Performs a single SLOAD to read length.
     #[inline]
     pub fn iter(&self) -> Result<VecIter<'_, T>> {
         let length = self.len()?;
@@ -339,12 +339,7 @@ where
     }
 }
 
-/// Iterator over `VecHandler` elements.
-///
-/// Created by [`VecHandler::iter()`]. Reads the length once on creation,
-/// then yields element handlers without re-checking bounds.
-///
-/// Implements `ExactSizeIterator` for efficient `.len()` calls.
+/// Iterator over `Vec<T>` element handlers. Implements [`ExactSizeIterator`].
 pub struct VecIter<'a, T: Storable> {
     handler: &'a VecHandler<T>,
     length: usize,

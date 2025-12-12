@@ -133,7 +133,7 @@ where
         Some(T::handle(base_slot, layout_ctx, self.address))
     }
 
-    /// Iterator over [`ArrayHandler`] elements.
+    /// Returns an iterator over element handlers.
     #[inline]
     pub fn iter(&self) -> ArrayIter<'_, T, N> {
         ArrayIter {
@@ -143,9 +143,7 @@ where
     }
 }
 
-/// Iterator over `ArrayHandler` elements.
-///
-/// Yields element handlers for indices `0..N`.
+/// Iterator over `[T; N]` element handlers. Implements [`ExactSizeIterator`].
 pub struct ArrayIter<'a, T: StorableType, const N: usize> {
     handler: &'a ArrayHandler<T, N>,
     current: usize,
