@@ -108,10 +108,7 @@ impl TempoNode {
         ComponentsBuilder::default()
             .node_types::<Node>()
             .pool(pool_builder)
-            .executor(
-                TempoExecutorBuilder::default()
-                    .with_sender_recovery_cache(sender_recovery_cache),
-            )
+            .executor(TempoExecutorBuilder::new(sender_recovery_cache))
             .payload(BasicPayloadServiceBuilder::default())
             .network(EthereumNetworkBuilder::default())
             .consensus(TempoConsensusBuilder::default())
@@ -308,7 +305,7 @@ impl PayloadAttributesBuilder<TempoPayloadAttributes, TempoHeader>
 }
 
 /// A regular ethereum evm and executor builder.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct TempoExecutorBuilder {
     /// Sender recovery cache shared with the transaction pool.
@@ -316,10 +313,11 @@ pub struct TempoExecutorBuilder {
 }
 
 impl TempoExecutorBuilder {
-    /// Sets the sender recovery cache.
-    pub fn with_sender_recovery_cache(mut self, cache: SenderRecoveryCache) -> Self {
-        self.sender_recovery_cache = cache;
-        self
+    /// Creates a new instance of `TempoExecutorBuilder`.
+    pub fn new(sender_recovery_cache: SenderRecoveryCache) -> Self {
+        Self {
+            sender_recovery_cache,
+        }
     }
 }
 
