@@ -29,22 +29,22 @@ impl SenderRecoveryCache {
     /// Inserts a sender for the given transaction hash.
     pub fn insert(&self, tx_hash: B256, sender: Address) {
         self.cache.insert(tx_hash, sender);
-        self.metrics.size.increment(1);
+        self.metrics.size.set(self.cache.len() as f64);
     }
 
     /// Removes and returns the sender for the given transaction hash, if present.
     pub fn remove(&self, tx_hash: &B256) -> Option<Address> {
         let result = self.cache.remove(tx_hash).map(|(_, sender)| sender);
-        self.metrics.size.decrement(1);
+        self.metrics.size.set(self.cache.len() as f64);
         result
     }
 
     /// Removes multiple entries from the cache.
     pub fn remove_many<'a>(&self, tx_hashes: impl IntoIterator<Item = &'a B256>) {
         for tx_hash in tx_hashes {
-            self.metrics.size.decrement(1);
             self.cache.remove(tx_hash);
         }
+        self.metrics.size.set(self.cache.len() as f64);
     }
 
     /// Returns the number of cached entries.
