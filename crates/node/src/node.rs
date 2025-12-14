@@ -34,8 +34,10 @@ use reth_rpc_eth_api::{
     helpers::config::{EthConfigApiServer, EthConfigHandler},
 };
 use reth_tracing::tracing::{debug, info};
-use reth_transaction_pool::{TransactionValidationTaskExecutor, blobstore::InMemoryBlobStore};
-use reth_transaction_pool::{TransactionListenerKind, TransactionPool};
+use reth_transaction_pool::{
+    TransactionListenerKind, TransactionPool, TransactionValidationTaskExecutor,
+    blobstore::InMemoryBlobStore,
+};
 use std::{default::Default, sync::Arc};
 use tempo_chainspec::spec::{TEMPO_BASE_FEE, TempoChainSpec};
 use tempo_consensus::TempoConsensus;
@@ -65,7 +67,7 @@ impl TempoNodeArgs {
     pub fn pool_builder(&self) -> TempoPoolBuilder {
         TempoPoolBuilder {
             aa_valid_after_max_secs: self.aa_valid_after_max_secs,
-            follower: false
+            follower: false,
         }
     }
 }
@@ -460,18 +462,16 @@ where
         );
 
         if !self.follower {
-            let pending = transaction_pool.new_transactions_listener_for(TransactionListenerKind::All);
+            let pending =
+                transaction_pool.new_transactions_listener_for(TransactionListenerKind::All);
             ctx.task_executor().spawn_critical(
                 "txpool preparation",
-               Box::pin(
-                   tempo_transaction_pool::prepare::prepare_pooled_transactions(pending),
-               )
+                Box::pin(tempo_transaction_pool::prepare::prepare_pooled_transactions(pending)),
             );
             debug!(target: "reth::cli", "Spawned txpool prepare task");
         }
 
         info!(target: "reth::cli", "Transaction pool initialized");
-
 
         Ok(transaction_pool)
     }
