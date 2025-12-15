@@ -14,6 +14,7 @@ pub use context::{TempoBlockExecutionCtx, TempoNextBlockEnvAttributes};
 mod error;
 pub use error::TempoEvmError;
 pub mod evm;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::{borrow::Cow, sync::Arc};
 
 use alloy_evm::{
@@ -260,8 +261,9 @@ impl ConfigureEngineEvm<TempoExecutionData> for TempoEvmConfig {
         payload: &TempoExecutionData,
     ) -> Result<impl ExecutableTxIterator<Self>, Self::Error> {
         let block = payload.block.clone();
-        let transactions =
-            (0..payload.block.body().transactions.len()).map(move |i| (block.clone(), i));
+        let transactions = (0..payload.block.body().transactions.len())
+            .into_par_iter()
+            .map(move |i| (block.clone(), i));
 
         Ok((transactions, RecoveredInBlock::new))
     }
