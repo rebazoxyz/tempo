@@ -51,7 +51,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tempo_contracts::precompiles::{
     IFeeManager::IFeeManagerInstance,
@@ -466,6 +466,7 @@ async fn send_transactions<F: TxFiller<TempoNetwork> + 'static>(
 
     let failed = Arc::new(AtomicUsize::new(0));
     let timeout = Arc::new(AtomicUsize::new(0));
+    let instant = Instant::now();
     let transactions = stream::iter(transactions)
         .ratelimit_stream(&rate_limiter)
         .zip(stream::repeat_with(|| {
@@ -505,6 +506,7 @@ async fn send_transactions<F: TxFiller<TempoNetwork> + 'static>(
         success = tx_counter.load(Ordering::Relaxed),
         failed = failed.load(Ordering::Relaxed),
         timeout = timeout.load(Ordering::Relaxed),
+        avg_tps = tx_counter.load(Ordering::Relaxed) / instant.elapsed().as_secs() as usize,
         "Finished sending transactions"
     );
 
