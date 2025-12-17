@@ -628,14 +628,13 @@ where
             .spec
             .is_allegro_moderato_active_at_timestamp(block_timestamp);
 
-        // Post AllegroModerato, stablecoin DEX system tx is no longer required
-        // (orders are immediately active when placed)
-        let expected_seen_stablecoin_dex = !is_allegro_moderato;
+        // Post AllegroModerato, both fee manager and stablecoin DEX system txs are no longer required
+        let expected_seen_system_tx = !is_allegro_moderato;
 
         if self.section
             != (BlockSection::System {
-                seen_fee_manager: true,
-                seen_stablecoin_dex: expected_seen_stablecoin_dex,
+                seen_fee_manager: expected_seen_system_tx,
+                seen_stablecoin_dex: expected_seen_system_tx,
                 seen_subblocks_signatures: true,
             })
         {
