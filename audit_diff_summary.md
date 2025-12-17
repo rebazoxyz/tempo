@@ -237,5 +237,30 @@
 - Skip quote token currency check for zero quote token ([#1246](https://github.com/tempoxyz/tempo/pull/1246))
 
 ### AllegroModerato+
-- Fee manager system tx removal ([#1537](https://github.com/tempoxyz/tempo/pull/1537))
-- `div_ceil` in stablecoin exchange exact-out calculations
+
+**Stablecoin Exchange:**
+- Remove system tx - orders committed immediately ([#1509](https://github.com/tempoxyz/tempo/pull/1509))
+- `div_ceil` in exact-out bid calculations (rounding fix)
+- Deprecate `activeOrderId` and `pendingOrderId` selectors
+- Add `nextOrderId` selector
+- Enforce TIP20 blacklist on `transfer_from` for internal balances ([#1289](https://github.com/tempoxyz/tempo/pull/1289))
+- Set balance after `transfer_from` ([#1182](https://github.com/tempoxyz/tempo/pull/1182))
+
+**TIP20:**
+- Validate `is_tip20` prefix in `from_address` ([#1250](https://github.com/tempoxyz/tempo/pull/1250))
+- Skip quote token currency check for zero quote token ([#1246](https://github.com/tempoxyz/tempo/pull/1246))
+- Event changes for mint/burn with memo ([#1479](https://github.com/tempoxyz/tempo/pull/1479))
+
+**TIP20 Factory:**
+- Enhanced `is_tip20` validation with `tokenIdCounter` check ([#1234](https://github.com/tempoxyz/tempo/pull/1234))
+
+**Fee Manager:**
+- Remove system tx ([#1537](https://github.com/tempoxyz/tempo/pull/1537))
+- Prevent validator token change with pending fees
+- Changed fee collection flow (immediate vs end-of-block)
+
+**Account Keychain:**
+- Event format changes (KeyAuthorized, KeyRevoked, SpendingLimitUpdated)
+
+**Block Building:**
+- Reduced system transactions from 3 to 1 (only subblock signatures remain)
