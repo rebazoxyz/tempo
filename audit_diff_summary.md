@@ -8,7 +8,7 @@
 
 ---
 
-## Precompiles (+14k net)
+## Precompiles (+4k net, 42 files)
 
 ### stablecoin_exchange
 - Remove system tx ([#1509](https://github.com/tempoxyz/tempo/pull/1509))
@@ -62,9 +62,10 @@
 
 ### storage
 - API migration ([#1177](https://github.com/tempoxyz/tempo/pull/1177))
-- Thread-local context
-- New array type
-- Packing changes
+- Simplify storage internals ([#1105](https://github.com/tempoxyz/tempo/pull/1105))
+- Thread-local context ([#1177](https://github.com/tempoxyz/tempo/pull/1177))
+- New array type ([#1177](https://github.com/tempoxyz/tempo/pull/1177))
+- Packing changes ([#1105](https://github.com/tempoxyz/tempo/pull/1105))
 - OOB check in `Vec<T>::at(index)` ([#1469](https://github.com/tempoxyz/tempo/pull/1469))
 
 ### General
@@ -75,41 +76,41 @@
 
 ---
 
-## Transaction Pool (+3.7k new)
+## Transaction Pool (+4.5k net, 9 files)
 
 | File | Description |
 |------|-------------|
 | `tt_2d_pool.rs` | New 2D nonce pool (+2,326 lines) ([#1006](https://github.com/tempoxyz/tempo/pull/1006)) |
-| `tempo_pool.rs` | Pool wrapper (+718 lines) |
-| `amm.rs` | AMM for fee estimation (+233 lines) |
-| `best.rs` | Best transaction iterator (+274 lines) |
-| `maintain.rs` | Pool maintenance (+140 lines) |
-| `metrics.rs` | Pool metrics (+75 lines) |
-| `validator.rs` | Fee payer blacklist check, validation updates |
+| `tempo_pool.rs` | Pool wrapper (+718 lines) ([#1006](https://github.com/tempoxyz/tempo/pull/1006)) |
+| `amm.rs` | AMM for fee estimation (+233 lines) ([#1115](https://github.com/tempoxyz/tempo/pull/1115)) |
+| `best.rs` | Best transaction iterator (+274 lines) ([#1006](https://github.com/tempoxyz/tempo/pull/1006)) |
+| `maintain.rs` | Pool maintenance (+140 lines) ([#1006](https://github.com/tempoxyz/tempo/pull/1006)) |
+| `metrics.rs` | Pool metrics (+75 lines) ([#1006](https://github.com/tempoxyz/tempo/pull/1006)) |
+| `validator.rs` | Fee payer blacklist check ([#1114](https://github.com/tempoxyz/tempo/pull/1114)), protocol nonces ([#1218](https://github.com/tempoxyz/tempo/pull/1218)) |
 
 ---
 
-## REVM / Handler (+1.5k net)
+## REVM / Handler (+800 net, 7 files)
 
 - Gas refund support in precompiles ([#806](https://github.com/tempoxyz/tempo/pull/806))
 - Fee token selection logic update ([#1022](https://github.com/tempoxyz/tempo/pull/1022))
 - Disallow precompile static calls ([#1517](https://github.com/tempoxyz/tempo/pull/1517))
 - Custom RPC revert errors ([#1073](https://github.com/tempoxyz/tempo/pull/1073))
 - System tx gas handling ([#1441](https://github.com/tempoxyz/tempo/pull/1441))
-- Paid subblocks fee recipient propagation (`#1086`, `#1018`)
+- Paid subblocks fee recipient propagation ([#1086](https://github.com/tempoxyz/tempo/pull/1086), [#1018](https://github.com/tempoxyz/tempo/pull/1018))
 
 ---
 
-## Primitives (+1.2k net)
+## Primitives (+1.5k net, 11 files)
 
 ### Renames
 - `TxAA` → `TempoTransaction` ([#1171](https://github.com/tempoxyz/tempo/pull/1171))
-- `aa_authorization.rs` → `tt_authorization.rs`
-- `aa_signature.rs` → `tt_signature.rs`
-- `aa_signed.rs` → `tt_signed.rs`
+- `aa_authorization.rs` → `tt_authorization.rs` ([#1171](https://github.com/tempoxyz/tempo/pull/1171))
+- `aa_signature.rs` → `tt_signature.rs` ([#1171](https://github.com/tempoxyz/tempo/pull/1171))
+- `aa_signed.rs` → `tt_signed.rs` ([#1171](https://github.com/tempoxyz/tempo/pull/1171))
 
 ### New
-- `key_authorization.rs` — Keychain auth (+171 lines)
+- `key_authorization.rs` — Keychain auth (+171 lines) ([#598](https://github.com/tempoxyz/tempo/pull/598))
 - `nonce_key` support for 2D nonces ([#1122](https://github.com/tempoxyz/tempo/pull/1122))
 
 ### Fixes
@@ -121,13 +122,13 @@
 
 ---
 
-## Commonware-node (+4k net)
+## Commonware-node (+3.7k net, 29 files)
 
 ### DKG
-- Ceremony refactor with tree structure
-- Pre/post Allegretto actor split (`post_allegretto.rs`, `pre_allegretto.rs`)
-- Validator migration logic (`migrate.rs`, `validators.rs`)
-- `read_write_transaction.rs` for DKG state
+- Ceremony refactor with tree structure ([#1039](https://github.com/tempoxyz/tempo/pull/1039))
+- Pre/post Allegretto actor split ([#1249](https://github.com/tempoxyz/tempo/pull/1249))
+- Validator migration logic ([#1039](https://github.com/tempoxyz/tempo/pull/1039))
+- `read_write_transaction.rs` for DKG state ([#1039](https://github.com/tempoxyz/tempo/pull/1039))
 - Speculative DKG finalization ([#1477](https://github.com/tempoxyz/tempo/pull/1477))
 - DKG metrics for shares, acks, dealings ([#1042](https://github.com/tempoxyz/tempo/pull/1042))
 - Reject proposals/dealings from wrong dealers ([#1134](https://github.com/tempoxyz/tempo/pull/1134))
@@ -151,24 +152,24 @@
 
 ---
 
-## Chainspec (+500)
+## Chainspec (+700 net, 4 files)
 
 - AllegroModerato hardfork ([#1193](https://github.com/tempoxyz/tempo/pull/1193))
 - Allegretto hardfork ([#976](https://github.com/tempoxyz/tempo/pull/976))
-- Dev genesis config
-- Allegretto time handling for Andantino
+- Dev genesis config ([#1179](https://github.com/tempoxyz/tempo/pull/1179))
+- Allegretto time handling for Andantino ([#1154](https://github.com/tempoxyz/tempo/pull/1154))
 
 ---
 
-## EVM / Block Building (+500)
+## EVM / Block Building (+200 net, 7 files)
 
-- `engine.rs` — New engine abstraction
-- `block.rs` — Block building changes, system tx execution
+- `engine.rs` — New engine abstraction ([#1086](https://github.com/tempoxyz/tempo/pull/1086))
+- `block.rs` — Block building changes, system tx execution ([#1509](https://github.com/tempoxyz/tempo/pull/1509), [#1537](https://github.com/tempoxyz/tempo/pull/1537))
 - Correctly calculate incentive gas ([#1092](https://github.com/tempoxyz/tempo/pull/1092))
 
 ---
 
-## Payload Builder (+400)
+## Payload Builder (+200 net, 4 files)
 
 - Duration metrics for system transactions ([#1058](https://github.com/tempoxyz/tempo/pull/1058))
 - Gas used / gas per second metrics ([#1190](https://github.com/tempoxyz/tempo/pull/1190))
@@ -177,26 +178,26 @@
 
 ---
 
-## Node (+600)
+## Node (+200 net, 20 files)
 
 ### RPC
 - Custom revert errors ([#1073](https://github.com/tempoxyz/tempo/pull/1073))
 - `admin_validatorKey` endpoint ([#1205](https://github.com/tempoxyz/tempo/pull/1205))
-- DEX/AMM pagination moved to alloy
+- DEX/AMM pagination moved to alloy ([#965](https://github.com/tempoxyz/tempo/pull/965))
 
 ### Pool
-- 2D pool integration
+- 2D pool integration ([#1006](https://github.com/tempoxyz/tempo/pull/1006))
 - Reject invalid AA txs to prevent mempool DOS ([#1040](https://github.com/tempoxyz/tempo/pull/1040))
 - Prevent short-lived AA txs from invalidating blocks ([#1055](https://github.com/tempoxyz/tempo/pull/1055))
 
 ---
 
-## Alloy (+500)
+## Alloy (+450 net, 11 files)
 
-- Random 2D nonce filler (`#1138`, `#1158`)
-- Provider extensions
+- Random 2D nonce filler ([#1138](https://github.com/tempoxyz/tempo/pull/1138), [#1158](https://github.com/tempoxyz/tempo/pull/1158))
+- Provider extensions ([#1138](https://github.com/tempoxyz/tempo/pull/1138))
 - Receipt changes for `feePayer` ([#984](https://github.com/tempoxyz/tempo/pull/984))
-- Request changes for `nonce_key`
+- Request changes for `nonce_key` ([#1122](https://github.com/tempoxyz/tempo/pull/1122))
 
 ---
 
@@ -204,7 +205,7 @@
 
 | Crate | Description |
 |-------|-------------|
-| `dkg-onchain-artifacts` | DKG on-chain artifact handling (+576 lines) |
+| `dkg-onchain-artifacts` | DKG on-chain artifact handling (+576 lines) ([#1039](https://github.com/tempoxyz/tempo/pull/1039)) |
 
 ---
 
@@ -216,7 +217,7 @@
 4. **P256 high s check** ([#1510](https://github.com/tempoxyz/tempo/pull/1510))
 5. **Reject AT/ED flags in webauthn** ([#1099](https://github.com/tempoxyz/tempo/pull/1099))
 6. **ChainID validation in keyAuth** ([#1078](https://github.com/tempoxyz/tempo/pull/1078))
-7. **Fee payer blacklist check** in mempool ([#1114](https://github.com/tempoxyz/tempo/pull/1114))
+7. **Fee payer blacklist check** in mempool ([#1114](https://github.com/tempoxyz/tempo/pull/1114), [#1040](https://github.com/tempoxyz/tempo/pull/1040))
 8. **TIP403 registry blacklist check** ([#1028](https://github.com/tempoxyz/tempo/pull/1028))
 9. **OOB check in Vec::at()** ([#1469](https://github.com/tempoxyz/tempo/pull/1469))
 
@@ -225,16 +226,16 @@
 ## Hardfork-Gated Changes
 
 ### Moderato+
-- Quote amount rounding (ceil instead of floor)
-- MIN/MAX_PRICE alignment with ticks
-- ABI-encoded `UnknownFunctionSelector` error
+- Quote amount rounding (ceil instead of floor) ([#942](https://github.com/tempoxyz/tempo/pull/942))
+- MIN/MAX_PRICE alignment with ticks ([#944](https://github.com/tempoxyz/tempo/pull/944))
+- ABI-encoded `UnknownFunctionSelector` error ([#941](https://github.com/tempoxyz/tempo/pull/941))
 
 ### Allegretto+
-- Auto-create DEX pairs on first order
-- Dynamic validator sets
-- Validate `is_tip20` in `from_address`
-- Skip quote token currency check for zero quote token
+- Auto-create DEX pairs on first order ([#985](https://github.com/tempoxyz/tempo/pull/985))
+- Dynamic validator sets ([#1039](https://github.com/tempoxyz/tempo/pull/1039))
+- Validate `is_tip20` in `from_address` ([#1250](https://github.com/tempoxyz/tempo/pull/1250))
+- Skip quote token currency check for zero quote token ([#1246](https://github.com/tempoxyz/tempo/pull/1246))
 
 ### AllegroModerato+
-- Various fee manager changes
+- Fee manager system tx removal ([#1537](https://github.com/tempoxyz/tempo/pull/1537))
 - `div_ceil` in stablecoin exchange exact-out calculations
