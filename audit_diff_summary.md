@@ -2,7 +2,7 @@
 
 **Commit Range:** `e310d91517464388a944ae300922e70fe02904c4` → `main`
 
-**Scope:** `crates/` (excluding `crates/commonware`, `crates/commonware-node`, `crates/commonware-node-config`, `**/assets/**`, `**/tests/**`, `**/*test*`)
+**Scope:** `crates/` only (excludes `docs/`, `scripts/`, `.github/`, `xtask/`, `crates/commonware*`, `**/assets/**`, `**/tests/**`, `**/*test*`)
 
 **Total:** 160 files, +32,715 / -19,276 lines (net +13,439)
 
