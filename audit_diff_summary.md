@@ -209,6 +209,34 @@
 
 ---
 
+## Other Crates
+
+### contracts (+230 net, 14 files)
+- ABI definitions for new `account_keychain` ([#598](https://github.com/tempoxyz/tempo/pull/598), [#1476](https://github.com/tempoxyz/tempo/pull/1476))
+- Updated interfaces for tip20, tip_fee_manager, stablecoin_exchange, tip403_registry ([#1509](https://github.com/tempoxyz/tempo/pull/1509), [#1537](https://github.com/tempoxyz/tempo/pull/1537))
+- Renamed `linking_usd` → `path_usd` ([#1015](https://github.com/tempoxyz/tempo/pull/1015))
+
+### precompiles-macros (-600 net, 7 files)
+- Layout and storable macro refactoring ([#1177](https://github.com/tempoxyz/tempo/pull/1177))
+- New packing module ([#1105](https://github.com/tempoxyz/tempo/pull/1105))
+
+### e2e (+1.1k net, 3 files)
+- Execution runtime updates ([#1086](https://github.com/tempoxyz/tempo/pull/1086))
+- Testing infrastructure changes ([#936](https://github.com/tempoxyz/tempo/pull/936))
+
+### faucet (-100 net, 2 files)
+- Use mint instead of transfer ([#1233](https://github.com/tempoxyz/tempo/pull/1233))
+- Random 2D nonce filler ([#1232](https://github.com/tempoxyz/tempo/pull/1232))
+
+### consensus (-60 net, 1 file)
+- System tx removal refactoring ([#1509](https://github.com/tempoxyz/tempo/pull/1509), [#1537](https://github.com/tempoxyz/tempo/pull/1537))
+- Validate blocktime is not in the future ([#1001](https://github.com/tempoxyz/tempo/pull/1001))
+
+### commonware-node-config (-60 net, 4 files)
+- Config structure updates for dynamic validators ([#1039](https://github.com/tempoxyz/tempo/pull/1039))
+
+---
+
 ## Security-Critical Changes
 
 1. **Blacklist enforcement** on StablecoinExchange internal balances ([#1289](https://github.com/tempoxyz/tempo/pull/1289))
@@ -240,9 +268,9 @@
 
 **Stablecoin Exchange:**
 - Remove system tx - orders committed immediately ([#1509](https://github.com/tempoxyz/tempo/pull/1509))
-- `div_ceil` in exact-out bid calculations (rounding fix)
-- Deprecate `activeOrderId` and `pendingOrderId` selectors
-- Add `nextOrderId` selector
+- `div_ceil` in exact-out bid calculations (rounding fix) ([#1509](https://github.com/tempoxyz/tempo/pull/1509))
+- Deprecate `activeOrderId` and `pendingOrderId` selectors ([#1509](https://github.com/tempoxyz/tempo/pull/1509))
+- Add `nextOrderId` selector ([#1509](https://github.com/tempoxyz/tempo/pull/1509))
 - Enforce TIP20 blacklist on `transfer_from` for internal balances ([#1289](https://github.com/tempoxyz/tempo/pull/1289))
 - Set balance after `transfer_from` ([#1182](https://github.com/tempoxyz/tempo/pull/1182))
 
@@ -256,11 +284,11 @@
 
 **Fee Manager:**
 - Remove system tx ([#1537](https://github.com/tempoxyz/tempo/pull/1537))
-- Prevent validator token change with pending fees
-- Changed fee collection flow (immediate vs end-of-block)
+- Prevent validator token change with pending fees ([#1106](https://github.com/tempoxyz/tempo/pull/1106))
+- Changed fee collection flow (immediate vs end-of-block) ([#1059](https://github.com/tempoxyz/tempo/pull/1059))
 
 **Account Keychain:**
-- Event format changes (KeyAuthorized, KeyRevoked, SpendingLimitUpdated)
+- Event format changes (KeyAuthorized, KeyRevoked, SpendingLimitUpdated) ([#1416](https://github.com/tempoxyz/tempo/pull/1416))
 
 **Block Building:**
-- Reduced system transactions from 3 to 1 (only subblock signatures remain)
+- Reduced system transactions from 3 to 1 (only subblock signatures remain) ([#1509](https://github.com/tempoxyz/tempo/pull/1509), [#1537](https://github.com/tempoxyz/tempo/pull/1537))
