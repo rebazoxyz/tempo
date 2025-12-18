@@ -218,9 +218,7 @@ where
         // 1E-1, 2E-1, 3E-1, ... for epochs 0, 1, 2.
         //
         // So for E = 100, the boundary heights would be 99, 199, 299, ...
-        if let Some(block_epoch) =
-            utils::is_last_block_in_epoch(self.config.epoch_length, block.height())
-        {
+        if utils::is_last_block_in_epoch(self.config.epoch_length, block.height()).is_some() {
             info!("reached end of epoch - reporting new epoch and starting ceremony");
             let block_outcome = PublicOutcome::decode(block.header().extra_data().as_ref()).expect(
                 "the last block of an epoch must always contain the outcome of the DKG ceremony",
@@ -237,19 +235,6 @@ where
             self.update_and_register_current_epoch_state(tx, our_outcome, block_outcome)
                 .await;
 
-            // Check if we're shutting down at this epoch boundary
-            if self.config.pause.args.pause_after_epoch == Some(block_epoch) {
-                // Stop the consensus engine we just started to prevent it from running
-                self.config
-                    .epoch_manager
-                    .report(
-                        epoch::Exit {
-                            epoch: block_epoch + 1,
-                        }
-                        .into(),
-                    )
-                    .await;
-            }
             *ceremony = self.start_post_allegretto_ceremony(tx, ceremony_mux).await;
 
             // Early return: start driving the ceremony on the first height of

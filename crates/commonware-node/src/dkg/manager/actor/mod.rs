@@ -796,24 +796,34 @@ where
 
         tx.set_validators(epoch_state.epoch(), new_validator_state.clone());
 
-        self.config
-            .epoch_manager
-            .report(
-                epoch::Enter {
-                    epoch: epoch_state.epoch(),
-                    public: epoch_state.public_polynomial().clone(),
-                    share: epoch_state.private_share().clone(),
-                    participants: epoch_state.participants().clone(),
-                }
-                .into(),
-            )
-            .await;
-        info!(
-            epoch = epoch_state.epoch(),
-            participants = ?epoch_state.participants(),
-            public = alloy_primitives::hex::encode(epoch_state.public_polynomial().encode()),
-            "reported epoch state to epoch manager",
-        );
+        // Skip entering the epoch if we're pausing at the previous epoch boundary
+        if let Some(pause_epoch) = self.config.pause.args.pause_after_epoch
+            && epoch_state.epoch() == pause_epoch + 1
+        {
+            info!(
+                epoch = epoch_state.epoch(),
+                pause_epoch, "skipping epoch entry due to pause-after-epoch configuration",
+            );
+        } else {
+            self.config
+                .epoch_manager
+                .report(
+                    epoch::Enter {
+                        epoch: epoch_state.epoch(),
+                        public: epoch_state.public_polynomial().clone(),
+                        share: epoch_state.private_share().clone(),
+                        participants: epoch_state.participants().clone(),
+                    }
+                    .into(),
+                )
+                .await;
+            info!(
+                epoch = epoch_state.epoch(),
+                participants = ?epoch_state.participants(),
+                public = alloy_primitives::hex::encode(epoch_state.public_polynomial().encode()),
+                "reported epoch state to epoch manager",
+            );
+        }
         self.register_validators(epoch_state.epoch(), new_validator_state)
             .await;
     }
