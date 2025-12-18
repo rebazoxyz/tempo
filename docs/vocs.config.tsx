@@ -7,13 +7,26 @@ import iconsResolver from 'unplugin-icons/resolver'
 import icons from 'unplugin-icons/vite'
 import { loadEnv } from 'vite'
 import { defineConfig } from 'vocs'
+import { ogImagePlugin } from './scripts/vite-plugin-og-image'
+import { seoMetadataPlugin } from './scripts/vite-plugin-seo-metadata'
 
 const twoslashSupportFile = readFileSync(
   join(process.cwd(), 'snippets', 'twoslash-env.d.ts'),
   'utf-8',
 )
 
+// Get base URL from environment variable or use default
+// For production, set VITE_BASE_URL environment variable
+// Vercel automatically provides VERCEL_URL, but you may want to override it
+// For local development, defaults to localhost:5173 (Vite's default port)
+const isDev = process.env['NODE_ENV'] !== 'production'
+const baseUrl =
+  process.env['VITE_BASE_URL'] ||
+  (process.env['VERCEL_URL'] ? `https://${process.env['VERCEL_URL']}` : undefined) ||
+  (isDev ? 'http://localhost:5173' : 'https://docs.tempo.xyz')
+
 export default defineConfig({
+  baseUrl,
   head() {
     return (
       <>
@@ -21,14 +34,6 @@ export default defineConfig({
           content="width=device-width, initial-scale=1, maximum-scale=1"
           name="viewport"
         />
-        <meta content="Documentation ⋅ Tempo" property="og:title" />
-        <meta content="/og-docs.png" property="og:image" />
-        <meta content="image/png" property="og:image:type" />
-        <meta content="1200" property="og:image:width" />
-        <meta content="630" property="og:image:height" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Documentation ⋅ Tempo" />
-        <meta name="twitter:image" content="/og-docs.png" />
         <link rel="icon" href="/favicon.ico" sizes="32x32" />
         <link rel="icon" type="image/svg+xml" href="/favicon-light.svg" media="(prefers-color-scheme: light)" />
         <link rel="icon" type="image/svg+xml" href="/favicon-dark.svg" media="(prefers-color-scheme: dark)" />
@@ -43,6 +48,8 @@ export default defineConfig({
   },
   title: 'Documentation ⋅ Tempo',
   description: 'Documentation for Tempo testnet and protocol specifications',
+  // ogImageUrl is handled per-page by vite-plugin-og-image plugin
+  // ogImageUrl: 'https://vocs.dev/api/og?logo=%logo&title=%title&description=%description',
   logoUrl: {
     light: '/lockup-light.svg',
     dark: '/lockup-dark.svg',
@@ -1767,6 +1774,9 @@ export default defineConfig({
         },
   vite: {
     plugins: [
+      // biome-ignore lint/suspicious/noExplicitAny: Vite plugin type compatibility
+      ogImagePlugin() as any,
+      seoMetadataPlugin(),
       {
         name: 'tempo-node',
         async configureServer(_server) {

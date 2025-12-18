@@ -27,9 +27,7 @@
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
-    "skipLibCheck": true,
-
-    "types": ["unplugin-icons/types/react"]
+    "skipLibCheck": true
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["_", "snippets/twoslash-env.d.ts", "snippets/unformatted/*.ts"]
