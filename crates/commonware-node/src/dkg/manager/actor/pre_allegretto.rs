@@ -415,7 +415,7 @@ impl Read for EpochState {
         _cfg: &Self::Cfg,
     ) -> Result<Self, commonware_codec::Error> {
         let epoch = Epoch::read(buf)?;
-        let participants = Set::read_cfg(buf, &(RangeCfg::from(0..=usize::MAX), ()))?;
+        let participants = Set::read_cfg(buf, &(RangeCfg::from(1..=usize::MAX), ()))?;
         let quorum = quorum(participants.len() as u32);
         let public =
             Public::<MinSig>::read_cfg(buf, &RangeCfg::from(NZU32!(quorum)..=NZU32!(quorum)))?;
