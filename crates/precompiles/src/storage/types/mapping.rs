@@ -64,11 +64,11 @@ impl<K: StorageKey> HashStrategy for Keccak256<K> {
 ///
 /// Slot computation: `[SPACE][address][zeros]`
 ///
-/// The const generic `SPACE` parameter allows multiple `DirectBytes`-based mappings
+/// The const generic `SPACE` parameter allows multiple `DirectAddressMap`-based mappings
 /// to coexist without slot collisions.
-pub struct DirectBytes<const SPACE: u8>;
+pub struct DirectAddressMap<const SPACE: u8>;
 
-impl<const SPACE: u8> HashStrategy for DirectBytes<SPACE> {
+impl<const SPACE: u8> HashStrategy for DirectAddressMap<SPACE> {
     type Key = Address;
     const STORAGE_SPACE: u8 = SPACE;
 
@@ -179,21 +179,21 @@ impl<K: StorageKey, V: StorableInMapping<0>> StorableType for MappingInner<Kecca
 /// Enforced by the type system:
 /// - Cannot be nested inside other mappings (`Mapping<K, UserMapping<V>>` is forbidden)
 /// - Value type cannot be a mapping (`UserMapping<Mapping<K, V>>` is forbidden)
-/// - Key type must be `Address` (enforced by `DirectBytes::Key = Address`)
+/// - Key type must be `Address` (enforced by `DirectAddressMap::Key = Address`)
 ///
 /// Enforced by `#[contract]` macro:
 /// - Storage spaces must be unique per contract
-pub type UserMapping<V> = MappingInner<DirectBytes<1>, V>;
+pub type UserMapping<V> = MappingInner<DirectAddressMap<1>, V>;
 
 impl<V: StorableInMapping<SPACE> + StorableType, const SPACE: u8>
-    MappingInner<DirectBytes<SPACE>, V>
+    MappingInner<DirectAddressMap<SPACE>, V>
 {
     /// Returns a `Handler` for the given user address.
     ///
     /// The storage slot is directly derived from the user address without hashing.
     pub fn at(&self, user: Address) -> V::Handler {
         V::handle(
-            DirectBytes::<SPACE>::compute_slot(&user, self.base_slot),
+            DirectAddressMap::<SPACE>::compute_slot(&user, self.base_slot),
             LayoutCtx::FULL,
             self.address,
         )
@@ -201,14 +201,14 @@ impl<V: StorableInMapping<SPACE> + StorableType, const SPACE: u8>
 }
 
 impl<V: StorableInMapping<SPACE>, const SPACE: u8> StorableType
-    for MappingInner<DirectBytes<SPACE>, V>
+    for MappingInner<DirectAddressMap<SPACE>, V>
 {
     const LAYOUT: Layout = Layout::Slots(1);
     const STORAGE_SPACE: u8 = SPACE; // Propagate const generic to enable compile-time validation
     type Handler = Self;
 
     fn handle(_slot: U256, _ctx: LayoutCtx, address: Address) -> Self::Handler {
-        // DirectBytes strategy ignores the slot parameter
+        // DirectAddressMap strategy ignores the slot parameter
         Self::new(U256::ZERO, address)
     }
 }
@@ -225,7 +225,7 @@ impl<V: StorableInMapping<SPACE>, const SPACE: u8> StorableType
 ///    Regular mapping nesting (`Mapping<K, Mapping<K2, V>>`) is allowed.
 ///
 /// 3. Mappings with `STORAGE_SPACE != 0` cannot be nested in other mappings.
-///    `DirectBytes` mappings don't implement this trait, thus are cannot be nested.
+///    `DirectAddressMap` mappings don't implement this trait, thus are cannot be nested.
 ///
 /// 4. Storage spaces cannot interact. Mappings in space `X` can't contain a mapping from space `Y`.
 pub trait StorableInMapping<const SPACE: u8> {}
@@ -239,7 +239,7 @@ impl<K: StorageKey, V: StorableInMapping<0>> StorableInMapping<0>
 {
 }
 
-// Rule 3 & 4 (implicit): `DirectBytes` mappings don't impl `StorableInMapping` --> can't be nested anywhere.
+// Rule 3 & 4 (implicit): `DirectAddressMap` mappings don't impl `StorableInMapping` --> can't be nested anywhere.
 
 #[cfg(test)]
 mod tests {
@@ -467,7 +467,7 @@ mod tests {
 
         // Expected: [STORAGE_SPACE=1][address_bytes][zeros]
         let mut expected_bytes = [0u8; 32];
-        expected_bytes[0] = DirectBytes::<1>::STORAGE_SPACE;
+        expected_bytes[0] = DirectAddressMap::<1>::STORAGE_SPACE;
         expected_bytes[1..21].copy_from_slice(user.as_slice());
         let expected_slot = U256::from_be_bytes(expected_bytes);
 
@@ -511,18 +511,18 @@ mod tests {
     #[test]
     fn test_hash_strategy_constants() {
         assert_eq!(Keccak256::<Address>::STORAGE_SPACE, 0);
-        assert_eq!(DirectBytes::<1>::STORAGE_SPACE, 1);
-        assert_eq!(DirectBytes::<2>::STORAGE_SPACE, 2);
-        assert_eq!(DirectBytes::<255>::STORAGE_SPACE, 255);
+        assert_eq!(DirectAddressMap::<1>::STORAGE_SPACE, 1);
+        assert_eq!(DirectAddressMap::<2>::STORAGE_SPACE, 2);
+        assert_eq!(DirectAddressMap::<255>::STORAGE_SPACE, 255);
     }
 
     #[test]
     fn test_direct_bytes_different_spaces_different_slots() {
         let user = Address::random();
 
-        // DirectBytes<1> and DirectBytes<2> should produce different slots for same key
-        let slot1 = DirectBytes::<1>::compute_slot(&user, U256::ZERO);
-        let slot2 = DirectBytes::<2>::compute_slot(&user, U256::ZERO);
+        // DirectAddressMap<1> and DirectAddressMap<2> should produce different slots for same key
+        let slot1 = DirectAddressMap::<1>::compute_slot(&user, U256::ZERO);
+        let slot2 = DirectAddressMap::<2>::compute_slot(&user, U256::ZERO);
 
         assert_ne!(
             slot1, slot2,

@@ -336,7 +336,7 @@ fn test_user_mapping_slot_is_direct() -> eyre::Result<()> {
         // Format: [STORAGE_SPACE=1][address_bytes (20)][zeros (11)]
         let handler = layout.balances.at(user);
         let mut expected_bytes = [0u8; 32];
-        expected_bytes[0] = 1; // STORAGE_SPACE for UserMapping (DirectBytes<1>)
+        expected_bytes[0] = 1; // STORAGE_SPACE for UserMapping (DirectAddressMap<1>)
         expected_bytes[1..21].copy_from_slice(user.as_slice());
         let expected_slot = U256::from_be_bytes(expected_bytes);
         assert_eq!(handler.slot(), expected_slot);

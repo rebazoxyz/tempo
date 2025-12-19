@@ -152,7 +152,7 @@ pub trait StorableType {
     /// Storage space identifier for exclusive mappings.
     ///
     /// - `0` = shared namespace (keccak256-based mappings, primitives, structs)
-    /// - `1+` = exclusive namespace (`DirectBytes`-based mappings)
+    /// - `1+` = exclusive namespace (`DirectAddressMap`-based mappings)
     ///
     /// The `#[contract]` macro validates that all non-zero values are unique per contract.
     const STORAGE_SPACE: u8 = 0;
