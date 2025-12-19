@@ -151,8 +151,8 @@ export default defineConfig({
             link: '/quickstart/predeployed-contracts',
           },
           {
-            text: 'Wallet Developers',
-            link: '/quickstart/wallet-developers',
+            text: "Wallet Developers",
+            link: "/quickstart/wallet-developers",
           },
         ],
       },
