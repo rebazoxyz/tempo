@@ -12,10 +12,11 @@ const baseUrl = process.env['VITE_BASE_URL'] ||
  */
 function findMdxFile(path: string, pagesDir: string): string | null {
   // Remove query params and hash
-  const cleanPath = path.split('?')[0].split('#')[0]
+  const withoutQuery = path.split('?')[0] ?? path
+  const cleanPath = withoutQuery.split('#')[0] ?? withoutQuery
   
   // Normalize path - remove leading/trailing slashes
-  let normalizedPath = cleanPath.replace(/^\//, '').replace(/\/$/, '')
+  const normalizedPath = cleanPath.replace(/^\//, '').replace(/\/$/, '')
   
   // Handle root path
   if (normalizedPath === '') {
