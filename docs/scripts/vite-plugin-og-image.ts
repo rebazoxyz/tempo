@@ -121,9 +121,9 @@ export function ogImagePlugin(): Plugin {
           console.log(`[OG Plugin] Extracted - Title: ${title}, Description: ${description.substring(0, 50)}...`)
         }
 
-        // Construct OG image URL
+        // Construct OG image URL using local API route
         const logoUrl = `${baseUrl}/lockup-light.svg`
-        const ogImageUrl = `https://vocs.dev/api/og?logo=${encodeURIComponent(logoUrl)}&title=${encodeURIComponent(title)}&description=${encodeURIComponent(description)}`
+        const ogImageUrl = `${baseUrl}/api/og?logo=${encodeURIComponent(logoUrl)}&title=${encodeURIComponent(title)}&description=${encodeURIComponent(description)}`
         
         if (process.env['NODE_ENV'] !== 'production') {
           console.log(`[OG Plugin] Generated OG image URL: ${ogImageUrl.substring(0, 100)}...`)

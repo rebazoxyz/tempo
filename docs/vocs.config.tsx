@@ -94,7 +94,8 @@ export default defineConfig({
   description: 'Documentation for Tempo testnet and protocol specifications',
   // OG images are handled per-page by vite-plugin-og-image plugin which reads frontmatter
   // This native ogImageUrl serves as a fallback for pages without frontmatter
-  ogImageUrl: 'https://vocs.dev/api/og?logo=%logo&title=%title&description=%description',
+  // Note: Vocs template variables (%logo, %title, %description) are replaced by Vocs
+  ogImageUrl: `${baseUrl}/api/og?logo=%logo&title=%title&description=%description`,
   logoUrl: {
     light: '/lockup-light.svg',
     dark: '/lockup-dark.svg',
@@ -1859,6 +1860,39 @@ export default defineConfig({
           })
 
           server.middlewares.use(async (req, res, next) => {
+            // Handle OG image route
+            if (req.url?.startsWith('/api/og') && req.method === 'GET') {
+              try {
+                const url = new URL(req.url, `http://${req.headers.host}`)
+                const mockRequest = new Request(url.toString(), {
+                  method: req.method,
+                  headers: req.headers as HeadersInit,
+                })
+
+                // Import and execute the OG route handler
+                const { GET: ogHandler } = await import('./api/og/route.js')
+                const response = await ogHandler(mockRequest)
+
+                // Copy response headers
+                response.headers.forEach((value, key) => {
+                  res.setHeader(key, value)
+                })
+
+                res.statusCode = response.status
+
+                // Stream the response body
+                const body = await response.arrayBuffer()
+                res.end(Buffer.from(body))
+              } catch (error) {
+                console.error('OG image route error:', error)
+                res.statusCode = 500
+                res.setHeader('Content-Type', 'text/plain')
+                res.end('Internal server error')
+              }
+              return
+            }
+
+            // Handle index-supply route
             if (req.url === '/api/index-supply' && req.method === 'POST') {
               try {
                 let body = ''

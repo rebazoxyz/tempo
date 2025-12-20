@@ -48,7 +48,7 @@ function generateOGImageUrl(title: string, description: string) {
     title: title,
     description: description,
   })
-  return `https://vocs.dev/api/og?${params.toString()}`
+  return `${baseUrl}/api/og?${params.toString()}`
 }
 
 // Test a specific page
@@ -69,5 +69,6 @@ console.log('📄 Description:', description.substring(0, 80) + '...')
 console.log('\n🖼️  OG Image URL:')
 console.log(ogImageUrl)
 console.log('\n💡 Copy the URL above and paste it in your browser to see the generated image!')
-console.log('   Note: The Vocs API may not work with localhost URLs. For production, use your deployed URL.\n')
+console.log('   Make sure the dev server is running (pnpm dev) for the image to generate.\n')
+
 
