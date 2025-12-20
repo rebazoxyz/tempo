@@ -13,12 +13,13 @@ use tempo_node::TempoFullNode;
 
 mod actor;
 mod ingress;
+mod migrate;
+pub(super) mod read_write_transaction;
 mod validators;
 
 pub(crate) use actor::Actor;
 pub(crate) use ingress::Mailbox;
-
-use validators::DecodedValidator;
+pub(crate) use validators::ValidatorState;
 
 use ingress::{Command, Message};
 
@@ -33,14 +34,14 @@ where
     TPeerManager: commonware_p2p::Manager<
             PublicKey = PublicKey,
             Peers = OrderedAssociated<PublicKey, SocketAddr>,
-        >,
+        > + Sync,
 {
     let (tx, rx) = mpsc::unbounded();
 
     let actor = Actor::new(config, context, rx)
         .await
         .wrap_err("failed initializing actor")?;
-    let mailbox = Mailbox { inner: tx };
+    let mailbox = Mailbox::new(tx);
     Ok((actor, mailbox))
 }
 
@@ -77,6 +78,9 @@ pub(crate) struct Config<TPeerManager> {
 
     /// This node's initial share of the bls12381 private key.
     pub(crate) initial_share: Option<Share>,
+
+    /// Whether to ignore the first signing share the node reads on startup.
+    pub(crate) delete_signing_share: bool,
 
     /// The peer manager on which the dkg actor will register new peers for a
     /// given epoch after reading them from the smart contract.
