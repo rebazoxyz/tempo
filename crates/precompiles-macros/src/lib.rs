@@ -3,7 +3,6 @@
 //! This crate provides:
 //! - `#[contract]` macro that transforms a storage schema into a fully-functional contract
 //! - `#[derive(Storable)]` macro for multi-slot storage structs
-//! - `#[derive(SolStruct)]` macro for generating Alloy-compatible struct types
 //! - `#[solidity]` macro for unified module-level Solidity type generation
 //! - `storable_alloy_ints!` macro for generating alloy integer storage implementations
 //! - `storable_alloy_bytes!` macro for generating alloy FixedBytes storage implementations
@@ -11,7 +10,6 @@
 
 mod layout;
 mod packing;
-mod sol_struct;
 mod solidity;
 mod storable;
 mod storable_primitives;
@@ -351,53 +349,6 @@ pub fn derive_storage_block(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     match storable::derive_impl(input) {
-        Ok(tokens) => tokens.into(),
-        Err(err) => err.to_compile_error().into(),
-    }
-}
-
-/// Derives `SolType`, `SolValue`, `SolStruct`, and `EventTopic` for structs.
-///
-/// This macro generates the same trait implementations that Alloy's `sol!` macro
-/// generates for Solidity structs, allowing you to define ABI-compatible structs
-/// in pure Rust syntax.
-///
-/// # Generated Traits
-///
-/// - `SolValue` - Marker trait for Solidity values
-/// - `SolType` - ABI encoding/decoding capabilities
-/// - `SolStruct` - EIP-712 typed data support
-/// - `EventTopic` - Event topic encoding for indexed parameters
-///
-/// # Requirements
-///
-/// - The struct must have named fields (not tuple structs or unit structs)
-/// - All field types must implement the corresponding Alloy traits
-/// - Field names are converted from `snake_case` to `camelCase` in EIP-712 signatures
-///
-/// # Example
-///
-/// ```ignore
-/// use precompiles_macros::SolStruct;
-/// use alloy_primitives::{Address, U256};
-///
-/// #[derive(SolStruct, Clone, Debug, PartialEq)]
-/// pub struct RewardStream {
-///     pub funder: Address,
-///     pub start_time: u64,
-///     pub end_time: u64,
-///     pub rate_per_second_scaled: U256,
-///     pub amount_total: U256,
-/// }
-/// ```
-///
-/// This generates EIP-712 signature:
-/// `RewardStream(address funder,uint64 startTime,uint64 endTime,uint256 ratePerSecondScaled,uint256 amountTotal)`
-#[proc_macro_derive(SolStruct)]
-pub fn derive_sol_struct(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-
-    match sol_struct::derive_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

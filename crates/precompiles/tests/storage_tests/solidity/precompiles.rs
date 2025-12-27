@@ -163,7 +163,7 @@ fn test_stablecoin_exchange_layout() {
 #[test]
 fn test_tip20_layout() {
     use tempo_precompiles::tip20::{
-        rewards::{__packing_reward_stream::*, __packing_user_reward_info::*},
+        rewards::reward_types::{__packing_reward_stream::*, __packing_user_reward_info::*},
         slots,
     };
 
@@ -390,7 +390,7 @@ fn export_all_storage_constants() {
     // TIP20 Token
     {
         use tempo_precompiles::tip20::{
-            rewards::{__packing_reward_stream::*, __packing_user_reward_info::*},
+            rewards::reward_types::{__packing_reward_stream::*, __packing_user_reward_info::*},
             slots,
         };
 
