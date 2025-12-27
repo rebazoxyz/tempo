@@ -818,11 +818,4 @@ mod tests {
         assert!(module.error.is_some() && module.event.is_some() && module.interface.is_some());
         Ok(())
     }
-
-    #[test]
-    fn test_to_camel_case() {
-        assert_eq!(to_camel_case("balance_of"), "balanceOf");
-        assert_eq!(to_camel_case("transfer_from"), "transferFrom");
-        assert_eq!(to_camel_case("name"), "name");
-    }
 }

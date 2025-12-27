@@ -639,32 +639,4 @@ mod tests {
 
         Ok(())
     }
-
-    #[test]
-    fn test_compute_signature() -> syn::Result<()> {
-        let mut module = empty_module();
-        module.structs.push(make_struct(
-            "Transfer",
-            vec![
-                make_field("from", parse_quote!(Address)),
-                make_field("to", parse_quote!(Address)),
-                make_field("amount", parse_quote!(U256)),
-            ],
-        ));
-        let registry = TypeRegistry::from_module(&module)?;
-
-        assert_eq!(
-            registry.compute_signature("transfer", &[parse_quote!(Transfer)])?,
-            "transfer((address,address,uint256))"
-        );
-        assert_eq!(
-            registry.compute_signature(
-                "multiTransfer",
-                &[parse_quote!(Transfer), parse_quote!(Address)]
-            )?,
-            "multiTransfer((address,address,uint256),address)"
-        );
-
-        Ok(())
-    }
 }

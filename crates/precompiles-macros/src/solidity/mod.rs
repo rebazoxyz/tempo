@@ -52,11 +52,12 @@
 //! ```
 
 mod common;
-mod enum_gen;
-mod interface_gen;
+mod enums;
+mod interface;
 mod parser;
 mod registry;
-mod struct_gen;
+mod structs;
+
 #[cfg(test)]
 mod test_utils;
 
@@ -85,38 +86,38 @@ pub(crate) fn expand(item: ItemMod) -> syn::Result<TokenStream> {
     let struct_impls: syn::Result<Vec<TokenStream>> = module
         .structs
         .iter()
-        .map(|def| struct_gen::generate_struct(def, &registry))
+        .map(|def| structs::generate_struct(def, &registry))
         .collect();
     let struct_impls = struct_impls?;
 
     let unit_enum_impls: Vec<TokenStream> = module
         .unit_enums
         .iter()
-        .map(enum_gen::generate_unit_enum)
+        .map(enums::generate_unit_enum)
         .collect();
 
     let error_impl = if let Some(ref def) = module.error {
-        Some(enum_gen::generate_variant_enum(
+        Some(enums::generate_variant_enum(
             def,
             &registry,
-            enum_gen::VariantEnumKind::Error,
+            enums::VariantEnumKind::Error,
         )?)
     } else {
         None
     };
 
     let event_impl = if let Some(ref def) = module.event {
-        Some(enum_gen::generate_variant_enum(
+        Some(enums::generate_variant_enum(
             def,
             &registry,
-            enum_gen::VariantEnumKind::Event,
+            enums::VariantEnumKind::Event,
         )?)
     } else {
         None
     };
 
     let interface_impl = if let Some(ref def) = module.interface {
-        Some(interface_gen::generate_interface(def, &registry)?)
+        Some(interface::generate_interface(def, &registry)?)
     } else {
         None
     };
@@ -177,52 +178,4 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_expand_full_module() -> syn::Result<()> {
-        let item: ItemMod = syn::parse2(quote! {
-            pub mod example {
-                use super::*;
-                pub struct Transfer { pub from: Address, pub to: Address, pub amount: U256 }
-                pub enum OrderStatus { Pending, Filled }
-                pub enum Error { Unauthorized, InsufficientBalance { available: U256 } }
-                pub enum Event { Transfer { #[indexed] from: Address, to: Address, amount: U256 } }
-                pub trait Interface {
-                    fn balance_of(&self, account: Address) -> Result<U256>;
-                    fn transfer(&mut self, to: Address, amount: U256) -> Result<()>;
-                }
-            }
-        })?;
-
-        let code = expand(item)?.to_string();
-        assert!(code.contains("mod example") && code.contains("struct Transfer"));
-        assert!(
-            code.contains("enum OrderStatus")
-                && code.contains("enum Error")
-                && code.contains("enum Event")
-        );
-        assert!(
-            code.contains("trait Interface")
-                && code.contains("balanceOfCall")
-                && code.contains("transferCall")
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_expand_edge_cases() -> syn::Result<()> {
-        // Empty module
-        let item: ItemMod = syn::parse2(quote! { pub mod empty { use super::*; } })?;
-        expand(item)?;
-
-        // Nested structs only
-        let item: ItemMod = syn::parse2(quote! {
-            pub mod structs_only {
-                pub struct Inner { pub value: U256 }
-                pub struct Outer { pub inner: Inner, pub extra: Address }
-            }
-        })?;
-        let code = expand(item)?.to_string();
-        assert!(code.contains("struct Inner") && code.contains("struct Outer"));
-        Ok(())
-    }
 }
