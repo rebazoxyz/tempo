@@ -52,14 +52,13 @@
 //! ```
 
 mod common;
+mod enum_gen;
 mod interface_gen;
 mod parser;
 mod registry;
 mod struct_gen;
 #[cfg(test)]
 mod test_utils;
-mod unit_enum_gen;
-mod variant_enum_gen;
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -93,24 +92,24 @@ pub(crate) fn expand(item: ItemMod) -> syn::Result<TokenStream> {
     let unit_enum_impls: Vec<TokenStream> = module
         .unit_enums
         .iter()
-        .map(unit_enum_gen::generate_unit_enum)
+        .map(enum_gen::generate_unit_enum)
         .collect();
 
     let error_impl = if let Some(ref def) = module.error {
-        Some(variant_enum_gen::generate_variant_enum(
+        Some(enum_gen::generate_variant_enum(
             def,
             &registry,
-            variant_enum_gen::VariantEnumKind::Error,
+            enum_gen::VariantEnumKind::Error,
         )?)
     } else {
         None
     };
 
     let event_impl = if let Some(ref def) = module.event {
-        Some(variant_enum_gen::generate_variant_enum(
+        Some(enum_gen::generate_variant_enum(
             def,
             &registry,
-            variant_enum_gen::VariantEnumKind::Event,
+            enum_gen::VariantEnumKind::Event,
         )?)
     } else {
         None

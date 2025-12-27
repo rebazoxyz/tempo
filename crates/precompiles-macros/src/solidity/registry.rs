@@ -76,11 +76,13 @@ impl TypeRegistry {
 
         registry.topological_sort(&struct_map)?;
 
-        for name in &registry.sorted_structs.clone() {
+        let sorted = std::mem::take(&mut registry.sorted_structs);
+        for name in &sorted {
             if let Some(def) = struct_map.get(name) {
                 registry.compute_struct_abi(def)?;
             }
         }
+        registry.sorted_structs = sorted;
 
         Ok(registry)
     }

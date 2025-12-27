@@ -7,7 +7,6 @@
 
 use alloy_sol_macro_expander::{
     ReturnInfo, SolCallData, SolInterfaceKind, expand_from_into_tuples_simple,
-    expand_tokenize_simple,
 };
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
@@ -86,12 +85,14 @@ fn generate_method_code(method: &MethodDef, registry: &TypeRegistry) -> syn::Res
     let call_name = format_ident!("{}Call", method.sol_name);
     let return_name = format_ident!("{}Return", method.sol_name);
 
-    let param_names = common::extract_param_names(&method.params);
-    let param_types: Vec<TokenStream> =
-        method.params.iter().map(|(_, ty)| quote! { #ty }).collect();
+    let param_names = method.param_names();
+    let param_types = method.param_types();
+    let param_tys = method.raw_param_types();
 
-    let param_tys = common::extract_param_types(&method.params);
-    let param_sol_types = common::types_to_sol_types(&param_tys)?;
+    let common::EncodedParams {
+        param_tuple,
+        tokenize_impl,
+    } = common::encode_params(&param_names, &param_tys)?;
 
     let signature = registry.compute_signature(&method.sol_name, &param_tys)?;
 
@@ -140,10 +141,7 @@ fn generate_method_code(method: &MethodDef, registry: &TypeRegistry) -> syn::Res
             )
         };
 
-    let param_tuple = common::make_param_tuple(&param_sol_types);
-
     let from_tuple = expand_from_into_tuples_simple(&call_name, &param_names, &param_types);
-    let tokenize_impl = expand_tokenize_simple(&param_names, &param_sol_types);
 
     let sol_call_data = SolCallData {
         param_tuple,
@@ -174,10 +172,7 @@ fn generate_calls_enum(methods: &[MethodDef], registry: &TypeRegistry) -> syn::R
         .collect();
     let signatures: syn::Result<Vec<String>> = methods
         .iter()
-        .map(|m| {
-            let tys = common::extract_param_types(&m.params);
-            registry.compute_signature(&m.sol_name, &tys)
-        })
+        .map(|m| registry.compute_signature(&m.sol_name, &m.raw_param_types()))
         .collect();
     let field_counts: Vec<usize> = methods.iter().map(|m| m.params.len()).collect();
 

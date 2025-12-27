@@ -11,7 +11,9 @@
 //! - Other enums → unit enums only, encoded as u8
 //! - Structs → generate SolStruct, SolType, SolValue, EventTopic
 
-use proc_macro2::Ident;
+use crate::utils::to_camel_case;
+use proc_macro2::{Ident, TokenStream};
+use quote::quote;
 use syn::{
     Attribute, Fields, FnArg, GenericArgument, Item, ItemEnum, ItemMod, ItemStruct, ItemTrait,
     ItemUse, Pat, PathArguments, ReturnType, Signature, TraitItem, Type, Visibility,
@@ -45,6 +47,13 @@ pub(super) struct SolidityModule {
 }
 
 /// Struct definition for SolStruct generation.
+///
+/// # Invariants
+///
+/// - Only named fields supported (no tuple or unit structs)
+/// - Field types must be valid `SolType` values or registered structs/unit enums
+/// - Generics are not supported
+/// - The original struct is re-emitted (not passed through verbatim)
 #[derive(Debug, Clone)]
 pub(super) struct SolStructDef {
     /// Struct name
@@ -59,6 +68,23 @@ pub(super) struct SolStructDef {
     pub vis: Visibility,
 }
 
+impl SolStructDef {
+    /// Extract field names as a Vec of Idents.
+    pub(super) fn field_names(&self) -> Vec<Ident> {
+        self.fields.iter().map(|f| f.name.clone()).collect()
+    }
+
+    /// Extract field types as quoted TokenStreams.
+    pub(super) fn field_types(&self) -> Vec<TokenStream> {
+        self.fields.iter().map(|f| f.quoted_type()).collect()
+    }
+
+    /// Extract raw syn Types.
+    pub(super) fn raw_types(&self) -> Vec<Type> {
+        self.fields.iter().map(|f| f.ty.clone()).collect()
+    }
+}
+
 /// Field definition.
 #[derive(Debug, Clone)]
 pub(super) struct FieldDef {
@@ -70,6 +96,14 @@ pub(super) struct FieldDef {
     pub indexed: bool,
     /// Field visibility
     pub vis: Visibility,
+}
+
+impl FieldDef {
+    /// Convert the field type to a quoted TokenStream.
+    fn quoted_type(&self) -> TokenStream {
+        let ty = &self.ty;
+        quote! { #ty }
+    }
 }
 
 /// Unit enum definition (encoded as u8).
@@ -108,7 +142,32 @@ pub(super) struct EnumVariantDef {
     pub fields: Vec<FieldDef>,
 }
 
+impl EnumVariantDef {
+    /// Extract field names as a Vec of Idents.
+    pub(super) fn field_names(&self) -> Vec<Ident> {
+        self.fields.iter().map(|f| f.name.clone()).collect()
+    }
+
+    /// Extract field types as quoted TokenStreams.
+    pub(super) fn field_types(&self) -> Vec<TokenStream> {
+        self.fields.iter().map(|f| f.quoted_type()).collect()
+    }
+
+    /// Extract raw syn Types.
+    pub(super) fn raw_types(&self) -> Vec<Type> {
+        self.fields.iter().map(|f| f.ty.clone()).collect()
+    }
+}
+
 /// Interface trait definition.
+///
+/// # Invariants
+///
+/// - Must be named `Interface`
+/// - All methods must return `Result<T, _>`
+/// - `&mut self` methods get `msg_sender: Address` auto-injected as first param
+/// - Parameter named `msg_sender` is reserved and rejected
+/// - Generics are not supported
 #[derive(Debug, Clone)]
 pub(super) struct InterfaceDef {
     /// Always `Interface`
@@ -134,6 +193,28 @@ pub(super) struct MethodDef {
     pub return_type: Option<Type>,
     /// Whether this is a mutable method (&mut self)
     pub is_mutable: bool,
+}
+
+impl MethodDef {
+    /// Extract parameter names.
+    pub(super) fn param_names(&self) -> Vec<Ident> {
+        self.params.iter().map(|(n, _)| n.clone()).collect()
+    }
+
+    /// Extract parameter types as quoted TokenStreams.
+    pub(super) fn param_types(&self) -> Vec<TokenStream> {
+        self.params
+            .iter()
+            .map(|(_, ty)| {
+                quote! { #ty }
+            })
+            .collect()
+    }
+
+    /// Extract raw syn Types.
+    pub(super) fn raw_param_types(&self) -> Vec<Type> {
+        self.params.iter().map(|(_, t)| t.clone()).collect()
+    }
 }
 
 // ============================================================================
@@ -205,7 +286,8 @@ pub(super) fn parse_solidity_module(item: ItemMod) -> syn::Result<SolidityModule
                     return Err(syn::Error::new_spanned(
                         &trait_item.ident,
                         format!(
-                            "trait must be named `Interface`, found `{}`",
+                            "only a single trait named `Interface` is supported in `#[solidity]` modules; \
+                             found `{}`; other traits should be defined outside the module",
                             trait_item.ident
                         ),
                     ));
@@ -235,6 +317,13 @@ pub(super) fn parse_solidity_module(item: ItemMod) -> syn::Result<SolidityModule
 // ============================================================================
 
 fn parse_struct(item: &ItemStruct) -> syn::Result<SolStructDef> {
+    if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
+        return Err(syn::Error::new_spanned(
+            &item.generics,
+            "`#[solidity]` structs do not support generics",
+        ));
+    }
+
     let fields = match &item.fields {
         Fields::Named(named) => named
             .named
@@ -299,6 +388,13 @@ pub(super) enum SolEnumKind {
 }
 
 fn parse_sol_enum(item: &ItemEnum, kind: SolEnumKind) -> syn::Result<SolEnumDef> {
+    if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
+        return Err(syn::Error::new_spanned(
+            &item.generics,
+            "`#[solidity]` enums do not support generics",
+        ));
+    }
+
     let variants = item
         .variants
         .iter()
@@ -377,13 +473,23 @@ fn parse_enum_variant(variant: &syn::Variant, kind: SolEnumKind) -> syn::Result<
 }
 
 fn parse_unit_enum(item: &ItemEnum) -> syn::Result<UnitEnumDef> {
+    if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
+        return Err(syn::Error::new_spanned(
+            &item.generics,
+            "`#[solidity]` enums do not support generics",
+        ));
+    }
+
     let mut variants = Vec::new();
 
     for variant in &item.variants {
         if !matches!(variant.fields, Fields::Unit) {
             return Err(syn::Error::new_spanned(
                 variant,
-                "non-Error/Event enums must have unit variants only (encoded as u8)",
+                "enums in `#[solidity]` modules must be one of:\n\
+                 - `enum Error { ... }` with named-field variants for custom errors\n\
+                 - `enum Event { ... }` with named-field variants for events\n\
+                 - unit-only enums (no fields) encoded as uint8",
             ));
         }
         variants.push(variant.ident.clone());
@@ -422,6 +528,13 @@ fn has_indexed_attr(attrs: &[Attribute]) -> bool {
 // ============================================================================
 
 fn parse_interface(item: &ItemTrait) -> syn::Result<InterfaceDef> {
+    if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
+        return Err(syn::Error::new_spanned(
+            &item.generics,
+            "`#[solidity]` Interface trait does not support generics",
+        ));
+    }
+
     if item.ident != "Interface" {
         return Err(syn::Error::new_spanned(
             &item.ident,
@@ -547,30 +660,6 @@ fn is_unit_type(ty: &Type) -> bool {
     matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty())
 }
 
-/// Converts snake_case to camelCase.
-fn to_camel_case(s: &str) -> String {
-    let mut result = String::new();
-    let mut first_word = true;
-
-    for word in s.split('_') {
-        if word.is_empty() {
-            continue;
-        }
-
-        if first_word {
-            result.push_str(word);
-            first_word = false;
-        } else {
-            let mut chars = word.chars();
-            if let Some(first) = chars.next() {
-                result.push_str(&first.to_uppercase().collect::<String>());
-                result.push_str(chars.as_str());
-            }
-        }
-    }
-    result
-}
-
 // ============================================================================
 // Tests
 // ============================================================================
@@ -650,7 +739,7 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(err.contains("unit variants only"));
+        assert!(err.contains("unit-only enums"));
 
         // Too many indexed fields
         let err = parse_module(quote! {
@@ -670,7 +759,7 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(err.contains("must be named `Interface`"));
+        assert!(err.contains("only a single trait named `Interface`"));
 
         // Duplicate Error enum
         let err = parse_module(quote! {
@@ -679,6 +768,30 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("duplicate"));
+
+        // Generic struct
+        let err = parse_module(quote! {
+            pub mod test { pub struct Bad<T> { value: T } }
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("generics"));
+
+        // Generic enum
+        let err = parse_module(quote! {
+            pub mod test { pub enum Bad<T> { A, B } }
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("generics"));
+
+        // Generic interface
+        let err = parse_module(quote! {
+            pub mod test { pub trait Interface<T> { fn get(&self) -> Result<T>; } }
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("generics"));
     }
 
     #[test]

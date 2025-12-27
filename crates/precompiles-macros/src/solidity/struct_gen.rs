@@ -19,11 +19,11 @@ pub(super) fn generate_struct(
     registry: &TypeRegistry,
 ) -> syn::Result<TokenStream> {
     let struct_name = &def.name;
-    let field_names = common::extract_field_names(&def.fields);
-    let rust_types = common::extract_field_types(&def.fields);
-    let sol_types = common::fields_to_sol_types(&def.fields)?;
+    let field_names = def.field_names();
+    let rust_types = def.field_types();
+    let sol_types = common::types_to_sol_types(&def.raw_types())?;
 
-    let eip712_signature = build_eip712_signature(struct_name, def);
+    let eip712_signature = build_eip712_signature(struct_name, def)?;
 
     let components_impl = registry.generate_eip712_components(struct_name);
     let has_deps = !registry
@@ -76,7 +76,7 @@ pub(super) fn generate_struct(
 }
 
 /// Build EIP-712 type signature.
-fn build_eip712_signature(name: &Ident, def: &SolStructDef) -> String {
+fn build_eip712_signature(name: &Ident, def: &SolStructDef) -> syn::Result<String> {
     let mut sig = name.to_string();
     sig.push('(');
 
@@ -85,14 +85,14 @@ fn build_eip712_signature(name: &Ident, def: &SolStructDef) -> String {
             sig.push(',');
         }
         let field_name = to_camel_case(&field.name.to_string());
-        let sol_ty = SolType::from_syn(&field.ty).expect("type already validated");
+        let sol_ty = SolType::from_syn(&field.ty)?;
         sig.push_str(&sol_ty.sol_name());
         sig.push(' ');
         sig.push_str(&field_name);
     }
 
     sig.push(')');
-    sig
+    Ok(sig)
 }
 
 #[cfg(test)]
@@ -113,7 +113,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            build_eip712_signature(&def.name, &def),
+            build_eip712_signature(&def.name, &def)?,
             "Transfer(address from,address to,uint256 amount)"
         );
 
@@ -126,7 +126,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            build_eip712_signature(&def2.name, &def2),
+            build_eip712_signature(&def2.name, &def2)?,
             "RewardStream(uint64 startTime,uint256 ratePerSecond)"
         );
 

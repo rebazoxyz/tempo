@@ -6,7 +6,6 @@
 
 use alloy_sol_macro_expander::{
     EventFieldInfo, SolErrorData, SolEventData, expand_from_into_tuples_simple,
-    expand_tokenize_simple,
 };
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
@@ -120,7 +119,12 @@ fn expand_unit_enum_traits(
             #[inline]
             fn detokenize(token: Self::Token<'_>) -> Self::RustType {
                 let value: u8 = token.0.to();
-                // SAFETY: Returns default variant for invalid values (defensive, should not occur with valid_token check)
+                debug_assert!(
+                    value < #variant_count,
+                    "invalid {} discriminant: {}",
+                    stringify!(#enum_name),
+                    value
+                );
                 Self::try_from(value).unwrap_or_default()
             }
         }
@@ -254,10 +258,10 @@ fn generate_variant(
 /// Generate SolError trait implementation.
 fn generate_sol_error_impl(variant: &EnumVariantDef, signature: &str) -> syn::Result<TokenStream> {
     let struct_name = &variant.name;
-    let field_names = variant.field_names();
-    let sol_types = common::types_to_sol_types(&variant.raw_types())?;
-    let param_tuple = common::make_param_tuple(&sol_types);
-    let tokenize_impl = expand_tokenize_simple(&field_names, &sol_types);
+    let common::EncodedParams {
+        param_tuple,
+        tokenize_impl,
+    } = common::encode_params(&variant.field_names(), &variant.raw_types())?;
 
     Ok(SolErrorData {
         param_tuple,
