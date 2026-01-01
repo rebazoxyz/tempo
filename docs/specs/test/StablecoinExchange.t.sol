@@ -1674,6 +1674,54 @@ contract StablecoinExchangeTest is BaseTest {
         assertEq(liquidity, exchange.MIN_ORDER_AMOUNT());
     }
 
+    /// @notice Verifies that swapExactAmountOut correctly rounds up amountIn when filling bids,
+    ///         ensuring the requested output is fully backed by the consumed input.
+    function test_BidExactOutRounding_RoundsUpAmountIn() public {
+        // Choose a tick where price > PRICE_SCALE to make the rounding behavior observable.
+        int16 tick = 2000; // price = 102_000
+        uint128 amount = exchange.MIN_ORDER_AMOUNT(); // 100_000_000
+
+        uint32 price = exchange.tickToPrice(tick);
+        uint128 escrow =
+            uint128((uint256(amount) * uint256(price)) / uint256(exchange.PRICE_SCALE()));
+        uint128 amountOut = escrow + 1; // request 1 more quote than a single order produces
+
+        // Give charlie base tokens so they can pay `amountIn` at the end of swapExactAmountOut.
+        vm.startPrank(admin);
+        token1.mint(charlie, INITIAL_BALANCE);
+        vm.stopPrank();
+        vm.prank(charlie);
+        token1.approve(address(exchange), type(uint256).max);
+
+        // Two makers escrow quote into the exchange at the same tick.
+        uint128 order1 = _placeBidOrder(alice, amount, tick);
+        uint128 order2 = _placeBidOrder(bob, amount, tick);
+        assertEq(order1, 1);
+        assertEq(order2, 2);
+
+        // Sanity: contract holds quote from both orders.
+        assertEq(pathUSD.balanceOf(address(exchange)), uint256(escrow) * 2);
+
+        // Execute exactOut swap: should consume enough base to fully produce `amountOut` quote.
+        vm.prank(charlie);
+        uint128 amountIn = exchange.swapExactAmountOut(
+            address(token1), // tokenIn = base
+            address(pathUSD), // tokenOut = quote
+            amountOut,
+            type(uint128).max
+        );
+        assertEq(amountIn, amount);
+
+        // Bob cancels his order and should be able to withdraw his full escrow.
+        vm.prank(bob);
+        exchange.cancel(order2);
+        assertEq(exchange.balanceOf(bob, address(pathUSD)), escrow);
+
+        // Withdraw succeeds when rounding is correct.
+        vm.prank(bob);
+        exchange.withdraw(address(pathUSD), escrow);
+    }
+
     /*//////////////////////////////////////////////////////////////
                         HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
