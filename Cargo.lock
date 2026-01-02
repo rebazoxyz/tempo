@@ -11433,6 +11433,7 @@ version = "0.8.0"
 dependencies = [
  "clap",
  "commonware-cryptography",
+ "commonware-math",
  "commonware-runtime",
  "eyre",
  "futures",
