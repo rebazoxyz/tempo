@@ -266,6 +266,7 @@ fn main() -> eyre::Result<()> {
                     config.pruning.receipts_distance = Some(10064);
                     config.pruning.account_history_distance = Some(10064);
                     config.pruning.storage_history_distance = Some(10064);
+                    config.pruning.bodies_distance = Some(10064);
 
                     config.static_files.blocks_per_file_headers = Some(50000);
                     config.static_files.blocks_per_file_transactions = Some(50000);
