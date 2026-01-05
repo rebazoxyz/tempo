@@ -11591,7 +11591,6 @@ dependencies = [
  "commonware-utils",
  "const-hex",
  "derive_more",
- "eyre",
  "indexmap 2.12.1",
  "rand 0.8.5",
  "serde",

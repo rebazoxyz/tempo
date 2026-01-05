@@ -107,8 +107,8 @@ enum SigningKeyErrorKind {
     Read(#[source] std::io::Error),
     #[error("failed writing to file")]
     Write(#[source] std::io::Error),
-    #[error(transparent)]
-    Encryption(#[from] eyre::Report),
+    #[error("encryption error")]
+    Encryption(#[from] encryption::EncryptionError),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -196,6 +196,6 @@ enum SigningShareErrorKind {
     Read(#[source] std::io::Error),
     #[error("failed writing to file")]
     Write(#[source] std::io::Error),
-    #[error(transparent)]
-    Encryption(#[from] eyre::Report),
+    #[error("encryption error")]
+    Encryption(#[from] encryption::EncryptionError),
 }

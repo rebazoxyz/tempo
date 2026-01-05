@@ -4,7 +4,6 @@ use chacha20poly1305::{
     ChaCha20Poly1305, KeyInit, Nonce,
     aead::{Aead, OsRng, rand_core::RngCore},
 };
-use eyre::{bail, eyre};
 
 /// Environment variable name for the signing key encryption secret.
 pub const SIGNING_KEY_ENV_VAR: &str = "TEMPO_SIGNING_KEY_SECRET";
@@ -13,16 +12,15 @@ pub const SIGNING_KEY_ENV_VAR: &str = "TEMPO_SIGNING_KEY_SECRET";
 pub const SIGNING_SHARE_ENV_VAR: &str = "TEMPO_SIGNING_SHARE_SECRET";
 
 const NONCE_SIZE: usize = 12;
-const TAG_SIZE: usize = 16;
 
 fn derive_key(secret: &str) -> [u8; 32] {
     *blake3::hash(secret.as_bytes()).as_bytes()
 }
 
 /// Encrypt plaintext bytes. Returns nonce + ciphertext.
-pub fn encrypt(plaintext: &[u8], secret: &str) -> eyre::Result<Vec<u8>> {
+pub fn encrypt(plaintext: &[u8], secret: &str) -> Result<Vec<u8>, EncryptionError> {
     let key = derive_key(secret);
-    let cipher = ChaCha20Poly1305::new_from_slice(&key).unwrap();
+    let cipher = ChaCha20Poly1305::new_from_slice(&key).expect("key is 32 bytes");
 
     let mut nonce_bytes = [0u8; NONCE_SIZE];
     OsRng.fill_bytes(&mut nonce_bytes);
@@ -30,7 +28,7 @@ pub fn encrypt(plaintext: &[u8], secret: &str) -> eyre::Result<Vec<u8>> {
 
     let ciphertext = cipher
         .encrypt(nonce, plaintext)
-        .map_err(|e| eyre!("encryption failed: {e:?}"))?;
+        .map_err(EncryptionError::Encrypt)?;
 
     let mut output = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
     output.extend_from_slice(&nonce_bytes);
@@ -40,31 +38,38 @@ pub fn encrypt(plaintext: &[u8], secret: &str) -> eyre::Result<Vec<u8>> {
 }
 
 /// Decrypt encrypted data (nonce + ciphertext).
-pub fn decrypt(data: &[u8], secret: &str) -> eyre::Result<Vec<u8>> {
-    if data.len() < NONCE_SIZE + TAG_SIZE {
-        bail!("ciphertext too short");
-    }
-
-    let nonce_bytes = &data[..NONCE_SIZE];
-    let ciphertext = &data[NONCE_SIZE..];
+pub fn decrypt(data: &[u8], secret: &str) -> Result<Vec<u8>, EncryptionError> {
+    let (nonce_bytes, ciphertext) = data.split_at(NONCE_SIZE.min(data.len()));
 
     let key = derive_key(secret);
-    let cipher = ChaCha20Poly1305::new_from_slice(&key).unwrap();
+    let cipher = ChaCha20Poly1305::new_from_slice(&key).expect("key is 32 bytes");
     let nonce = Nonce::from_slice(nonce_bytes);
 
     cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|e| eyre!("decryption failed: {e:?}"))
+        .map_err(EncryptionError::Decrypt)
 }
 
 /// Get the signing key encryption secret from environment.
-pub fn get_signing_key_secret() -> eyre::Result<String> {
-    std::env::var(SIGNING_KEY_ENV_VAR).map_err(|_| eyre!("{SIGNING_KEY_ENV_VAR} not set"))
+pub fn get_signing_key_secret() -> Result<String, EncryptionError> {
+    std::env::var(SIGNING_KEY_ENV_VAR).map_err(|_| EncryptionError::EnvVar(SIGNING_KEY_ENV_VAR))
 }
 
 /// Get the signing share encryption secret from environment.
-pub fn get_signing_share_secret() -> eyre::Result<String> {
-    std::env::var(SIGNING_SHARE_ENV_VAR).map_err(|_| eyre!("{SIGNING_SHARE_ENV_VAR} not set"))
+pub fn get_signing_share_secret() -> Result<String, EncryptionError> {
+    std::env::var(SIGNING_SHARE_ENV_VAR).map_err(|_| EncryptionError::EnvVar(SIGNING_SHARE_ENV_VAR))
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum EncryptionError {
+    #[error("could not read secret; env var `{0}` not set or not unicode")]
+    EnvVar(&'static str),
+
+    #[error("encryption failed")]
+    Encrypt(#[source] chacha20poly1305::aead::Error),
+
+    #[error("decryption failed")]
+    Decrypt(#[source] chacha20poly1305::aead::Error),
 }
 
 #[cfg(test)]
