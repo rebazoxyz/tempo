@@ -124,10 +124,10 @@ contract StablecoinExchangeTest is BaseTest {
         );
         vm.stopPrank();
 
-        // Initial state: base quotes PathUSD
+        // Initial state: base quotes pathUSD
         assertEq(address(base.quoteToken()), address(pathUSD));
 
-        // 1) First pair: (base, PathUSD)
+        // 1) First pair: (base, pathUSD)
         bytes32 key0 = exchange.createPair(address(base));
         (address b0, address q0,,) = exchange.books(key0);
         assertEq(b0, address(base), "first book base mismatch");
@@ -149,7 +149,7 @@ contract StablecoinExchangeTest is BaseTest {
         // Keys must differ when quoteToken changes
         assertTrue(key1 != key0, "orderbook key should change when quoteToken changes");
 
-        // 3) Reset base's quote token back to PathUSD so that setting quote1's
+        // 3) Reset base's quote token back to pathUSD so that setting quote1's
         // quote token to base does not create a quote-token loop.
         vm.startPrank(admin);
         base.setNextQuoteToken(pathUSD);
@@ -175,7 +175,7 @@ contract StablecoinExchangeTest is BaseTest {
 
         // The (base, quote1) and (quote1, base) books must have different keys
         assertTrue(key2 != key1, "reversed base/quote should have different key");
-        // And also be distinct from the initial (base, PathUSD) configuration
+        // And also be distinct from the initial (base, pathUSD) configuration
         assertTrue(key2 != key0, "third key should differ from first");
     }
 
