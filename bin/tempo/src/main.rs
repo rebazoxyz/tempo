@@ -84,7 +84,7 @@ struct TempoArgs {
 struct HeapProfileArgs {
     /// Enable jemalloc heap profiling endpoint at /debug/pprof/heap on the
     /// consensus metrics port.
-    #[arg(long = "heap-profile.enabled", default_value_t = false)]
+    #[arg(long = "heap-profile.enabled")]
     pub enabled: bool,
 }
 
