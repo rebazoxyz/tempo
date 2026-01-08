@@ -185,10 +185,6 @@ impl TipFeeManager {
             return Err(TIPFeeAMMError::identical_addresses().into());
         }
 
-        if amount_validator_token.is_zero() {
-            return Err(TIPFeeAMMError::invalid_amount().into());
-        }
-
         // Validate both tokens are USD currency
         validate_usd_currency(user_token)?;
         validate_usd_currency(validator_token)?;
@@ -302,10 +298,6 @@ impl TipFeeManager {
             return Err(TIPFeeAMMError::identical_addresses().into());
         }
 
-        if liquidity.is_zero() {
-            return Err(TIPFeeAMMError::invalid_amount().into());
-        }
-
         // Validate both tokens are USD currency
         validate_usd_currency(user_token)?;
         validate_usd_currency(validator_token)?;
@@ -415,10 +407,6 @@ impl TipFeeManager {
         validator_token: Address,
         amount_in: U256,
     ) -> Result<U256> {
-        if amount_in.is_zero() {
-            return Err(TIPFeeAMMError::invalid_amount().into());
-        }
-
         let pool_id = self.pool_id(user_token, validator_token);
         let mut pool = self.pools[pool_id].read()?;
 
@@ -983,93 +971,6 @@ mod tests {
                 amm.check_sufficient_liquidity(user_token, validator_token, too_much)
                     .is_err()
             );
-
-            Ok(())
-        })
-    }
-
-    /// Test zero amount_in in execute_fee_swap
-    #[test]
-    fn test_execute_fee_swap_zero_amount() -> eyre::Result<()> {
-        let mut storage = HashMapStorageProvider::new(1);
-        let admin = Address::random();
-
-        StorageCtx::enter(&mut storage, || {
-            let user_token = TIP20Setup::create("UserToken", "UTK", admin)
-                .apply()?
-                .address();
-            let validator_token = TIP20Setup::create("ValidatorToken", "VTK", admin)
-                .apply()?
-                .address();
-
-            let mut amm = TipFeeManager::new();
-
-            let result = amm.execute_fee_swap(user_token, validator_token, U256::ZERO);
-
-            assert!(matches!(
-                result,
-                Err(TempoPrecompileError::TIPFeeAMMError(
-                    TIPFeeAMMError::InvalidAmount(_)
-                ))
-            ));
-
-            Ok(())
-        })
-    }
-
-    /// Test zero liquidity burn
-    #[test]
-    fn test_burn_zero_liquidity() -> eyre::Result<()> {
-        let mut storage = HashMapStorageProvider::new(1);
-        let admin = Address::random();
-
-        StorageCtx::enter(&mut storage, || {
-            let user_token = TIP20Setup::create("UserToken", "UTK", admin)
-                .apply()?
-                .address();
-            let validator_token = TIP20Setup::create("ValidatorToken", "VTK", admin)
-                .apply()?
-                .address();
-
-            let mut amm = TipFeeManager::new();
-
-            let result = amm.burn(admin, user_token, validator_token, U256::ZERO, admin);
-
-            assert!(matches!(
-                result,
-                Err(TempoPrecompileError::TIPFeeAMMError(
-                    TIPFeeAMMError::InvalidAmount(_)
-                ))
-            ));
-
-            Ok(())
-        })
-    }
-
-    /// Test zero liquidity mint
-    #[test]
-    fn test_mint_zero_liquidity() -> eyre::Result<()> {
-        let mut storage = HashMapStorageProvider::new(1);
-        let admin = Address::random();
-
-        StorageCtx::enter(&mut storage, || {
-            let user_token = TIP20Setup::create("UserToken", "UTK", admin)
-                .apply()?
-                .address();
-            let validator_token = TIP20Setup::create("ValidatorToken", "VTK", admin)
-                .apply()?
-                .address();
-
-            let mut amm = TipFeeManager::new();
-
-            let result = amm.mint(admin, user_token, validator_token, U256::ZERO, admin);
-
-            assert!(matches!(
-                result,
-                Err(TempoPrecompileError::TIPFeeAMMError(
-                    TIPFeeAMMError::InvalidAmount(_)
-                ))
-            ));
 
             Ok(())
         })
