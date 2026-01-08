@@ -238,7 +238,7 @@ contract FeeAMMSingleInvariantTest is Test {
         }
     }
 
-    /// Invariant 8:
+    /// Invariant 4:
     /// Every tracked poolId must correspond to exactly one ordered pair in this test's token universe.
     function invariant_pool_ids_resolve_to_unique_ordered_pair() public view {
         for (uint256 i = 0; i < poolIds.length; i++) {
@@ -275,8 +275,17 @@ contract FeeAMMSingleInvariantTest is Test {
         view
         returns (TIP20 userToken, TIP20 validatorToken)
     {
-        userToken = _token(seedA);
-        validatorToken = _token(seedB);
+        uint256 n = usdTokens.length;
+
+        uint256 ia = seedA % n;
+        uint256 ib = seedB % n;
+
+        if (ia == ib) {
+            ib = (ib + 1) % n;
+        }
+
+        userToken = usdTokens[ia];
+        validatorToken = usdTokens[ib];
     }
 
     function _sumActorLp(bytes32 pid) internal view returns (uint256 sum) {
