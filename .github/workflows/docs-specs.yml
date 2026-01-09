@@ -67,8 +67,6 @@ jobs:
 
       - name: Run Forge tests
         working-directory: docs/specs
-        env:
-          TEMPO_RPC_URL: ${{ secrets.TEMPO_DEVNET_RPC_HTTPS_URL }}
         run: forge test -vvv
 
   tempo-foundry-test:
@@ -121,8 +119,6 @@ jobs:
 
       - name: Run Forge tests with Rust precompiles
         working-directory: tempo/docs/specs
-        env:
-          TEMPO_RPC_URL: ${{ secrets.TEMPO_DEVNET_RPC_HTTPS_URL }}
         run: |
           echo "Running forge test with tempo-foundry (isTempo=true)"
           ../../../tempo-foundry/target/debug/forge test -vvv
