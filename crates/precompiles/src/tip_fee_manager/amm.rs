@@ -194,8 +194,6 @@ impl TipFeeManager {
         let mut total_supply = self.get_total_supply(pool_id)?;
 
         let liquidity = if pool.reserve_user_token == 0 && pool.reserve_validator_token == 0 {
-            // QQ(tanishk): What is the correct rounding direction here?
-            // In current impl, we round down, so basically adding less liquidity than added. Which seems correct.
             let half_amount = amount_validator_token
                 .checked_div(uint!(2_U256))
                 .ok_or(TempoPrecompileError::under_overflow())?;
@@ -388,7 +386,6 @@ impl TipFeeManager {
         pool_id: B256,
         liquidity: U256,
     ) -> Result<(U256, U256)> {
-        // QQ(tanishk): Why is total supply not part of the Pool struct?
         let total_supply = self.get_total_supply(pool_id)?;
         let amount_user_token = liquidity
             .checked_mul(U256::from(pool.reserve_user_token))

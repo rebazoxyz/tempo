@@ -57,8 +57,6 @@ impl TipFeeManager {
         beneficiary: Address,
     ) -> Result<()> {
         // Validate that the token is a valid deployed TIP20
-        // Note(tanishk): Do we need to create a new TIP20Factory instance here?
-        // is_tip20 should only require a bytecode check
         if !TIP20Factory::new().is_tip20(call.token)? {
             return Err(FeeManagerError::invalid_token().into());
         }
