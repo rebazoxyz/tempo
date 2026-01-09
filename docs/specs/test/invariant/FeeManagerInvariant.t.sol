@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import { TIP20 } from "../../src/TIP20.sol";
 import { BaseTest } from "../BaseTest.t.sol";
 import { FeeManagerHandler } from "./FeeManagerHandler.sol";
-import { TIP20 } from "../../src/TIP20.sol";
 import { StdInvariant } from "forge-std/StdInvariant.sol";
 import { console } from "forge-std/console.sol";
 
@@ -23,7 +23,9 @@ contract FeeManagerInvariantTest is StdInvariant, BaseTest {
         userToken =
             TIP20(factory.createToken("UserToken", "UTK", "USD", pathUSD, admin, bytes32("user")));
         validatorToken = TIP20(
-            factory.createToken("ValidatorToken", "VTK", "USD", pathUSD, admin, bytes32("validator"))
+            factory.createToken(
+                "ValidatorToken", "VTK", "USD", pathUSD, admin, bytes32("validator")
+            )
         );
 
         // Grant issuer role for minting
@@ -99,7 +101,8 @@ contract FeeManagerInvariantTest is StdInvariant, BaseTest {
         // and add to ghost_totalFeesDistributed
 
         // The key invariant is: undistributed fees = collected - distributed
-        uint256 undistributed = handler.ghost_totalFeesCollected() - handler.ghost_totalFeesDistributed();
+        uint256 undistributed =
+            handler.ghost_totalFeesCollected() - handler.ghost_totalFeesDistributed();
 
         // Undistributed fees should equal sum of all validator ghost fees
         uint256 sumValidatorFees = 0;

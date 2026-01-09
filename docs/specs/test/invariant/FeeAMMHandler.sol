@@ -122,8 +122,7 @@ contract FeeAMMHandler is CommonBase, StdCheats, StdUtils {
 
         vm.startPrank(actor);
         try amm.burn(address(userToken), address(validatorToken), amount, actor) returns (
-            uint256,
-            uint256
+            uint256, uint256
         ) {
             _rememberPool(address(userToken), address(validatorToken));
             ghost_totalBurned += amount;
@@ -140,7 +139,9 @@ contract FeeAMMHandler is CommonBase, StdCheats, StdUtils {
     /// @param seedB Seed to select second token
     /// @param actorSeed Seed to select actor
     /// @param rawOut Amount of userToken to receive (will be bounded)
-    function rebalanceSwap(uint256 seedA, uint256 seedB, uint256 actorSeed, uint256 rawOut) external {
+    function rebalanceSwap(uint256 seedA, uint256 seedB, uint256 actorSeed, uint256 rawOut)
+        external
+    {
         (TIP20 userToken, TIP20 validatorToken) = _pair(seedA, seedB);
         address actor = _actor(actorSeed);
 
@@ -163,8 +164,11 @@ contract FeeAMMHandler is CommonBase, StdCheats, StdUtils {
         vm.startPrank(actor);
         validatorToken.approve(address(amm), expectedIn);
 
-        try amm.rebalanceSwap(address(userToken), address(validatorToken), amountOut, actor)
-        returns (uint256 amountIn) {
+        try amm.rebalanceSwap(
+            address(userToken), address(validatorToken), amountOut, actor
+        ) returns (
+            uint256 amountIn
+        ) {
             _rememberPool(address(userToken), address(validatorToken));
 
             // Step invariant: returned amountIn matches formula
@@ -173,7 +177,8 @@ contract FeeAMMHandler is CommonBase, StdCheats, StdUtils {
             // Step invariant: reserves update exactly
             IFeeAMM.Pool memory afterP = amm.getPool(address(userToken), address(validatorToken));
             require(
-                uint256(afterP.reserveValidatorToken) == uint256(beforeP.reserveValidatorToken) + amountIn,
+                uint256(afterP.reserveValidatorToken)
+                    == uint256(beforeP.reserveValidatorToken) + amountIn,
                 "reserveValidatorToken delta mismatch"
             );
             require(
@@ -248,7 +253,10 @@ contract FeeAMMHandler is CommonBase, StdCheats, StdUtils {
     }
 
     /// @dev Remember a poolId for later invariant checks
-    function _rememberPool(address userToken, address validatorToken) internal returns (bytes32 pid) {
+    function _rememberPool(address userToken, address validatorToken)
+        internal
+        returns (bytes32 pid)
+    {
         if (userToken == validatorToken) return bytes32(0);
         pid = amm.getPoolId(userToken, validatorToken);
         if (!seenPool[pid]) {
@@ -265,10 +273,8 @@ contract FeeAMMHandler is CommonBase, StdCheats, StdUtils {
 
     function _assertExpectedMintRevert(bytes memory err) internal pure {
         bytes4 s = _sel(err);
-        bool ok = s == IFeeAMM.InsufficientLiquidity.selector
-            || s == IFeeAMM.InvalidToken.selector
-            || s == IFeeAMM.InvalidCurrency.selector
-            || s == IFeeAMM.IdenticalAddresses.selector
+        bool ok = s == IFeeAMM.InsufficientLiquidity.selector || s == IFeeAMM.InvalidToken.selector
+            || s == IFeeAMM.InvalidCurrency.selector || s == IFeeAMM.IdenticalAddresses.selector
             || s == IFeeAMM.InvalidAmount.selector;
 
         if (!ok) _dumpUnexpected(err, s, "mint");
@@ -276,10 +282,8 @@ contract FeeAMMHandler is CommonBase, StdCheats, StdUtils {
 
     function _assertExpectedBurnRevert(bytes memory err) internal pure {
         bytes4 s = _sel(err);
-        bool ok = s == IFeeAMM.InsufficientLiquidity.selector
-            || s == IFeeAMM.InvalidToken.selector
-            || s == IFeeAMM.InvalidCurrency.selector
-            || s == IFeeAMM.IdenticalAddresses.selector
+        bool ok = s == IFeeAMM.InsufficientLiquidity.selector || s == IFeeAMM.InvalidToken.selector
+            || s == IFeeAMM.InvalidCurrency.selector || s == IFeeAMM.IdenticalAddresses.selector
             || s == IFeeAMM.InvalidAmount.selector;
 
         if (!ok) _dumpUnexpected(err, s, "burn");
@@ -288,10 +292,8 @@ contract FeeAMMHandler is CommonBase, StdCheats, StdUtils {
     function _assertExpectedSwapRevert(bytes memory err) internal pure {
         bytes4 s = _sel(err);
         bool ok = s == IFeeAMM.InsufficientLiquidity.selector
-            || s == IFeeAMM.InsufficientReserves.selector
-            || s == IFeeAMM.InvalidToken.selector
-            || s == IFeeAMM.InvalidCurrency.selector
-            || s == IFeeAMM.IdenticalAddresses.selector
+            || s == IFeeAMM.InsufficientReserves.selector || s == IFeeAMM.InvalidToken.selector
+            || s == IFeeAMM.InvalidCurrency.selector || s == IFeeAMM.IdenticalAddresses.selector
             || s == IFeeAMM.InvalidAmount.selector;
 
         if (!ok) _dumpUnexpected(err, s, "swap");

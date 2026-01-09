@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import { BaseTest } from "../BaseTest.t.sol";
-import { FeeAMMHandler } from "./FeeAMMHandler.sol";
 import { TIP20 } from "../../src/TIP20.sol";
 import { IFeeAMM } from "../../src/interfaces/IFeeAMM.sol";
+import { BaseTest } from "../BaseTest.t.sol";
+import { FeeAMMHandler } from "./FeeAMMHandler.sol";
 import { StdInvariant } from "forge-std/StdInvariant.sol";
 import { console } from "forge-std/console.sol";
 
@@ -33,9 +33,8 @@ contract FeeAMMInvariantTest is StdInvariant, BaseTest {
         );
         tokens.push(alphaUSD);
 
-        TIP20 betaUSD = TIP20(
-            factory.createToken("BetaUSD", "bUSD", "USD", pathUSD, admin, bytes32("beta"))
-        );
+        TIP20 betaUSD =
+            TIP20(factory.createToken("BetaUSD", "bUSD", "USD", pathUSD, admin, bytes32("beta")));
         tokens.push(betaUSD);
 
         TIP20 gammaUSD = TIP20(
@@ -254,7 +253,9 @@ contract FeeAMMInvariantTest is StdInvariant, BaseTest {
     /// @notice Tracked poolIds must correspond to a "seen" pool
     function invariant_trackedPoolIdsAreMarkedSeen() public view {
         for (uint256 i = 0; i < handler.poolCount(); i++) {
-            assertTrue(handler.seenPool(handler.getPoolId(i)), "poolIds[] must only contain seen pools");
+            assertTrue(
+                handler.seenPool(handler.getPoolId(i)), "poolIds[] must only contain seen pools"
+            );
         }
     }
 
@@ -265,9 +266,7 @@ contract FeeAMMInvariantTest is StdInvariant, BaseTest {
     /// @notice Users cannot extract more LP tokens than minted through rounding
     function invariant_noFreeValue() public view {
         assertLe(
-            handler.ghost_totalBurned(),
-            handler.ghost_totalMinted(),
-            "Burned more LP than minted"
+            handler.ghost_totalBurned(), handler.ghost_totalMinted(), "Burned more LP than minted"
         );
     }
 

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import { BaseTest } from "../BaseTest.t.sol";
-import { FeeIntegrationHandler } from "./FeeIntegrationHandler.sol";
 import { TIP20 } from "../../src/TIP20.sol";
 import { IFeeAMM } from "../../src/interfaces/IFeeAMM.sol";
+import { BaseTest } from "../BaseTest.t.sol";
+import { FeeIntegrationHandler } from "./FeeIntegrationHandler.sol";
 import { StdInvariant } from "forge-std/StdInvariant.sol";
 import { console } from "forge-std/console.sol";
 
@@ -28,7 +28,9 @@ contract FeeIntegrationInvariantTest is StdInvariant, BaseTest {
         userToken =
             TIP20(factory.createToken("UserToken", "UTK", "USD", pathUSD, admin, bytes32("user")));
         validatorToken = TIP20(
-            factory.createToken("ValidatorToken", "VTK", "USD", pathUSD, admin, bytes32("validator"))
+            factory.createToken(
+                "ValidatorToken", "VTK", "USD", pathUSD, admin, bytes32("validator")
+            )
         );
 
         // Grant issuer role for minting
@@ -81,7 +83,9 @@ contract FeeIntegrationInvariantTest is StdInvariant, BaseTest {
 
         // Actual output should be within rounding error bounds
         assertLe(feesOut, expectedOut, "Cross-token fees exceed expected");
-        assertGe(feesOut + maxRoundingError, expectedOut, "Cross-token fees too low beyond rounding");
+        assertGe(
+            feesOut + maxRoundingError, expectedOut, "Cross-token fees too low beyond rounding"
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -188,7 +192,9 @@ contract FeeIntegrationInvariantTest is StdInvariant, BaseTest {
         // We only interact with poolAB in our tests, so poolBA should be empty
         IFeeAMM.Pool memory reversePool = amm.getPool(address(validatorToken), address(userToken));
         assertEq(reversePool.reserveUserToken, 0, "Reverse pool should have no user reserves");
-        assertEq(reversePool.reserveValidatorToken, 0, "Reverse pool should have no validator reserves");
+        assertEq(
+            reversePool.reserveValidatorToken, 0, "Reverse pool should have no validator reserves"
+        );
     }
 
     /*//////////////////////////////////////////////////////////////

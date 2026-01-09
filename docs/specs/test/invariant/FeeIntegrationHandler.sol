@@ -67,11 +67,9 @@ contract FeeIntegrationHandler is CommonBase, StdCheats, StdUtils {
     }
 
     /// @notice Simulate same-token fee collection
-    function simulateSameTokenFee(
-        uint256 actorSeed,
-        uint256 maxAmount,
-        uint256 actualUsedPct
-    ) external {
+    function simulateSameTokenFee(uint256 actorSeed, uint256 maxAmount, uint256 actualUsedPct)
+        external
+    {
         address actor = actors[actorSeed % actors.length];
 
         maxAmount = bound(maxAmount, 1e6, 1_000_000e18);
@@ -98,11 +96,9 @@ contract FeeIntegrationHandler is CommonBase, StdCheats, StdUtils {
 
     /// @notice Simulate cross-token fee collection (userToken -> validatorToken swap)
     /// @dev This simulates what happens when user pays in userToken but validator wants validatorToken
-    function simulateCrossTokenFee(
-        uint256 actorSeed,
-        uint256 maxAmount,
-        uint256 actualUsedPct
-    ) external {
+    function simulateCrossTokenFee(uint256 actorSeed, uint256 maxAmount, uint256 actualUsedPct)
+        external
+    {
         address actor = actors[actorSeed % actors.length];
 
         maxAmount = bound(maxAmount, 1e6, 1_000_000e18);
@@ -176,8 +172,7 @@ contract FeeIntegrationHandler is CommonBase, StdCheats, StdUtils {
 
         vm.startPrank(actor);
         try feeManager.burn(address(userToken), address(validatorToken), amount, actor) returns (
-            uint256,
-            uint256
+            uint256, uint256
         ) {
             ghost_totalBurned += amount;
             ghost_lpBalances[actor] -= amount;
@@ -205,8 +200,11 @@ contract FeeIntegrationHandler is CommonBase, StdCheats, StdUtils {
         vm.startPrank(actor);
         validatorToken.approve(address(feeManager), amountIn);
 
-        try feeManager.rebalanceSwap(address(userToken), address(validatorToken), amountOut, actor)
-        returns (uint256 actualIn) {
+        try feeManager.rebalanceSwap(
+            address(userToken), address(validatorToken), amountOut, actor
+        ) returns (
+            uint256 actualIn
+        ) {
             ghost_rebalanceIn += actualIn;
             ghost_rebalanceOut += amountOut;
             rebalanceCalls++;

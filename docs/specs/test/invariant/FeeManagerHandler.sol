@@ -116,7 +116,11 @@ contract FeeManagerHandler is CommonBase, StdCheats, StdUtils {
 
     /// @notice Calculate storage slot for collectedFees[validator][token]
     /// @dev collectedFees is mapping(address => mapping(address => uint256)) at slot 5
-    function _getCollectedFeesSlot(address validator, address token) internal pure returns (bytes32) {
+    function _getCollectedFeesSlot(address validator, address token)
+        internal
+        pure
+        returns (bytes32)
+    {
         // For nested mapping: keccak256(token . keccak256(validator . slot))
         bytes32 innerSlot = keccak256(abi.encode(validator, COLLECTED_FEES_SLOT));
         return keccak256(abi.encode(token, innerSlot));
