@@ -1,6 +1,6 @@
 use crate::rpc::{TempoDexApiServer, dex::orders::OrdersResponse};
 use alloy_eips::{BlockId, BlockNumberOrTag};
-use alloy_primitives::{Address, B256, Sealable};
+use alloy_primitives::{Address, B256};
 use jsonrpsee::core::RpcResult;
 use reth_ethereum::evm::revm::database::StateProviderDatabase;
 use reth_evm::{EvmInternals, revm::database::CacheDB};
@@ -181,11 +181,11 @@ impl<
         // Get the header for the specified block
         let provider = self.eth_api.provider();
         let header = provider
-            .header_by_id(at)
+            .sealed_header_by_id(at)
             .map_err(|e| DexApiError::Provider(Box::new(e)))?
             .ok_or(DexApiError::HeaderNotFound(at))?;
 
-        let block_hash = header.hash_slow();
+        let block_hash = header.hash();
         let state_provider = provider
             .state_by_block_hash(block_hash)
             .map_err(|e| DexApiError::Provider(Box::new(e)))?;
