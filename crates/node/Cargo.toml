@@ -108,9 +108,19 @@ js-tracer = [
 jemalloc = [
 	"reth-ethereum/jemalloc",
 	"reth-node-core/jemalloc",
-	"reth-node-metrics/jemalloc"
+	"reth-node-metrics/jemalloc",
+    "jemalloc-prof",
+    "jemalloc-symbols"
 ]
-jemalloc-prof = []
+jemalloc-prof = [
+    "reth-ethereum/jemalloc-prof",
+    "reth-node-metrics/jemalloc-prof",
+]
+
+jemalloc-symbols = [
+    "jemalloc-prof",
+    "reth-ethereum/jemalloc-symbols",
+]
 
 min-error-logs = [
 	"reth-node-core/min-error-logs"
