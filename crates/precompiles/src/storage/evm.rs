@@ -61,7 +61,7 @@ impl<'a> PrecompileStorageProvider for EvmPrecompileStorageProvider<'a> {
 
     #[inline]
     fn set_code(&mut self, address: Address, code: Bytecode) -> Result<(), TempoPrecompileError> {
-        self.deduct_gas(self.gas_params.codedeposit_cost(code.len() as u64))?;
+        self.deduct_gas(self.gas_params.code_deposit_cost(code.len()))?;
 
         self.internals
             .load_account_mut(address)?
@@ -137,7 +137,8 @@ impl<'a> PrecompileStorageProvider for EvmPrecompileStorageProvider<'a> {
         key: U256,
         value: U256,
     ) -> Result<(), TempoPrecompileError> {
-        self.deduct_gas(100)?;
+        // Static gas is not part of gas_params yet.
+        self.deduct_gas(WARM_STORAGE_READ_COST)?;
         self.internals.tstore(address, key, value);
         Ok(())
     }
@@ -159,6 +160,8 @@ impl<'a> PrecompileStorageProvider for EvmPrecompileStorageProvider<'a> {
 
     #[inline]
     fn sload(&mut self, address: Address, key: U256) -> Result<U256, TempoPrecompileError> {
+        self.deduct_gas(WARM_STORAGE_READ_COST)?;
+
         let additional_cost = self.gas_params.cold_storage_additional_cost();
 
         let skip_cold_load = 0 < additional_cost;
@@ -176,7 +179,7 @@ impl<'a> PrecompileStorageProvider for EvmPrecompileStorageProvider<'a> {
 
     #[inline]
     fn tload(&mut self, address: Address, key: U256) -> Result<U256, TempoPrecompileError> {
-        self.deduct_gas(100)?;
+        self.deduct_gas(WARM_STORAGE_READ_COST)?;
 
         Ok(self.internals.tload(address, key))
     }

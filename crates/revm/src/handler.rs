@@ -21,7 +21,7 @@ use revm::{
     inspector::{Inspector, InspectorHandler},
     interpreter::{
         Gas, InitialAndFloorGas,
-        gas::{calc_tx_floor_cost, get_tokens_in_calldata, initcode_cost},
+        gas::get_tokens_in_calldata_istanbul,
         instructions::{
             ACCESS_LIST_ADDRESS, ACCESS_LIST_STORAGE_KEY, COLD_SLOAD_COST, SSTORE_SET,
             STANDARD_TOKEN_COST, WARM_SSTORE_RESET,
@@ -92,7 +92,7 @@ fn primitive_signature_verification_gas(signature: &PrimitiveSignature) -> u64 {
         PrimitiveSignature::Secp256k1(_) => 0,
         PrimitiveSignature::P256(_) => P256_VERIFY_GAS,
         PrimitiveSignature::WebAuthn(webauthn_sig) => {
-            let tokens = get_tokens_in_calldata(&webauthn_sig.webauthn_data, true);
+            let tokens = get_tokens_in_calldata_istanbul(&webauthn_sig.webauthn_data);
             P256_VERIFY_GAS + tokens * STANDARD_TOKEN_COST
         }
     }
@@ -353,7 +353,8 @@ where
 
                 // Include gas from all previous successful calls + failed call
                 let gas_used_by_failed_call = frame_result.gas().used();
-                let total_gas_used = (gas_limit - remaining_gas) + gas_used_by_failed_call;
+                let total_gas_used =
+                    (gas_limit - remaining_gas) + gas_used_by_failed_call;
 
                 // Create new Gas with correct limit, because Gas does not have a set_limit method
                 // (the frame_result has the limit from just the last call)
@@ -981,7 +982,6 @@ where
         let effective_gas_price = tx.effective_gas_price(basefee);
         let gas = exec_result.gas();
 
-        // Calculate actual used and refund amounts
         let actual_spending = calc_gas_balance_spending(gas.used(), effective_gas_price);
         let refund_amount = tx.effective_balance_spending(
             context.block.basefee.into(),
@@ -1228,7 +1228,7 @@ fn calculate_aa_batch_intrinsic_gas<'a>(
 
     for call in calls {
         // 4a. Calldata gas using revm helper
-        let tokens = get_tokens_in_calldata(&call.input, true);
+        let tokens = get_tokens_in_calldata_istanbul(&call.input);
         total_tokens += tokens;
 
         // 4b. CREATE-specific costs
@@ -1237,7 +1237,7 @@ fn calculate_aa_batch_intrinsic_gas<'a>(
             gas.initial_gas += gas_params.create_cost(); // 32000 gas
 
             // EIP-3860: Initcode analysis gas using revm helper
-            gas.initial_gas += initcode_cost(call.input.len());
+            gas.initial_gas += gas_params.tx_initcode_cost(call.input.len());
         }
 
         // Note: Transaction value is not allowed in AA transactions as there is no balances in accounts yet.
@@ -1269,7 +1269,7 @@ fn calculate_aa_batch_intrinsic_gas<'a>(
     }
 
     // 6. Floor gas  using revm helper
-    gas.floor_gas = calc_tx_floor_cost(total_tokens); // tokens * 10 + 21000
+    gas.floor_gas = gas_params.tx_floor_cost(total_tokens); // tokens * 10 + 21000
 
     Ok(gas)
 }
