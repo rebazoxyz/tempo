@@ -298,7 +298,7 @@ mod tests {
         precompiles::{Precompile as AlloyEvmPrecompile, PrecompileInput},
     };
     use revm::{
-        context::ContextTr,
+        context::{ContextTr, TxEnv},
         database::{CacheDB, EmptyDB},
         state::{AccountInfo, Bytecode},
     };
@@ -311,10 +311,11 @@ mod tests {
             TIP20Token::from_address(PATH_USD_ADDRESS).expect("PATH_USD_ADDRESS is valid")
         });
 
-        let (block, tx, _, journal, _, _) = evm.all_mut();
-
-        let precompile = tempo_precompile!("TIP20Token", &cfg, |input| { TIP20Token::new(1) });
-        let evm_internals = EvmInternals::new(journal, block, &cfg, tx);
+        let db = CacheDB::new(EmptyDB::new());
+        let mut evm = EthEvmFactory::default().create_evm(db, EvmEnv::default());
+        let block = evm.block.clone();
+        let tx = TxEnv::default();
+        let evm_internals = EvmInternals::new(evm.journal_mut(), &block, &cfg, &tx);
 
         let target_address = Address::random();
         let bytecode_address = Address::random();
@@ -344,6 +345,7 @@ mod tests {
     #[test]
     fn test_precompile_static_call() {
         let cfg = CfgEnv::<TempoHardfork>::default();
+        let tx = TxEnv::default();
         let precompile = tempo_precompile!("TIP20Token", &cfg, |input| {
             TIP20Token::from_address(PATH_USD_ADDRESS).expect("PATH_USD_ADDRESS is valid")
         });
@@ -361,7 +363,7 @@ mod tests {
             );
             let mut evm = EthEvmFactory::default().create_evm(db, EvmEnv::default());
             let block = evm.block.clone();
-            let evm_internals = EvmInternals::new(evm.journal_mut(), &block);
+            let evm_internals = EvmInternals::new(evm.journal_mut(), &block, &cfg, &tx);
 
             let input = PrecompileInput {
                 data: &calldata,

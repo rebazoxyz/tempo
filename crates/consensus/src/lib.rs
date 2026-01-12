@@ -367,10 +367,9 @@ mod tests {
 
         let result = consensus.validate_header(&sealed);
         assert_eq!(
-            result,
-            Err(ConsensusError::Other(
-                "Shared gas limit does not match header gas limit".to_string()
-            ))
+            result.unwrap_err().to_string(),
+            ConsensusError::Other("Shared gas limit does not match header gas limit".to_string())
+                .to_string()
         );
     }
 
@@ -386,10 +385,11 @@ mod tests {
 
         let result = consensus.validate_header(&sealed);
         assert_eq!(
-            result,
-            Err(ConsensusError::Other(
+            result.unwrap_err().to_string(),
+            ConsensusError::Other(
                 "Non-payment gas limit does not match header gas limit".to_string()
-            ))
+            )
+            .to_string()
         );
     }
 
@@ -407,10 +407,9 @@ mod tests {
 
         let result = consensus.validate_header(&sealed);
         assert_eq!(
-            result,
-            Err(ConsensusError::Other(
-                "Timestamp milliseconds part must be less than 1000".to_string()
-            ))
+            result.unwrap_err().to_string(),
+            ConsensusError::Other("Timestamp milliseconds part must be less than 1000".to_string())
+                .to_string()
         );
 
         // Test timestamp > 1000
@@ -422,10 +421,9 @@ mod tests {
         let sealed = SealedHeader::seal_slow(header);
         let result = consensus.validate_header(&sealed);
         assert_eq!(
-            result,
-            Err(ConsensusError::Other(
-                "Timestamp milliseconds part must be less than 1000".to_string()
-            ))
+            result.unwrap_err().to_string(),
+            ConsensusError::Other("Timestamp milliseconds part must be less than 1000".to_string())
+                .to_string()
         );
     }
 
@@ -478,11 +476,12 @@ mod tests {
         let child_timestamp_millis = parent_ts * 1000 + 400;
         let result = consensus.validate_header_against_parent(&child_sealed, &parent_sealed);
         assert_eq!(
-            result,
-            Err(ConsensusError::TimestampIsInPast {
+            result.unwrap_err().to_string(),
+            ConsensusError::TimestampIsInPast {
                 parent_timestamp: parent_timestamp_millis,
                 timestamp: child_timestamp_millis,
-            })
+            }
+            .to_string()
         );
     }
 
@@ -551,10 +550,8 @@ mod tests {
 
         let result = consensus.validate_block_pre_execution(&sealed);
         assert_eq!(
-            result,
-            Err(ConsensusError::Other(format!(
-                "Invalid system transaction: {tx_hash}"
-            )))
+            result.unwrap_err().to_string(),
+            ConsensusError::Other(format!("Invalid system transaction: {tx_hash}")).to_string()
         );
     }
 
@@ -574,10 +571,9 @@ mod tests {
 
         let result = consensus.validate_block_pre_execution(&sealed);
         assert_eq!(
-            result,
-            Err(ConsensusError::Other(
-                "Block must contain end-of-block system txs".to_string()
-            ))
+            result.unwrap_err().to_string(),
+            ConsensusError::Other("Block must contain end-of-block system txs".to_string())
+                .to_string()
         );
     }
 
@@ -598,10 +594,8 @@ mod tests {
 
         let result = consensus.validate_block_pre_execution(&sealed);
         assert_eq!(
-            result,
-            Err(ConsensusError::Other(
-                "Invalid end-of-block system tx order".to_string()
-            ))
+            result.unwrap_err().to_string(),
+            ConsensusError::Other("Invalid end-of-block system tx order".to_string()).to_string()
         );
     }
 }
