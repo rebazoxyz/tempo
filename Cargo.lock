@@ -11513,6 +11513,7 @@ dependencies = [
  "commonware-cryptography",
  "commonware-math",
  "commonware-runtime",
+ "const-hex",
  "eyre",
  "futures",
  "pyroscope",

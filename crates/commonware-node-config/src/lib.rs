@@ -20,7 +20,7 @@ mod tests;
 
 pub const DKG_ENCRYPTION_KEY: &str = "TEMPO_DKG_ENCRYPTION_KEY";
 
-pub fn sining_share_key_from_env() -> Result<EncryptionKey, EncryptionKeyError> {
+pub fn dkg_encryption_key_from_env() -> Result<EncryptionKey, EncryptionKeyError> {
     EncryptionKey::from_env(DKG_ENCRYPTION_KEY)
 }
 
@@ -98,11 +98,21 @@ impl EncryptionKey {
         encodable: &impl Encode,
         rng: &mut impl CryptoRngCore,
     ) -> Vec<u8> {
+        let bytes = encodable.encode();
+        self.encrypt(bytes.as_ref(), rng)
+    }
+
+    /// Encrypts `bytes` using the key.
+    ///
+    /// Encryption should only fail if
+    pub fn encrypt(&self, bytes: &[u8], rng: &mut impl CryptoRngCore) -> Vec<u8> {
         let nonce = ChaCha20Poly1305::generate_nonce(rng);
-        let ciphertext = self
-            .cipher
-            .encrypt(&nonce, encodable.encode().as_ref())
-            .expect("an encoded share should always fit into the maximum AEAD blocks");
+        let ciphertext = self.cipher.encrypt(&nonce, bytes).expect(
+            "this method should only be used with reasonably sized payloads \
+                payloads should be well below 2^36 bytes, which is the maximum \
+                permitted bytes size",
+        );
+        // .expect("an encoded share should always fit into the maximum AEAD blocks");
         let mut buf = Vec::with_capacity(nonce.len() + ciphertext.len());
         buf.extend_from_slice(&nonce);
         buf.extend_from_slice(&ciphertext);

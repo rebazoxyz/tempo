@@ -62,7 +62,7 @@ pub async fn run_consensus_stack(
         );
     }
 
-    let share_key = tempo_commonware_node_config::sining_share_key_from_env()
+    let share_key = tempo_commonware_node_config::dkg_encryption_key_from_env()
         .wrap_err("failed reading signing share key from the environment")?;
 
     let signing_key = config
