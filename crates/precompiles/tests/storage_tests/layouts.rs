@@ -31,14 +31,14 @@ fn test_mixed_slot_allocation() {
         mixed.field_d.write(U256::from(4)).unwrap();
 
         let addr_at = Address::random();
-        mixed.field_e.at(addr_at).write(U256::from(5)).unwrap();
+        mixed.field_e[addr_at].write(U256::from(5)).unwrap();
 
         // Verify values
         assert_eq!(mixed.field_a.read().unwrap(), U256::from(1));
         assert_eq!(mixed.field_b.read().unwrap(), U256::from(2));
         assert_eq!(mixed.field_c.read().unwrap(), U256::from(3));
         assert_eq!(mixed.field_d.read().unwrap(), U256::from(4));
-        assert_eq!(mixed.field_e.at(addr_at).read().unwrap(), U256::from(5));
+        assert_eq!(mixed.field_e[addr_at].read().unwrap(), U256::from(5));
 
         // Verify actual slot assignments
         assert_eq!(mixed.field_a.slot(), U256::ZERO);
@@ -83,8 +83,7 @@ fn test_default_values() {
         assert_eq!(defaults.flag.slot(), U256::ZERO);
         assert_eq!(defaults.flag.offset(), Some(8));
         assert_eq!(defaults.amount.slot(), U256::ONE);
-        // NOTE(rusowsky): we use the inefficient version for backwards compatibility.
-        assert_eq!(defaults.amount.offset(), Some(0));
+        assert_eq!(defaults.amount.offset(), None);
 
         Ok::<(), tempo_precompiles::error::TempoPrecompileError>(())
     })
@@ -301,4 +300,23 @@ fn test_no_collision_when_using_manual_slot_with_packing() {
     assert_eq!(slots::E_OFFSET, 16);
 
     assert_eq!(slots::D, U256::from(100));
+}
+
+#[test]
+#[should_panic(
+    expected = "Storage slot collision: field `c` (slot 1, offset 0) overlaps with field `d` (slot 1, offset 0)"
+)]
+fn test_collision_when_using_base_slot() {
+    #[contract]
+    pub struct Layout {
+        a: u128, // assigned to slot 0 with 0 offset
+        b: u128, // assigned to slot 0 with 16 offset
+        c: u128, // assigned to slot 1 with 0 offset
+        #[base_slot(1)]
+        d: u128, // manually assigned to slot 1
+        e: u128, // assigned to slot 1 with 16 offset.
+    }
+
+    let (_, address) = setup_storage();
+    let _layout = Layout::__new(address);
 }

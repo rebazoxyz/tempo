@@ -1,12 +1,11 @@
 //! Tests for successful DKG ceremonies with static sets of validators.
 //!
-//! Contains test for both pre-allegretto logic, and allegretto logic active
+//! Contains test for DKG transition logic
 //! at genesis.
 use commonware_macros::test_traced;
 
 use crate::{Setup, run};
 
-#[ignore = "single node networks immediately drop their proposal"]
 #[test_traced]
 fn single_validator_can_transition_once() {
     AssertStaticTransitions {
@@ -17,23 +16,21 @@ fn single_validator_can_transition_once() {
     .run();
 }
 
-#[ignore = "single node networks immediately drop their proposal"]
 #[test_traced]
 fn single_validator_can_transition_twice() {
     AssertStaticTransitions {
         how_many: 1,
-        epoch_length: 20,
+        epoch_length: 10,
         transitions: 2,
     }
     .run();
 }
 
-#[ignore = "single node networks immediately drop their proposal"]
 #[test_traced]
 fn single_validator_can_transition_four_times() {
     AssertStaticTransitions {
         how_many: 1,
-        epoch_length: 20,
+        epoch_length: 10,
         transitions: 4,
     }
     .run();

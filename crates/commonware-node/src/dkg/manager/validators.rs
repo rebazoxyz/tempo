@@ -1,8 +1,8 @@
 use std::{collections::HashMap, net::SocketAddr};
 
 use alloy_primitives::Address;
-use commonware_codec::{DecodeExt as _, EncodeSize, RangeCfg, Read, Write, varint::UInt};
-use commonware_consensus::{types::Epoch, utils};
+use commonware_codec::DecodeExt as _;
+use commonware_consensus::types::Height;
 use commonware_cryptography::ed25519::PublicKey;
 use commonware_utils::ordered;
 use eyre::{OptionExt as _, WrapErr as _};
@@ -19,27 +19,12 @@ use tempo_precompiles::{
 
 use tracing::{Level, info, instrument, warn};
 
-/// Reads the validator config of `epoch`.
-///
-/// The validator config for `epoch` is always read from the last height of
-/// `epoch-1`.
-#[instrument(
-    skip_all,
-    fields(
-        attempt = _attempt,
-        for_epoch,
-        from_block = last_height_before_epoch(for_epoch, epoch_length),
-    ),
-    err
-)]
-pub(super) async fn read_from_contract(
-    _attempt: u32,
+/// Reads state from the ValidatorConfig precompile at a given block height.
+fn read_validator_config_at_height<T>(
     node: &TempoFullNode,
-    for_epoch: Epoch,
-    epoch_length: u64,
-) -> eyre::Result<ordered::Map<PublicKey, DecodedValidator>> {
-    let last_height = last_height_before_epoch(for_epoch, epoch_length);
-
+    height: Height,
+    read_fn: impl FnOnce(&ValidatorConfig) -> eyre::Result<T>,
+) -> eyre::Result<T> {
     // Try mapping the block height to a hash tracked by reth.
     //
     // First check the canonical chain, then fallback to pending block state.
@@ -47,19 +32,19 @@ pub(super) async fn read_from_contract(
     // Necessary because the DKG and application actors process finalized block concurrently.
     let block_hash = if let Some(hash) = node
         .provider
-        .block_hash(last_height)
-        .wrap_err_with(|| format!("failed reading block hash at height `{last_height}`"))?
+        .block_hash(height.get())
+        .wrap_err_with(|| format!("failed reading block hash at height `{height}`"))?
     {
         hash
     } else if let Some(pending) = node
         .provider
         .pending_block_num_hash()
         .wrap_err("failed reading pending block state")?
-        && pending.number == last_height
+        && pending.number == height.get()
     {
         pending.hash
     } else {
-        return Err(eyre::eyre!("block not found at height `{last_height}`"));
+        return Err(eyre::eyre!("block not found at height `{height}`"));
     };
 
     let block = node
@@ -79,28 +64,44 @@ pub(super) async fn read_from_contract(
         ))
         .build();
 
-    // XXX: Ensure that evm and internals go out of scope before the await point
-    // below.
-    let raw_validators = {
-        let mut evm = node
-            .evm_config
-            .evm_for_block(db, block.header())
-            .wrap_err("failed instantiating evm for genesis block")?;
+    let mut evm = node
+        .evm_config
+        .evm_for_block(db, block.header())
+        .wrap_err("failed instantiating evm for block")?;
 
-        let ctx = evm.ctx_mut();
-        StorageCtx::enter_evm(
-            &mut ctx.journaled_state,
-            &ctx.block,
-            &ctx.cfg,
-            &ctx.tx,
-            || {
-                let validator_config = ValidatorConfig::new();
-                validator_config
-                    .get_validators()
-                    .wrap_err("failed to query contract for validator config")
-            },
-        )
-    }?;
+    let ctx = evm.ctx_mut();
+    StorageCtx::enter_evm(
+        &mut ctx.journaled_state,
+        &ctx.block,
+        &ctx.cfg,
+        &ctx.tx,
+        || read_fn(&ValidatorConfig::new()),
+    )
+}
+
+/// Reads the validator config from the boundary block of `epoch`.
+///
+/// If `epoch` is not set, reads the genesis block.
+///
+/// Note that this returns all validators, active and inactive.
+#[instrument(
+    skip_all,
+    fields(
+        attempt = _attempt,
+        %height,
+    ),
+    err
+)]
+pub(super) async fn read_from_contract_at_height(
+    _attempt: u32,
+    node: &TempoFullNode,
+    height: Height,
+) -> eyre::Result<ordered::Map<PublicKey, DecodedValidator>> {
+    let raw_validators = read_validator_config_at_height(node, height, |config| {
+        config
+            .get_validators()
+            .wrap_err("failed to query contract for validator config")
+    })?;
 
     info!(?raw_validators, "read validators from contract",);
 
@@ -112,7 +113,7 @@ async fn decode_from_contract(
     contract_vals: Vec<IValidatorConfig::Validator>,
 ) -> ordered::Map<PublicKey, DecodedValidator> {
     let mut decoded = HashMap::new();
-    for val in contract_vals.into_iter().filter(|val| val.active) {
+    for val in contract_vals.into_iter() {
         // NOTE: not reporting errors because `decode_from_contract` emits
         // events on success and error
         if let Ok(val) = DecodedValidator::decode_from_contract(val)
@@ -128,142 +129,6 @@ async fn decode_from_contract(
     ordered::Map::from_iter_dedup(decoded)
 }
 
-/// Tracks the participants of each DKG ceremony, and, by extension, the p2p network.
-///
-/// The participants tracked here are in order:
-///
-/// 1. the dealers, that will drop out of the next ceremony
-/// 2. the player, that will become dealers in the next ceremony
-/// 3. the syncing players, that will become players in the next ceremony
-#[derive(Clone, Debug)]
-pub(crate) struct ValidatorState {
-    dealers: ordered::Map<PublicKey, DecodedValidator>,
-    players: ordered::Map<PublicKey, DecodedValidator>,
-    syncing_players: ordered::Map<PublicKey, DecodedValidator>,
-}
-
-impl ValidatorState {
-    pub(super) fn new(validators: ordered::Map<PublicKey, DecodedValidator>) -> Self {
-        Self {
-            dealers: validators.clone(),
-            players: validators.clone(),
-            syncing_players: validators,
-        }
-    }
-
-    pub(super) fn dealers(&self) -> &ordered::Map<PublicKey, DecodedValidator> {
-        &self.dealers
-    }
-
-    pub(super) fn players(&self) -> &ordered::Map<PublicKey, DecodedValidator> {
-        &self.players
-    }
-
-    pub(super) fn syncing_players(&self) -> &ordered::Map<PublicKey, DecodedValidator> {
-        &self.syncing_players
-    }
-
-    pub(super) fn dealer_pubkeys(&self) -> ordered::Set<PublicKey> {
-        self.dealers.keys().clone()
-    }
-
-    pub(super) fn player_pubkeys(&self) -> ordered::Set<PublicKey> {
-        self.players.keys().clone()
-    }
-
-    /// Constructs a peerset to register on the peer manager.
-    ///
-    /// The peerset is constructed by merging the participants of all the
-    /// validator sets tracked in this queue, and resolving each of their
-    /// addresses (parsing socket address or looking up domain name).
-    ///
-    /// If a validator has entries across the tracked sets, then then its entry
-    /// for the latest pushed set is taken. For those cases where looking up
-    /// domain names failed, the last successfully looked up name is taken.
-    pub(super) fn resolve_addresses_and_merge_peers(&self) -> ordered::Map<PublicKey, SocketAddr> {
-        // IMPORTANT: Starting with the syncing players to ensure that the
-        // latest address for a validator with a given pubkey is used.
-        // ordered::Map takes the first instance of a key it sees and
-        // drops the later instances.
-        ordered::Map::from_iter_dedup(
-            self.syncing_players()
-                .iter_pairs()
-                .chain(self.players().iter_pairs())
-                .chain(self.dealers().iter_pairs())
-                .map(|(pubkey, validator)| (pubkey.clone(), validator.inbound_socket_addr())),
-        )
-    }
-
-    /// Pushes `syncing_players` into the participants queue.
-    ///
-    /// This method is called on successful DKG ceremonies: the current players
-    /// will become the next dealers, and the current syncing players will become
-    /// the next regular players.
-    ///
-    /// Removes and returns the old dealers.
-    pub(super) fn push_on_success(
-        &mut self,
-        syncing_players: ordered::Map<PublicKey, DecodedValidator>,
-    ) -> ordered::Map<PublicKey, DecodedValidator> {
-        let players = std::mem::replace(&mut self.syncing_players, syncing_players);
-        let dealers = std::mem::replace(&mut self.players, players);
-        std::mem::replace(&mut self.dealers, dealers)
-    }
-
-    /// Pushes `syncing_players` into the participants queue.
-    ///
-    /// This method is called on failed DKG ceremonies: the current dealers
-    /// will remain dealers for the next epoch, the current players are dropped
-    /// (since for them, the ceremony failed), and the current syncing players
-    /// will become the next regular players.
-    pub(super) fn push_on_failure(
-        &mut self,
-        syncing_players: ordered::Map<PublicKey, DecodedValidator>,
-    ) -> ordered::Map<PublicKey, DecodedValidator> {
-        let players = std::mem::replace(&mut self.syncing_players, syncing_players);
-        // The previous players are dropped/returned - these are for who the
-        // ceremony failed for.
-        std::mem::replace(&mut self.players, players)
-    }
-}
-
-impl Write for ValidatorState {
-    fn write(&self, buf: &mut impl bytes::BufMut) {
-        self.dealers().write(buf);
-        self.players().write(buf);
-        self.syncing_players().write(buf);
-    }
-}
-
-impl EncodeSize for ValidatorState {
-    fn encode_size(&self) -> usize {
-        self.dealers().encode_size()
-            + self.players().encode_size()
-            + self.syncing_players().encode_size()
-    }
-}
-
-impl Read for ValidatorState {
-    type Cfg = ();
-
-    fn read_cfg(
-        buf: &mut impl bytes::Buf,
-        _cfg: &Self::Cfg,
-    ) -> Result<Self, commonware_codec::Error> {
-        // The range 0..=usize::MAX here is ok: what we are writing to disk
-        // is completely under our control and there is no danger of DoS.
-        let dealers = ordered::Map::read_cfg(buf, &(RangeCfg::from(0..=usize::MAX), (), ()))?;
-        let players = ordered::Map::read_cfg(buf, &(RangeCfg::from(0..=usize::MAX), (), ()))?;
-        let syncing_players =
-            ordered::Map::read_cfg(buf, &(RangeCfg::from(0..=usize::MAX), (), ()))?;
-        Ok(Self {
-            dealers,
-            players,
-            syncing_players,
-        })
-    }
-}
-
 /// A ContractValidator is a peer read from the validator config smart const.
 ///
 /// The inbound and outbound addresses stored herein are guaranteed to be of the
@@ -272,6 +137,7 @@ impl Read for ValidatorState {
 /// `<ip>` is an IPv4 or IPv6 address.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct DecodedValidator {
+    pub(super) active: bool,
     /// The `publicKey` field of the contract. Used by other validators to
     /// identify a peer by verifying the signatures of its p2p messages and
     /// as a dealer/player/participant in DKG ceremonies and consensus for a
@@ -304,12 +170,12 @@ impl DecodedValidator {
     #[instrument(ret(Display, level = Level::INFO), err(level = Level::WARN))]
     pub(super) fn decode_from_contract(
         IValidatorConfig::Validator {
+            active,
             publicKey,
             index,
             validatorAddress,
             inboundAddress,
             outboundAddress,
-            ..
         }: IValidatorConfig::Validator,
     ) -> eyre::Result<Self> {
         let public_key = PublicKey::decode(publicKey.as_ref())
@@ -321,16 +187,13 @@ impl DecodedValidator {
             .parse()
             .wrap_err("outboundAddress was not valid")?;
         Ok(Self {
+            active,
             public_key,
             inbound,
             outbound,
             index,
             address: validatorAddress,
         })
-    }
-
-    fn inbound_socket_addr(&self) -> SocketAddr {
-        self.inbound
     }
 }
 
@@ -343,93 +206,25 @@ impl std::fmt::Display for DecodedValidator {
     }
 }
 
-impl Write for DecodedValidator {
-    fn write(&self, buf: &mut impl bytes::BufMut) {
-        self.public_key.write(buf);
-        self.inbound.to_string().as_bytes().write(buf);
-        self.outbound.to_string().as_bytes().write(buf);
-        UInt(self.index).write(buf);
-        self.address.0.write(buf);
-    }
-}
-
-impl EncodeSize for DecodedValidator {
-    fn encode_size(&self) -> usize {
-        self.public_key.encode_size()
-            + self.inbound.to_string().as_bytes().encode_size()
-            + self.outbound.to_string().as_bytes().encode_size()
-            + UInt(self.index).encode_size()
-            + self.address.0.encode_size()
-    }
-}
-
-impl Read for DecodedValidator {
-    type Cfg = ();
-
-    fn read_cfg(
-        mut buf: &mut impl bytes::Buf,
-        _cfg: &Self::Cfg,
-    ) -> Result<Self, commonware_codec::Error> {
-        let public_key = PublicKey::read_cfg(buf, &())?;
-        let inbound = {
-            // 253 is the maximum length of a fqdn.
-            let bytes = Vec::<u8>::read_cfg(buf, &(RangeCfg::new(0..=253usize), ()))?;
-            String::from_utf8(bytes).map_err(|_| {
-                commonware_codec::Error::Invalid("decode inbound address", "not utf8")
-            })?
-        }
-        .parse()
-        .map_err(|_| {
-            commonware_codec::Error::Invalid("decode inbound address", "not <ip>:<port>")
-        })?;
-        let outbound = {
-            // 253 is the maximum length of a fqdn.
-            let bytes = Vec::<u8>::read_cfg(buf, &(RangeCfg::new(0..=253usize), ()))?;
-            String::from_utf8(bytes).map_err(|_| {
-                commonware_codec::Error::Invalid("decode outbound address", "not utf8")
-            })?
-        }
-        .parse()
-        .map_err(|_| {
-            commonware_codec::Error::Invalid("decode outbound address", "not <ip>:<port>")
-        })?;
-        let index = UInt::read_cfg(&mut buf, &())?.into();
-        let address = Address::new(<[u8; 20]>::read_cfg(&mut buf, &())?);
-        Ok(Self {
-            public_key,
-            inbound,
-            outbound,
-            index,
-            address,
-        })
-    }
-}
-
-fn last_height_before_epoch(epoch: Epoch, epoch_length: u64) -> u64 {
-    epoch
-        .previous()
-        .map_or(0, |epoch| utils::last_block_in_epoch(epoch_length, epoch))
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::dkg::manager::validators::DecodedValidator;
-    use commonware_codec::{DecodeExt as _, Encode as _};
-    use commonware_cryptography::{PrivateKeyExt, Signer, ed25519::PrivateKey};
-
-    #[test]
-    fn roundtrip_decoded_validator() {
-        let private_key = PrivateKey::from_seed(42);
-        let decoded_validator = DecodedValidator {
-            public_key: private_key.public_key(),
-            inbound: "192.168.0.1:1234".parse().unwrap(),
-            outbound: "127.0.0.1:4321".parse().unwrap(),
-            index: 42,
-            address: alloy_primitives::Address::ZERO,
-        };
-        assert_eq!(
-            decoded_validator,
-            DecodedValidator::decode(&mut decoded_validator.encode().freeze()).unwrap()
-        );
-    }
+/// Reads the `nextFullDkgCeremony` epoch value from the ValidatorConfig precompile.
+///
+/// This is used to determine if the next DKG ceremony should be a full ceremony
+/// (new polynomial) instead of a reshare.
+#[instrument(
+    skip_all,
+    fields(
+        at_height,
+    ),
+    err,
+    ret(level = Level::INFO)
+)]
+pub(super) fn read_next_full_dkg_ceremony(
+    node: &TempoFullNode,
+    at_height: Height,
+) -> eyre::Result<u64> {
+    read_validator_config_at_height(node, at_height, |config| {
+        config
+            .get_next_full_dkg_ceremony()
+            .wrap_err("failed to query contract for next full dkg ceremony")
+    })
 }

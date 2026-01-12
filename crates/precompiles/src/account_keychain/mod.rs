@@ -102,7 +102,7 @@ impl AccountKeychain {
         }
 
         // Check if key already exists (key exists if expiry > 0)
-        let existing_key = self.keys.at(msg_sender).at(call.keyId).read()?;
+        let existing_key = self.keys[msg_sender][call.keyId].read()?;
         if existing_key.expiry > 0 {
             return Err(AccountKeychainError::key_already_exists().into());
         }
@@ -128,39 +128,25 @@ impl AccountKeychain {
             is_revoked: false,
         };
 
-        self.keys.at(msg_sender).at(call.keyId).write(new_key)?;
+        self.keys[msg_sender][call.keyId].write(new_key)?;
 
         // Set initial spending limits (only if enforce_limits is true)
         if call.enforceLimits {
             let limit_key = Self::spending_limit_key(msg_sender, call.keyId);
             for limit in call.limits {
-                self.spending_limits
-                    .at(limit_key)
-                    .at(limit.token)
-                    .write(limit.amount)?;
+                self.spending_limits[limit_key][limit.token].write(limit.amount)?;
             }
         }
 
         // Emit event
-        if !self.storage.spec().is_allegro_moderato() {
-            self.emit_event(AccountKeychainEvent::KeyAuthorized_1(
-                IAccountKeychain::KeyAuthorized_1 {
-                    account: msg_sender,
-                    publicKey: call.keyId.into_word(),
-                    signatureType: signature_type,
-                    expiry: call.expiry,
-                },
-            ))
-        } else {
-            self.emit_event(AccountKeychainEvent::KeyAuthorized_0(
-                IAccountKeychain::KeyAuthorized_0 {
-                    account: msg_sender,
-                    publicKey: call.keyId,
-                    signatureType: signature_type,
-                    expiry: call.expiry,
-                },
-            ))
-        }
+        self.emit_event(AccountKeychainEvent::KeyAuthorized(
+            IAccountKeychain::KeyAuthorized {
+                account: msg_sender,
+                publicKey: call.keyId,
+                signatureType: signature_type,
+                expiry: call.expiry,
+            },
+        ))
     }
 
     /// Revoke an authorized key
@@ -175,7 +161,7 @@ impl AccountKeychain {
             return Err(AccountKeychainError::unauthorized_caller().into());
         }
 
-        let key = self.keys.at(msg_sender).at(call.keyId).read()?;
+        let key = self.keys[msg_sender][call.keyId].read()?;
 
         // Key exists if expiry > 0
         if key.expiry == 0 {
@@ -189,26 +175,17 @@ impl AccountKeychain {
             is_revoked: true,
             ..Default::default()
         };
-        self.keys.at(msg_sender).at(call.keyId).write(revoked_key)?;
+        self.keys[msg_sender][call.keyId].write(revoked_key)?;
 
         // Note: We don't clear spending limits here - they become inaccessible
 
         // Emit event
-        if !self.storage.spec().is_allegro_moderato() {
-            self.emit_event(AccountKeychainEvent::KeyRevoked_1(
-                IAccountKeychain::KeyRevoked_1 {
-                    account: msg_sender,
-                    publicKey: call.keyId.into_word(),
-                },
-            ))
-        } else {
-            self.emit_event(AccountKeychainEvent::KeyRevoked_0(
-                IAccountKeychain::KeyRevoked_0 {
-                    account: msg_sender,
-                    publicKey: call.keyId,
-                },
-            ))
-        }
+        self.emit_event(AccountKeychainEvent::KeyRevoked(
+            IAccountKeychain::KeyRevoked {
+                account: msg_sender,
+                publicKey: call.keyId,
+            },
+        ))
     }
 
     /// Update spending limit for a key-token pair
@@ -237,41 +214,27 @@ impl AccountKeychain {
         // If this key had unlimited spending (enforce_limits=false), enable limits now
         if !key.enforce_limits {
             key.enforce_limits = true;
-            self.keys.at(msg_sender).at(call.keyId).write(key)?;
+            self.keys[msg_sender][call.keyId].write(key)?;
         }
 
         // Update the spending limit
         let limit_key = Self::spending_limit_key(msg_sender, call.keyId);
-        self.spending_limits
-            .at(limit_key)
-            .at(call.token)
-            .write(call.newLimit)?;
+        self.spending_limits[limit_key][call.token].write(call.newLimit)?;
 
         // Emit event
-        if !self.storage.spec().is_allegro_moderato() {
-            self.emit_event(AccountKeychainEvent::SpendingLimitUpdated_1(
-                IAccountKeychain::SpendingLimitUpdated_1 {
-                    account: msg_sender,
-                    publicKey: call.keyId.into_word(),
-                    token: call.token,
-                    newLimit: call.newLimit,
-                },
-            ))
-        } else {
-            self.emit_event(AccountKeychainEvent::SpendingLimitUpdated_0(
-                IAccountKeychain::SpendingLimitUpdated_0 {
-                    account: msg_sender,
-                    publicKey: call.keyId,
-                    token: call.token,
-                    newLimit: call.newLimit,
-                },
-            ))
-        }
+        self.emit_event(AccountKeychainEvent::SpendingLimitUpdated(
+            IAccountKeychain::SpendingLimitUpdated {
+                account: msg_sender,
+                publicKey: call.keyId,
+                token: call.token,
+                newLimit: call.newLimit,
+            },
+        ))
     }
 
     /// Get key information
     pub fn get_key(&self, call: getKeyCall) -> Result<KeyInfo> {
-        let key = self.keys.at(call.account).at(call.keyId).read()?;
+        let key = self.keys[call.account][call.keyId].read()?;
 
         // Key doesn't exist if expiry == 0, or key has been revoked
         if key.expiry == 0 || key.is_revoked {
@@ -304,7 +267,7 @@ impl AccountKeychain {
     /// Get remaining spending limit
     pub fn get_remaining_limit(&self, call: getRemainingLimitCall) -> Result<U256> {
         let limit_key = Self::spending_limit_key(call.account, call.keyId);
-        self.spending_limits.at(limit_key).at(call.token).read()
+        self.spending_limits[limit_key][call.token].read()
     }
 
     /// Get the transaction key used in the current transaction
@@ -347,7 +310,7 @@ impl AccountKeychain {
     /// Note: This does NOT check expiry against current timestamp.
     /// Callers should check expiry separately if needed.
     fn load_active_key(&self, account: Address, key_id: Address) -> Result<AuthorizedKey> {
-        let key = self.keys.at(account).at(key_id).read()?;
+        let key = self.keys[account][key_id].read()?;
 
         if key.is_revoked {
             return Err(AccountKeychainError::key_already_revoked().into());
@@ -402,17 +365,14 @@ impl AccountKeychain {
 
         // Check and update spending limit
         let limit_key = Self::spending_limit_key(account, key_id);
-        let remaining = self.spending_limits.at(limit_key).at(token).read()?;
+        let remaining = self.spending_limits[limit_key][token].read()?;
 
         if amount > remaining {
             return Err(AccountKeychainError::spending_limit_exceeded().into());
         }
 
         // Update remaining limit
-        self.spending_limits
-            .at(limit_key)
-            .at(token)
-            .write(remaining - amount)
+        self.spending_limits[limit_key][token].write(remaining - amount)
     }
 
     /// Authorize a token transfer with access key spending limits
@@ -444,12 +404,9 @@ impl AccountKeychain {
         }
 
         // Only apply spending limits if the caller is the tx origin.
-        // Gate behind allegro-moderato to avoid breaking existing behavior.
-        if self.storage.spec().is_allegro_moderato() {
-            let tx_origin = self.tx_origin.t_read()?;
-            if account != tx_origin {
-                return Ok(());
-            }
+        let tx_origin = self.tx_origin.t_read()?;
+        if account != tx_origin {
+            return Ok(());
         }
 
         // Verify and update spending limits for this access key
@@ -487,12 +444,9 @@ impl AccountKeychain {
         }
 
         // Only apply spending limits if the caller is the tx origin.
-        // Gate behind allegro-moderato to avoid breaking existing behavior.
-        if self.storage.spec().is_allegro_moderato() {
-            let tx_origin = self.tx_origin.t_read()?;
-            if account != tx_origin {
-                return Ok(());
-            }
+        let tx_origin = self.tx_origin.t_read()?;
+        if account != tx_origin {
+            return Ok(());
         }
 
         // Calculate the increase in approval (only deduct if increasing)
@@ -518,7 +472,6 @@ mod tests {
         storage::{StorageCtx, hashmap::HashMapStorageProvider},
     };
     use alloy::primitives::{Address, U256};
-    use tempo_chainspec::hardfork::TempoHardfork;
     use tempo_contracts::precompiles::IAccountKeychain::SignatureType;
 
     // Helper function to assert unauthorized error
@@ -759,6 +712,109 @@ mod tests {
         })
     }
 
+    #[test]
+    fn test_authorize_approve() -> eyre::Result<()> {
+        let mut storage = HashMapStorageProvider::new(1);
+
+        let eoa = Address::random();
+        let access_key = Address::random();
+        let token = Address::random();
+        let contract = Address::random();
+
+        StorageCtx::enter(&mut storage, || {
+            let mut keychain = AccountKeychain::new();
+            keychain.initialize()?;
+
+            // authorize access key with 100 token spending limit
+            keychain.set_transaction_key(Address::ZERO)?;
+            keychain.set_tx_origin(eoa)?;
+
+            let auth_call = authorizeKeyCall {
+                keyId: access_key,
+                signatureType: SignatureType::Secp256k1,
+                expiry: u64::MAX,
+                enforceLimits: true,
+                limits: vec![TokenLimit {
+                    token,
+                    amount: U256::from(100),
+                }],
+            };
+            keychain.authorize_key(eoa, auth_call)?;
+
+            let initial_limit = keychain.get_remaining_limit(getRemainingLimitCall {
+                account: eoa,
+                keyId: access_key,
+                token,
+            })?;
+            assert_eq!(initial_limit, U256::from(100));
+
+            // Switch to access key for remaining tests
+            keychain.set_transaction_key(access_key)?;
+
+            // Increase approval by 30, which deducts from the limit
+            keychain.authorize_approve(eoa, token, U256::ZERO, U256::from(30))?;
+
+            let limit_after = keychain.get_remaining_limit(getRemainingLimitCall {
+                account: eoa,
+                keyId: access_key,
+                token,
+            })?;
+            assert_eq!(limit_after, U256::from(70));
+
+            // Decrease approval to 20, does not affect limit
+            keychain.authorize_approve(eoa, token, U256::from(30), U256::from(20))?;
+
+            let limit_unchanged = keychain.get_remaining_limit(getRemainingLimitCall {
+                account: eoa,
+                keyId: access_key,
+                token,
+            })?;
+            assert_eq!(limit_unchanged, U256::from(70));
+
+            // Increase from 20 to 50, reducing the limit by 30
+            keychain.authorize_approve(eoa, token, U256::from(20), U256::from(50))?;
+
+            let limit_after_increase = keychain.get_remaining_limit(getRemainingLimitCall {
+                account: eoa,
+                keyId: access_key,
+                token,
+            })?;
+            assert_eq!(limit_after_increase, U256::from(40));
+
+            // Assert that spending limits only applied when account is tx origin
+            keychain.authorize_approve(contract, token, U256::ZERO, U256::from(1000))?;
+
+            let limit_after_contract = keychain.get_remaining_limit(getRemainingLimitCall {
+                account: eoa,
+                keyId: access_key,
+                token,
+            })?;
+            assert_eq!(limit_after_contract, U256::from(40)); // unchanged
+
+            // Assert that exceeding remaining limit fails
+            let exceed_result = keychain.authorize_approve(eoa, token, U256::ZERO, U256::from(50));
+            assert!(matches!(
+                exceed_result,
+                Err(TempoPrecompileError::AccountKeychainError(
+                    AccountKeychainError::SpendingLimitExceeded(_)
+                ))
+            ));
+
+            // Assert that the main key bypasses spending limits, does not affect existing limits
+            keychain.set_transaction_key(Address::ZERO)?;
+            keychain.authorize_approve(eoa, token, U256::ZERO, U256::from(1000))?;
+
+            let limit_main_key = keychain.get_remaining_limit(getRemainingLimitCall {
+                account: eoa,
+                keyId: access_key,
+                token,
+            })?;
+            assert_eq!(limit_main_key, U256::from(40));
+
+            Ok(())
+        })
+    }
+
     /// Test that spending limits are only enforced when msg_sender == tx_origin.
     ///
     /// This test verifies the fix for the bug where spending limits were incorrectly
@@ -770,8 +826,7 @@ mod tests {
     ///    (the contract is transferring its own tokens, not Alice's)
     #[test]
     fn test_spending_limits_only_apply_to_tx_origin() -> eyre::Result<()> {
-        // Use AllegroModerato hardfork to enable the tx_origin check
-        let mut storage = HashMapStorageProvider::new(1).with_spec(TempoHardfork::AllegroModerato);
+        let mut storage = HashMapStorageProvider::new(1);
 
         let eoa_alice = Address::random(); // The EOA that signs the transaction
         let access_key = Address::random(); // Alice's access key with spending limits

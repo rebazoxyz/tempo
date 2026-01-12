@@ -31,10 +31,7 @@ use tempo_contracts::precompiles::{
 };
 use tempo_node::node::TempoNode;
 use tempo_payload_types::{TempoPayloadAttributes, TempoPayloadBuilderAttributes};
-use tempo_precompiles::{
-    PATH_USD_ADDRESS, TIP20_FACTORY_ADDRESS,
-    tip20::{ISSUER_ROLE, token_id_to_address},
-};
+use tempo_precompiles::{PATH_USD_ADDRESS, TIP20_FACTORY_ADDRESS, tip20::ISSUER_ROLE};
 
 /// Creates a test TIP20 token with issuer role granted to the caller
 pub(crate) async fn setup_test_token<P>(
@@ -45,6 +42,7 @@ where
     P: Provider + Clone,
 {
     let factory = ITIP20Factory::new(TIP20_FACTORY_ADDRESS, provider.clone());
+    let salt = B256::random();
     let receipt = factory
         .createToken(
             "Test".to_string(),
@@ -52,14 +50,15 @@ where
             "USD".to_string(),
             PATH_USD_ADDRESS,
             caller,
+            salt,
         )
         .send()
         .await?
         .get_receipt()
         .await?;
-    let event = ITIP20Factory::TokenCreated::decode_log(&receipt.logs()[0].inner).unwrap();
+    let event = ITIP20Factory::TokenCreated::decode_log(&receipt.logs()[1].inner).unwrap();
 
-    let token_addr = token_id_to_address(event.tokenId.to());
+    let token_addr = event.token;
     let token = ITIP20::new(token_addr, provider.clone());
     let roles = IRolesAuth::new(*token.address(), provider);
 
@@ -71,17 +70,6 @@ where
         .await?;
 
     Ok(token)
-}
-
-/// Creates a test TIP20 token (same as setup_test_token, kept for compatibility)
-pub(crate) async fn setup_test_token_pre_allegretto<P>(
-    provider: P,
-    caller: Address,
-) -> eyre::Result<ITIP20Instance<impl Clone + Provider>>
-where
-    P: Provider + Clone,
-{
-    setup_test_token(provider, caller).await
 }
 
 /// Node source for integration testing
@@ -165,9 +153,6 @@ pub(crate) struct HttpOnlySetup {
 pub(crate) struct TestNodeBuilder {
     genesis_content: String,
     custom_gas_limit: Option<String>,
-    moderato_time: Option<u64>,
-    allegretto_time: Option<u64>,
-    allegro_moderato_time: Option<u64>,
     node_count: usize,
     is_dev: bool,
     external_rpc: Option<Url>,
@@ -182,9 +167,6 @@ impl TestNodeBuilder {
             node_count: 1,
             is_dev: true,
             external_rpc: None,
-            allegretto_time: None,
-            moderato_time: None,
-            allegro_moderato_time: None,
         }
     }
 
@@ -210,42 +192,6 @@ impl TestNodeBuilder {
     pub(crate) fn with_external_rpc(mut self, url: Url) -> Self {
         self.external_rpc = Some(url);
         self
-    }
-
-    /// Set Moderato hardfork activation time
-    pub(crate) fn with_moderato_time(mut self, time: u64) -> Self {
-        self.moderato_time = Some(time);
-        self
-    }
-
-    /// Set Allegretto hardfork activation time
-    pub(crate) fn with_allegretto_time(mut self, time: u64) -> Self {
-        self.allegretto_time = Some(time);
-        self
-    }
-
-    /// Set Allegro Moderato hardfork activation time
-    pub(crate) fn with_allegro_moderato_time(mut self, time: u64) -> Self {
-        self.allegro_moderato_time = Some(time);
-        self
-    }
-
-    /// Set Moderato hardfork activation time to 0.
-    pub(crate) fn moderato_activated(self) -> Self {
-        self.with_moderato_time(0)
-    }
-
-    /// Set Allegretto hardfork activation time to 0.
-    /// Also disables Allegro Moderato (sets to far future) for pre-AM behavior.
-    pub(crate) fn allegretto_activated(self) -> Self {
-        self.moderato_activated()
-            .with_allegretto_time(0)
-            .with_allegro_moderato_time(u64::MAX)
-    }
-
-    /// Set Allegro Moderato hardfork activation time to 0
-    pub(crate) fn allegro_moderato_activated(self) -> Self {
-        self.allegretto_activated().with_allegro_moderato_time(0)
     }
 
     /// Build a single node with direct access (NodeHelperType)
@@ -364,16 +310,6 @@ impl TestNodeBuilder {
         let mut genesis: serde_json::Value = serde_json::from_str(&self.genesis_content)?;
         if let Some(gas_limit) = &self.custom_gas_limit {
             genesis["gasLimit"] = serde_json::json!(gas_limit);
-        }
-        if let Some(moderato_time) = &self.moderato_time {
-            genesis["config"]["moderatoTime"] = serde_json::json!(moderato_time);
-        }
-        if let Some(allegretto_time) = &self.allegretto_time {
-            genesis["config"]["allegrettoTime"] = serde_json::json!(allegretto_time);
-        }
-
-        if let Some(allegro_moderato_time) = &self.allegro_moderato_time {
-            genesis["config"]["allegroModeratoTime"] = serde_json::json!(allegro_moderato_time);
         }
 
         Ok(TempoChainSpec::from_genesis(serde_json::from_value(

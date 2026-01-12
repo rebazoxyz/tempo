@@ -30,8 +30,6 @@ pub(crate) struct TempoPayloadBuilderMetrics {
     pub(crate) gas_used_last: Gauge,
     /// The time it took to prepare system transactions in seconds.
     pub(crate) prepare_system_transactions_duration_seconds: Histogram,
-    /// The time it took to execute start-of-block system transactions in seconds.
-    pub(crate) start_block_txs_execution_duration_seconds: Histogram,
     /// The time it took to execute one transaction in seconds.
     pub(crate) transaction_execution_duration_seconds: Histogram,
     /// The time it took to execute normal transactions in seconds.
@@ -50,4 +48,8 @@ pub(crate) struct TempoPayloadBuilderMetrics {
     pub(crate) gas_per_second: Histogram,
     /// Gas per second for the last payload calculated as gas_used / payload_build_duration.
     pub(crate) gas_per_second_last: Gauge,
+    /// RLP-encoded block size in bytes.
+    pub(crate) rlp_block_size_bytes: Histogram,
+    /// RLP-encoded block size in bytes for the last payload.
+    pub(crate) rlp_block_size_bytes_last: Gauge,
 }

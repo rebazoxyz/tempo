@@ -2,9 +2,8 @@ use crate::{
     TempoPayloadTypes,
     engine::TempoEngineValidator,
     rpc::{
-        TempoAdminApi, TempoAdminApiServer, TempoAmm, TempoAmmApiServer, TempoDex,
-        TempoDexApiServer, TempoEthApiBuilder, TempoEthExt, TempoEthExtApiServer, TempoPolicy,
-        TempoPolicyApiServer, TempoToken, TempoTokenApiServer,
+        TempoAdminApi, TempoAdminApiServer, TempoEthApiBuilder, TempoEthExt, TempoEthExtApiServer,
+        TempoToken, TempoTokenApiServer,
     },
 };
 use alloy_primitives::B256;
@@ -132,6 +131,12 @@ impl TempoNode {
     pub fn provider_factory_builder() -> ProviderFactoryBuilder<Self> {
         ProviderFactoryBuilder::default()
     }
+
+    /// Sets the validator key for filtering subblock transactions.
+    pub fn with_validator_key(mut self, validator_key: Option<B256>) -> Self {
+        self.validator_key = validator_key;
+        self
+    }
 }
 
 impl NodeTypes for TempoNode {
@@ -153,15 +158,20 @@ pub struct TempoAddOns<
     validator_key: Option<B256>,
 }
 
-impl<N, EthB> TempoAddOns<N, EthB>
+impl<N> TempoAddOns<NodeAdapter<N>, TempoEthApiBuilder>
 where
-    N: FullNodeComponents,
-    EthB: EthApiBuilder<N>,
+    N: FullNodeTypes<Types = TempoNode>,
 {
     /// Creates a new instance from the inner `RpcAddOns`.
     pub fn new(validator_key: Option<B256>) -> Self {
         Self {
-            inner: Default::default(),
+            inner: RpcAddOns::new(
+                TempoEthApiBuilder::new(validator_key),
+                TempoEngineValidatorBuilder,
+                NoopEngineApiBuilder::default(),
+                BasicEngineValidatorBuilder::default(),
+                Identity::default(),
+            ),
             validator_key,
         }
     }
@@ -189,17 +199,11 @@ where
                 } = container;
 
                 let eth_api = registry.eth_api().clone();
-                let dex = TempoDex::new(eth_api.clone());
-                let amm = TempoAmm::new(eth_api.clone());
                 let token = TempoToken::new(eth_api.clone());
-                let policy = TempoPolicy::new(eth_api.clone());
                 let eth_ext = TempoEthExt::new(eth_api);
                 let admin = TempoAdminApi::new(self.validator_key);
 
-                modules.merge_configured(dex.into_rpc())?;
-                modules.merge_configured(amm.into_rpc())?;
                 modules.merge_configured(token.into_rpc())?;
-                modules.merge_configured(policy.into_rpc())?;
                 modules.merge_configured(eth_ext.into_rpc())?;
                 modules.merge_if_module_configured(RethRpcModule::Admin, admin.into_rpc())?;
                 modules.merge_if_module_configured(RethRpcModule::Eth, eth_config.into_rpc())?;
@@ -418,7 +422,6 @@ where
             .with_minimum_priority_fee(ctx.config().txpool.minimum_priority_fee)
             .with_additional_tasks(ctx.config().txpool.additional_validation_tasks)
             .with_custom_tx_type(TempoTxType::AA as u8)
-            .with_custom_tx_type(TempoTxType::FeeToken as u8)
             .no_eip4844()
             .build_with_tasks(ctx.task_executor().clone(), blob_store.clone());
 

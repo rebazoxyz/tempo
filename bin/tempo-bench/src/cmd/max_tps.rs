@@ -56,14 +56,15 @@ use std::{
 use tempo_contracts::precompiles::{
     IFeeManager::IFeeManagerInstance,
     IRolesAuth,
-    IStablecoinExchange::IStablecoinExchangeInstance,
+    IStablecoinDEX::IStablecoinDEXInstance,
     ITIP20::{self, ITIP20Instance},
-    ITIP20Factory, STABLECOIN_EXCHANGE_ADDRESS, TIP20_FACTORY_ADDRESS,
+    ITIP20Factory, STABLECOIN_DEX_ADDRESS, TIP20_FACTORY_ADDRESS,
 };
 use tempo_precompiles::{
-    DEFAULT_FEE_TOKEN_PRE_ALLEGRETTO, TIP_FEE_MANAGER_ADDRESS,
-    stablecoin_exchange::{MAX_TICK, MIN_ORDER_AMOUNT, MIN_TICK, TICK_SPACING},
-    tip20::{ISSUER_ROLE, token_id_to_address},
+    TIP_FEE_MANAGER_ADDRESS,
+    stablecoin_dex::{MAX_TICK, MIN_ORDER_AMOUNT, MIN_TICK, TICK_SPACING},
+    tip_fee_manager::DEFAULT_FEE_TOKEN,
+    tip20::ISSUER_ROLE,
 };
 use tokio::{
     select,
@@ -95,7 +96,7 @@ pub struct MaxTpsArgs {
     #[arg(short, long, default_value_t = 0)]
     from_mnemonic_index: u32,
 
-    #[arg(long, default_value_t = DEFAULT_FEE_TOKEN_PRE_ALLEGRETTO)]
+    #[arg(long, default_value_t = DEFAULT_FEE_TOKEN)]
     fee_token: Address,
 
     /// Target URLs for network connections (comma-separated or multiple --target-urls)
@@ -576,10 +577,8 @@ async fn generate_transactions<F: TxFiller<TempoNetwork> + 'static>(
                 }
                 1 => {
                     swaps.fetch_add(1, Ordering::Relaxed);
-                    let exchange = IStablecoinExchangeInstance::new(
-                        STABLECOIN_EXCHANGE_ADDRESS,
-                        provider.clone(),
-                    );
+                    let exchange =
+                        IStablecoinDEXInstance::new(STABLECOIN_DEX_ADDRESS, provider.clone());
 
                     // Swap minimum possible amount
                     exchange
@@ -588,10 +587,8 @@ async fn generate_transactions<F: TxFiller<TempoNetwork> + 'static>(
                 }
                 2 => {
                     orders.fetch_add(1, Ordering::Relaxed);
-                    let exchange = IStablecoinExchangeInstance::new(
-                        STABLECOIN_EXCHANGE_ADDRESS,
-                        provider.clone(),
-                    );
+                    let exchange =
+                        IStablecoinDEXInstance::new(STABLECOIN_DEX_ADDRESS, provider.clone());
 
                     // Place an order at a random tick that's a multiple of `TICK_SPACING`
                     let tick =

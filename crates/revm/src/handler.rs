@@ -2,7 +2,7 @@
 
 use std::{cmp::Ordering, fmt::Debug};
 
-use alloy_primitives::{Address, B256, U256, b256};
+use alloy_primitives::{Address, U256};
 use reth_evm::EvmError;
 use revm::{
     Database,
@@ -29,11 +29,9 @@ use revm::{
         interpreter::EthInterpreter,
     },
     primitives::eip7702,
-    state::Bytecode,
 };
-use tempo_contracts::{
-    DEFAULT_7702_DELEGATE_ADDRESS,
-    precompiles::{IAccountKeychain::SignatureType as PrecompileSignatureType, TIPFeeAMMError},
+use tempo_contracts::precompiles::{
+    IAccountKeychain::SignatureType as PrecompileSignatureType, TIPFeeAMMError,
 };
 use tempo_precompiles::{
     account_keychain::{AccountKeychain, TokenLimit, authorizeKeyCall},
@@ -41,10 +39,10 @@ use tempo_precompiles::{
     nonce::{INonce::getNonceCall, NonceManager},
     storage::StorageCtx,
     tip_fee_manager::TipFeeManager,
-    tip20::{self, ITIP20::InsufficientBalance, TIP20Error, TIP20Token},
+    tip20::{ITIP20::InsufficientBalance, TIP20Error, TIP20Token},
 };
 use tempo_primitives::transaction::{
-    PrimitiveSignature, SignatureType, TempoSignature, calc_gas_balance_spending,
+    PrimitiveSignature, SignatureType, TempoSignature, calc_gas_balance_spending, validate_calls,
 };
 
 use crate::{
@@ -76,10 +74,6 @@ const EXISTING_NONCE_KEY_GAS: u64 = COLD_SLOAD_COST + WARM_SSTORE_RESET;
 /// Gas cost for using a new 2D nonce key (cold SLOAD + SSTORE set for 0 -> non-zero)
 const NEW_NONCE_KEY_GAS: u64 = COLD_SLOAD_COST + SSTORE_SET;
 
-/// Hashed account code of default 7702 delegate deployment
-const DEFAULT_7702_DELEGATE_CODE_HASH: B256 =
-    b256!("e7b3e4597bdbdd0cc4eb42f9b799b580f23068f54e472bb802cb71efb1570482");
-
 /// Calculates the gas cost for verifying a primitive signature.
 ///
 /// Returns the additional gas required beyond the base transaction cost:
@@ -101,24 +95,14 @@ fn primitive_signature_verification_gas(signature: &PrimitiveSignature) -> u64 {
 /// Calculates the gas cost for verifying an AA signature.
 ///
 /// For Keychain signatures, adds key validation overhead to the inner signature cost
-/// (only post-AllegroModerato hardfork).
 /// Returns the additional gas required beyond the base transaction cost.
 #[inline]
-fn tempo_signature_verification_gas(
-    signature: &TempoSignature,
-    spec: tempo_chainspec::hardfork::TempoHardfork,
-) -> u64 {
+fn tempo_signature_verification_gas(signature: &TempoSignature) -> u64 {
     match signature {
         TempoSignature::Primitive(prim_sig) => primitive_signature_verification_gas(prim_sig),
         TempoSignature::Keychain(keychain_sig) => {
             // Keychain = inner signature + key validation overhead (SLOAD + processing)
-            // Post-AllegroModerato: add KEYCHAIN_VALIDATION_GAS for key validation
-            let base_gas = primitive_signature_verification_gas(&keychain_sig.signature);
-            if spec.is_allegro_moderato() {
-                base_gas + KEYCHAIN_VALIDATION_GAS
-            } else {
-                base_gas
-            }
+            primitive_signature_verification_gas(&keychain_sig.signature) + KEYCHAIN_VALIDATION_GAS
         }
     }
 }
@@ -150,7 +134,7 @@ fn calculate_key_authorization_gas(
 
 /// Calculates the gas cost for 2D nonce usage.
 ///
-/// Gas schedule (post-AllegroModerato):
+/// Gas schedule:
 /// - Protocol nonce (key 0): 0 gas (no additional cost)
 /// - Existing user key (nonce > 0): 5,000 gas (cold SLOAD + warm SSTORE reset)
 /// - New user key (nonce == 0): 22,100 gas (cold SLOAD + SSTORE set)
@@ -214,14 +198,14 @@ impl<DB: alloy_evm::Database, I> TempoEvmHandler<DB, I> {
         self.fee_payer = ctx.tx.fee_payer()?;
         self.fee_token = ctx
             .journaled_state
-            .get_fee_token(&ctx.tx, ctx.block.beneficiary, self.fee_payer, ctx.cfg.spec)
+            .get_fee_token(&ctx.tx, self.fee_payer, ctx.cfg.spec)
             .map_err(|err| EVMError::Custom(err.to_string()))?;
 
         // Skip fee token validity check for cases when the transaction is free and is not a part of a subblock.
         if (!ctx.tx.max_balance_spending()?.is_zero() || ctx.tx.is_subblock_transaction())
             && !ctx
                 .journaled_state
-                .is_valid_fee_token(self.fee_token, ctx.cfg.spec)
+                .is_valid_fee_token(ctx.cfg.spec, self.fee_token)
                 .map_err(|err| EVMError::Custom(err.to_string()))?
         {
             return Err(TempoInvalidTransaction::InvalidFeeToken(self.fee_token).into());
@@ -351,16 +335,41 @@ where
                 // Revert checkpoint - rolls back ALL state changes from ALL calls
                 evm.ctx().journal_mut().checkpoint_revert(checkpoint);
 
+                // For AA transactions with CREATE as the first call, the nonce was bumped by
+                // make_create_frame during execution. Since checkpoint_revert rolled that back,
+                // we need to manually bump the nonce here to ensure it persists even on failure.
+                //
+                // However, this only applies when using the protocol nonce (nonce_key == 0).
+                // When using 2D nonces (nonce_key != 0), replay protection is handled by the
+                // NonceManager, and the protocol nonce is only used for CREATE address derivation.
+                // Since the CREATE reverted, no contract was deployed, so the address wasn't
+                // "claimed" and we don't need to burn the protocol nonce.
+                let uses_protocol_nonce = evm
+                    .ctx()
+                    .tx()
+                    .tempo_tx_env
+                    .as_ref()
+                    .map(|aa| aa.nonce_key.is_zero())
+                    .unwrap_or(true);
+
+                if uses_protocol_nonce && calls.first().map(|c| c.to.is_create()).unwrap_or(false) {
+                    let caller = evm.ctx().tx().caller();
+                    if let Ok(mut caller_acc) =
+                        evm.ctx().journal_mut().load_account_with_code_mut(caller)
+                    {
+                        caller_acc.data.bump_nonce();
+                    }
+                }
+
                 // Include gas from all previous successful calls + failed call
-                let gas_used_by_failed_call = frame_result.gas().used();
-                let total_gas_used =
-                    (gas_limit - remaining_gas) + gas_used_by_failed_call;
+                let gas_spent_by_failed_call = frame_result.gas().spent();
+                let total_gas_spent = (gas_limit - remaining_gas) + gas_spent_by_failed_call;
 
                 // Create new Gas with correct limit, because Gas does not have a set_limit method
                 // (the frame_result has the limit from just the last call)
                 let mut corrected_gas = Gas::new(gas_limit);
                 if instruction_result.is_revert() {
-                    corrected_gas.set_spent(total_gas_used);
+                    corrected_gas.set_spent(total_gas_spent);
                 } else {
                     corrected_gas.spend_all();
                 }
@@ -371,12 +380,12 @@ where
             }
 
             // Call succeeded - accumulate gas usage and refunds
-            let gas_used = frame_result.gas().used();
+            let gas_spent = frame_result.gas().spent();
             let gas_refunded = frame_result.gas().refunded();
 
             accumulated_gas_refund = accumulated_gas_refund.saturating_add(gas_refunded);
             // Subtract only execution gas (intrinsic gas already deducted upfront)
-            remaining_gas = remaining_gas.saturating_sub(gas_used);
+            remaining_gas = remaining_gas.saturating_sub(gas_spent);
 
             final_result = Some(frame_result);
         }
@@ -388,12 +397,12 @@ where
         let mut result =
             final_result.ok_or_else(|| EVMError::Custom("No calls executed".into()))?;
 
-        let total_gas_used = gas_limit - remaining_gas;
+        let total_gas_spent = gas_limit - remaining_gas;
 
         // Create new Gas with correct limit, because Gas does not have a set_limit method
         // (the frame_result has the limit from just the last call)
         let mut corrected_gas = Gas::new(gas_limit);
-        corrected_gas.set_spent(total_gas_used);
+        corrected_gas.set_spent(total_gas_spent);
         corrected_gas.set_refund(accumulated_gas_refund);
         *result.gas_mut() = corrected_gas;
 
@@ -493,7 +502,18 @@ where
         );
 
         // Check if this is an AA transaction by checking for tempo_tx_env
-        if let Some(tempo_tx_env) = evm.ctx().tx().tempo_tx_env.as_ref() {
+        let evm_ctx = evm.ctx();
+        if let Some(tempo_tx_env) = evm_ctx.tx().tempo_tx_env.as_ref() {
+            // Ensure gas limit covers 2D nonce cost
+            let gas_limit = evm_ctx.tx().gas_limit();
+            if gas_limit < adjusted_gas.initial_gas {
+                return Err(TempoInvalidTransaction::InsufficientGasForIntrinsicCost {
+                    gas_limit,
+                    intrinsic_gas: adjusted_gas.initial_gas,
+                }
+                .into());
+            }
+
             // AA transaction - use batch execution with calls field
             let calls = tempo_tx_env.aa_calls.clone();
             self.execute_multi_call(evm, &adjusted_gas, calls)
@@ -580,13 +600,6 @@ where
         // Load caller's account
         let mut caller_account = journal.load_account_with_code_mut(tx.caller())?.data;
 
-        if caller_account.account().info.has_no_code_and_nonce() {
-            caller_account.set_code(
-                DEFAULT_7702_DELEGATE_CODE_HASH,
-                Bytecode::new_eip7702(DEFAULT_7702_DELEGATE_ADDRESS),
-            );
-        }
-
         let nonce_key = tx
             .tempo_tx_env
             .as_ref()
@@ -611,19 +624,13 @@ where
             nonce_2d_gas = StorageCtx::enter_evm(journal, block, cfg, tx, || {
                 let mut nonce_manager = NonceManager::new();
 
-                // Calculate 2D nonce gas (only post-AllegroModerato)
-                let gas = if cfg.spec.is_allegro_moderato() {
-                    calculate_2d_nonce_gas(&nonce_manager, tx.caller(), nonce_key).map_err(
-                        |err| match err {
-                            TempoPrecompileError::Fatal(err) => EVMError::Custom(err),
-                            err => {
-                                TempoInvalidTransaction::NonceManagerError(err.to_string()).into()
-                            }
-                        },
-                    )?
-                } else {
-                    0
-                };
+                // Calculate 2D nonce gas
+                let gas = calculate_2d_nonce_gas(&nonce_manager, tx.caller(), nonce_key).map_err(
+                    |err| match err {
+                        TempoPrecompileError::Fatal(err) => EVMError::Custom(err),
+                        err => TempoInvalidTransaction::NonceManagerError(err.to_string()).into(),
+                    },
+                )?;
 
                 if !cfg.is_nonce_check_disabled() {
                     let tx_nonce = tx.nonce();
@@ -641,21 +648,17 @@ where
 
                     match tx_nonce.cmp(&state) {
                         Ordering::Greater => {
-                            return Err(TempoInvalidTransaction::EthInvalidTransaction(
-                                InvalidTransaction::NonceTooHigh {
-                                    tx: tx_nonce,
-                                    state,
-                                },
-                            )
+                            return Err(InvalidTransaction::NonceTooHigh {
+                                tx: tx_nonce,
+                                state,
+                            }
                             .into());
                         }
                         Ordering::Less => {
-                            return Err(TempoInvalidTransaction::EthInvalidTransaction(
-                                InvalidTransaction::NonceTooLow {
-                                    tx: tx_nonce,
-                                    state,
-                                },
-                            )
+                            return Err(InvalidTransaction::NonceTooLow {
+                                tx: tx_nonce,
+                                state,
+                            }
                             .into());
                         }
                         _ => {}
@@ -675,9 +678,9 @@ where
         } else {
             nonce_2d_gas = 0;
             // Bump the nonce for calls. Nonce for CREATE will be bumped in `make_create_frame`.
-            //
-            // Always bump nonce for AA transactions.
-            if tx.tempo_tx_env.is_some() || tx.kind().is_call() {
+            // This applies uniformly to both standard and AA transactions - we only bump here
+            // for CALLs, letting make_create_frame handle the nonce for CREATE operations.
+            if tx.kind().is_call() {
                 caller_account.bump_nonce();
             }
         }
@@ -705,24 +708,18 @@ where
                     // Get the access key address (recovered during Tx->TxEnv conversion and cached)
                     keychain_sig
                         .key_id(&tempo_tx_env.signature_hash)
-                        .map_err(|_| {
-                            EVMError::Transaction(
-                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                reason:
-                                    "Failed to recover access key address from Keychain signature"
-                                        .to_string(),
-                            },
-                        )
+                        .map_err(|_| TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                            reason: "Failed to recover access key address from Keychain signature"
+                                .to_string(),
                         })?
                 };
 
                 // Only allow if authorizing the same key that's being used (same-tx auth+use)
                 if access_key_addr != key_auth.key_id {
-                    return Err(EVMError::Transaction(
+                    return Err(
                             TempoInvalidTransaction::AccessKeyAuthorizationFailed {
                                 reason: "Access keys cannot authorize other keys. Only the root key can authorize new keys.".to_string(),
-                            },
-                        ));
+                            }.into());
                 }
             }
 
@@ -731,32 +728,30 @@ where
 
             // Recover the signer of the KeyAuthorization
             let auth_signer = key_auth.recover_signer().map_err(|_| {
-                EVMError::Transaction(TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                TempoInvalidTransaction::AccessKeyAuthorizationFailed {
                     reason: "Failed to recover signer from KeyAuthorization signature".to_string(),
-                })
+                }
             })?;
 
             // Verify the KeyAuthorization is signed by the root account
             if auth_signer != *root_account {
-                return Err(EVMError::Transaction(
+                return Err(
                     TempoInvalidTransaction::AccessKeyAuthorizationFailed {
                         reason: format!(
                             "KeyAuthorization must be signed by root account {root_account}, but was signed by {auth_signer}",
                         ),
-                    },
-                ));
+                    }.into());
             }
 
             // Validate KeyAuthorization chain_id (following EIP-7702 pattern)
             // chain_id == 0 allows replay on any chain (wildcard)
             let expected_chain_id = cfg.chain_id();
             if key_auth.chain_id != 0 && key_auth.chain_id != expected_chain_id {
-                return Err(EVMError::Transaction(
-                    TempoInvalidTransaction::KeyAuthorizationChainIdMismatch {
-                        expected: expected_chain_id,
-                        got: key_auth.chain_id,
-                    },
-                ));
+                return Err(TempoInvalidTransaction::KeyAuthorizationChainIdMismatch {
+                    expected: expected_chain_id,
+                    got: key_auth.chain_id,
+                }
+                .into());
             }
 
             // Now authorize the key in the precompile
@@ -782,13 +777,11 @@ where
                     // Validate expiry is not in the past
                     let current_timestamp = block.timestamp().saturating_to::<u64>();
                     if expiry <= current_timestamp {
-                        return Err(EVMError::Transaction(
-                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                reason: format!(
-                                    "Key expiry {expiry} is in the past (current timestamp: {current_timestamp})"
-                                ),
-                            },
-                        ));
+                        return Err(TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                        reason: format!(
+                            "Key expiry {expiry} is in the past (current timestamp: {current_timestamp})"
+                        ),
+                    }.into());
                     }
 
                     // Handle limits: None means unlimited spending (enforce_limits=false)
@@ -847,26 +840,21 @@ where
 
                 // Sanity check: user_address should match tx.caller
                 if *user_address != tx.caller {
-                    return Err(EVMError::Transaction(
-                        TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                            reason: format!(
-                                "Keychain user_address {} does not match transaction caller {}",
-                                user_address, tx.caller
-                            ),
-                        },
-                    ));
+                    return Err(TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                        reason: format!(
+                            "Keychain user_address {} does not match transaction caller {}",
+                            user_address, tx.caller
+                        ),
+                    }
+                    .into());
                 }
 
                 // Get the access key address (recovered during pool validation and cached)
                 keychain_sig
                     .key_id(&tempo_tx_env.signature_hash)
-                    .map_err(|_| {
-                        EVMError::Transaction(
-                            TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                reason: "Failed to recover access key address from inner signature"
-                                    .to_string(),
-                            },
-                        )
+                    .map_err(|_| TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                        reason: "Failed to recover access key address from inner signature"
+                            .to_string(),
                     })?
             };
 
@@ -895,12 +883,8 @@ where
                                 access_key_addr,
                                 block.timestamp().to::<u64>(),
                             )
-                            .map_err(|e| {
-                                EVMError::Transaction(
-                                    TempoInvalidTransaction::AccessKeyAuthorizationFailed {
-                                        reason: format!("Keychain validation failed: {e:?}"),
-                                    },
-                                )
+                            .map_err(|e| TempoInvalidTransaction::AccessKeyAuthorizationFailed {
+                                reason: format!("Keychain validation failed: {e:?}"),
                             })?;
                     }
 
@@ -949,17 +933,15 @@ where
 
                 TempoPrecompileError::TIP20(TIP20Error::InsufficientBalance(
                     InsufficientBalance { available, .. },
-                )) => EVMError::Transaction(
-                    FeePaymentError::InsufficientFeeTokenBalance {
-                        fee: gas_balance_spending,
-                        balance: available,
-                    }
-                    .into(),
-                ),
+                )) => FeePaymentError::InsufficientFeeTokenBalance {
+                    fee: gas_balance_spending,
+                    balance: available,
+                }
+                .into(),
 
                 TempoPrecompileError::Fatal(e) => EVMError::Custom(e),
 
-                _ => EVMError::Transaction(FeePaymentError::Other(err.to_string()).into()),
+                _ => FeePaymentError::Other(err.to_string()).into(),
             })
         } else {
             journal.checkpoint_commit();
@@ -1031,10 +1013,7 @@ where
         _evm: &mut Self::Evm,
         _exec_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
-        // Pre-AllegroModerato: fee handling (refunds and queuing) done in reimburse_caller via collectFeePostTx.
-        // The actual swap and transfer to validator happens in executeBlock at the end of block processing.
-        //
-        // Post-AllegroModerato: fees are collected and swapped immediately in collectFeePreTx.
+        // Fee handling (refunds and swaps) are done in `reimburse_caller()` via `collectFeePostTx`.
         // Validators call distributeFees() to claim their accumulated fees.
         Ok(())
     }
@@ -1061,32 +1040,22 @@ where
         let tx = evm.ctx_ref().tx();
 
         if let Some(aa_env) = tx.tempo_tx_env.as_ref() {
+            // Validate AA transaction structure (calls list, CREATE rules)
+            validate_calls(
+                &aa_env.aa_calls,
+                !aa_env.tempo_authorization_list.is_empty(),
+            )
+            .map_err(TempoInvalidTransaction::from)?;
+
             let has_keychain_fields =
                 aa_env.key_authorization.is_some() || aa_env.signature.is_keychain();
 
-            // Validate that keychain operations are only supported after Allegretto
-            if has_keychain_fields && !cfg.spec.is_allegretto() {
-                return Err(TempoInvalidTransaction::KeychainOpBeforeAllegretto.into());
-            }
-
-            if aa_env.subblock_transaction {
-                if !cfg.spec.is_allegretto() {
-                    if tx.max_fee_per_gas() > 0 {
-                        return Err(
-                            TempoInvalidTransaction::SubblockTransactionMustHaveZeroFee.into()
-                        );
-                    }
-                } else if has_keychain_fields {
-                    return Err(TempoInvalidTransaction::KeychainOpInSubblockTransaction.into());
-                }
+            if aa_env.subblock_transaction && has_keychain_fields {
+                return Err(TempoInvalidTransaction::KeychainOpInSubblockTransaction.into());
             }
 
             // Validate priority fee for AA transactions using revm's validate_priority_fee_tx
-            //
-            // Skip basefee check for subblock transactions pre-Allegretto as they must always be free.
-            let base_fee = if cfg.is_base_fee_check_disabled()
-                || (aa_env.subblock_transaction && !cfg.spec.is_allegretto())
-            {
+            let base_fee = if cfg.is_base_fee_check_disabled() {
                 None
             } else {
                 Some(evm.ctx_ref().block().basefee() as u128)
@@ -1097,8 +1066,7 @@ where
                 tx.max_priority_fee_per_gas().unwrap_or_default(),
                 base_fee,
                 cfg.is_priority_fee_check_disabled(),
-            )
-            .map_err(TempoInvalidTransaction::EthInvalidTransaction)?;
+            )?;
 
             // Validate time window for AA transactions
             let block_timestamp = evm.ctx_ref().block().timestamp().saturating_to();
@@ -1128,10 +1096,11 @@ where
         } else {
             // Standard transaction - use default revm validation
             let spec = evm.ctx_ref().cfg().spec().into();
-            Ok(
-                validation::validate_initial_tx_gas(tx, spec, evm.ctx.cfg.is_eip7623_disabled())
-                    .map_err(TempoInvalidTransaction::EthInvalidTransaction)?,
-            )
+            Ok(validation::validate_initial_tx_gas(
+                tx,
+                spec,
+                evm.ctx.cfg.is_eip7623_disabled(),
+            )?)
         }
     }
 
@@ -1142,7 +1111,6 @@ where
     ) -> Result<ExecutionResult<Self::HaltReason>, Self::Error> {
         // For subblock transactions that failed `collectFeePreTx` call we catch error and treat such transactions as valid.
         if evm.ctx.tx.is_subblock_transaction()
-            && evm.cfg.spec.is_allegretto()
             && let Some(
                 TempoInvalidTransaction::CollectFeePreTx(_)
                 | TempoInvalidTransaction::EthInvalidTransaction(
@@ -1182,13 +1150,12 @@ where
 ///   - Initcode analysis gas (2 per 32-byte chunk, Shanghai+)
 /// - Check that value transfer is zero.
 /// - Access list costs (shared across batch)
-/// - Key authorization costs (if present, post-AllegroModerato): 30k/32k base + 22k per spending limit
+/// - Key authorization costs (if present): 30k/32k base + 22k per spending limit
 /// - Floor gas calculation (EIP-7623, Prague+)
-fn calculate_aa_batch_intrinsic_gas<'a>(
+pub fn calculate_aa_batch_intrinsic_gas<'a>(
     aa_env: &TempoBatchCallEnv,
     gas_params: &GasParams,
     access_list: Option<impl Iterator<Item = &'a AccessListItem>>,
-    spec: tempo_chainspec::hardfork::TempoHardfork,
 ) -> Result<InitialAndFloorGas, TempoInvalidTransaction> {
     let calls = &aa_env.aa_calls;
     let signature = &aa_env.signature;
@@ -1200,26 +1167,24 @@ fn calculate_aa_batch_intrinsic_gas<'a>(
     gas.initial_gas += 21_000;
 
     // 2. Signature verification gas
-    gas.initial_gas += tempo_signature_verification_gas(signature, spec);
+    gas.initial_gas += tempo_signature_verification_gas(signature);
 
     let cold_account_cost =
         gas_params.warm_storage_read_cost() + gas_params.cold_account_additional_cost();
 
     // 3. Per-call overhead: cold account access
     // if the `to` address has not appeared in the call batch before.
-    gas.initial_gas += cold_account_cost * calls.len() as u64;
+    gas.initial_gas += cold_account_cost * calls.len().saturating_sub(1) as u64;
 
     // 4. Authorization list costs (EIP-7702)
     gas.initial_gas += authorization_list.len() as u64 * eip7702::PER_EMPTY_ACCOUNT_COST;
     // Add signature verification costs for each authorization
     for auth in authorization_list {
-        gas.initial_gas += tempo_signature_verification_gas(auth.signature(), spec);
+        gas.initial_gas += tempo_signature_verification_gas(auth.signature());
     }
 
-    // 5. Key authorization costs (if present, post-AllegroModerato)
-    if spec.is_allegro_moderato()
-        && let Some(key_auth) = key_authorization
-    {
+    // 5. Key authorization costs (if present)
+    if let Some(key_auth) = key_authorization {
         gas.initial_gas += calculate_key_authorization_gas(key_auth);
     }
 
@@ -1301,18 +1266,12 @@ where
     let max_initcode_size = evm.ctx_ref().cfg().max_initcode_size();
     for call in calls {
         if call.to.is_create() && call.input.len() > max_initcode_size {
-            return Err(EVMError::Transaction(
-                TempoInvalidTransaction::EthInvalidTransaction(
-                    InvalidTransaction::CreateInitCodeSizeLimit,
-                ),
-            ));
+            return Err(InvalidTransaction::CreateInitCodeSizeLimit.into());
         }
     }
 
     // Calculate batch intrinsic gas using helper
-    let spec = *evm.ctx_ref().cfg().spec();
-    let mut batch_gas =
-        calculate_aa_batch_intrinsic_gas(aa_env, gas_params, tx.access_list(), spec)?;
+    let mut batch_gas = calculate_aa_batch_intrinsic_gas(aa_env, gas_params, tx.access_list())?;
 
     if evm.ctx.cfg.is_eip7623_disabled() {
         batch_gas.floor_gas = 0u64;
@@ -1348,11 +1307,12 @@ pub fn get_token_balance<JOURNAL>(
 where
     JOURNAL: JournalTr,
 {
-    // Address has already been validated
-    let token_id = tip20::address_to_token_id_unchecked(token);
-
+    // Address has already been validated as having TIP20 prefix
     journal.load_account(token)?;
-    let balance_slot = TIP20Token::new(token_id).balances.at(sender).slot();
+    let balance_slot = TIP20Token::from_address(token)
+        .expect("TIP20 prefix already validated")
+        .balances[sender]
+        .slot();
     let balance = journal.sload(token, balance_slot)?.data;
 
     Ok(balance)
@@ -1397,7 +1357,18 @@ where
         );
 
         // Check if this is an AA transaction by checking for tempo_tx_env
-        if let Some(tempo_tx_env) = evm.ctx().tx().tempo_tx_env.as_ref() {
+        let evm_ctx = evm.ctx();
+        if let Some(tempo_tx_env) = evm_ctx.tx().tempo_tx_env.as_ref() {
+            // Ensure gas limit covers 2D nonce cost
+            let gas_limit = evm_ctx.tx().gas_limit();
+            if gas_limit < adjusted_gas.initial_gas {
+                return Err(TempoInvalidTransaction::InsufficientGasForIntrinsicCost {
+                    gas_limit,
+                    intrinsic_gas: adjusted_gas.initial_gas,
+                }
+                .into());
+            }
+
             // AA transaction - use batch execution with calls field
             let calls = tempo_tx_env.aa_calls.clone();
             self.inspect_execute_multi_call(evm, &adjusted_gas, calls)
@@ -1446,19 +1417,21 @@ pub fn validate_time_window(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TempoBlockEnv, TempoTxEnv};
-    use alloy_primitives::{Address, U256};
+    use crate::{TempoBlockEnv, TempoTxEnv, evm::TempoEvm, tx::TempoBatchCallEnv};
+    use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
     use revm::{
         Context, Journal, MainContext,
         context::CfgEnv,
         database::{CacheDB, EmptyDB},
-        interpreter::instructions::{COLD_ACCOUNT_ACCESS_COST, utility::IntoU256},
+        handler::Handler,
+        interpreter::{gas::COLD_ACCOUNT_ACCESS_COST, instructions::utility::IntoU256},
         primitives::hardfork::SpecId,
-        state::Account,
     };
     use std::convert::Infallible;
     use tempo_chainspec::hardfork::TempoHardfork;
-    use tempo_precompiles::{DEFAULT_FEE_TOKEN_POST_ALLEGRETTO, TIP_FEE_MANAGER_ADDRESS};
+    use tempo_contracts::precompiles::DEFAULT_FEE_TOKEN;
+    use tempo_precompiles::{PATH_USD_ADDRESS, TIP_FEE_MANAGER_ADDRESS};
+    use tempo_primitives::transaction::Call;
 
     fn create_test_journal() -> Journal<CacheDB<EmptyDB>> {
         let db = CacheDB::new(EmptyDB::default());
@@ -1468,13 +1441,13 @@ mod tests {
     #[test]
     fn test_get_token_balance() -> eyre::Result<()> {
         let mut journal = create_test_journal();
-        let token = Address::random();
+        // Use PATH_USD_ADDRESS which has the TIP20 prefix
+        let token = PATH_USD_ADDRESS;
         let account = Address::random();
         let expected_balance = U256::random();
 
         // Set up initial balance
-        let token_id = tip20::address_to_token_id_unchecked(token);
-        let balance_slot = TIP20Token::new(token_id).balances.at(account).slot();
+        let balance_slot = TIP20Token::from_address(token)?.balances[account].slot();
         journal.load_account(token)?;
         journal
             .sstore(token, balance_slot, expected_balance)
@@ -1504,7 +1477,7 @@ mod tests {
         let tx_fee_token = Address::random();
 
         // Set validator token
-        let validator_slot = TipFeeManager::new().validator_tokens.at(validator).slot();
+        let validator_slot = TipFeeManager::new().validator_tokens[validator].slot();
         ctx.journaled_state.load_account(TIP_FEE_MANAGER_ADDRESS)?;
         ctx.journaled_state
             .sstore(
@@ -1515,14 +1488,14 @@ mod tests {
             .unwrap();
 
         {
-            let fee_token =
-                ctx.journaled_state
-                    .get_fee_token(&ctx.tx, validator, user, ctx.cfg.spec)?;
-            assert_eq!(DEFAULT_FEE_TOKEN_POST_ALLEGRETTO, fee_token);
+            let fee_token = ctx
+                .journaled_state
+                .get_fee_token(&ctx.tx, user, ctx.cfg.spec)?;
+            assert_eq!(DEFAULT_FEE_TOKEN, fee_token);
         }
 
         // Set user token
-        let user_slot = TipFeeManager::new().user_tokens.at(user).slot();
+        let user_slot = TipFeeManager::new().user_tokens[user].slot();
         ctx.journaled_state
             .sstore(
                 TIP_FEE_MANAGER_ADDRESS,
@@ -1532,29 +1505,20 @@ mod tests {
             .unwrap();
 
         {
-            let fee_token =
-                ctx.journaled_state
-                    .get_fee_token(&ctx.tx, validator, user, ctx.cfg.spec)?;
+            let fee_token = ctx
+                .journaled_state
+                .get_fee_token(&ctx.tx, user, ctx.cfg.spec)?;
             assert_eq!(user_fee_token, fee_token);
         }
 
         // Set tx fee token
         ctx.tx.fee_token = Some(tx_fee_token);
-        let fee_token =
-            ctx.journaled_state
-                .get_fee_token(&ctx.tx, validator, user, ctx.cfg.spec)?;
+        let fee_token = ctx
+            .journaled_state
+            .get_fee_token(&ctx.tx, user, ctx.cfg.spec)?;
         assert_eq!(tx_fee_token, fee_token);
 
         Ok(())
-    }
-
-    #[test]
-    fn test_delegate_code_hash() {
-        let mut account = Account::default();
-        account
-            .info
-            .set_code(Bytecode::new_eip7702(DEFAULT_7702_DELEGATE_ADDRESS));
-        assert_eq!(account.info.code_hash, DEFAULT_7702_DELEGATE_CODE_HASH);
     }
 
     #[test]
@@ -1592,7 +1556,6 @@ mod tests {
             &aa_env,
             &gas_params,
             None::<std::iter::Empty<&AccessListItem>>, // no access list
-            spec,
         )
         .unwrap();
 
@@ -1606,12 +1569,8 @@ mod tests {
             0,     // no authorization list
         );
 
-        // AA should be: normal tx + per-call overhead (COLD_ACCOUNT_ACCESS_COST)
-        let expected_initial = normal_tx_gas.initial_gas + COLD_ACCOUNT_ACCESS_COST;
-        assert_eq!(
-            aa_gas.initial_gas, expected_initial,
-            "AA secp256k1 single call should match normal tx + per-call overhead"
-        );
+        // AA with secp256k1 + single call should match normal tx exactly
+        assert_eq!(aa_gas.initial_gas, normal_tx_gas.initial_gas);
     }
 
     #[test]
@@ -1656,22 +1615,19 @@ mod tests {
             &aa_env,
             &GasParams::default(),
             None::<std::iter::Empty<&AccessListItem>>,
-            spec,
         )
         .unwrap();
 
         // Calculate base gas for a single normal tx
         let base_tx_gas = calculate_initial_tx_gas(spec.into(), &calldata, false, 0, 0, 0);
 
-        // For 3 calls: base (21k) + 3*calldata + 3*per-call overhead
-        // = 21k + 2*(calldata cost) + 3*COLD_ACCOUNT_ACCESS_COST
+        // For 3 calls: base (21k) + 3*calldata + 2*per-call overhead (calls 2 and 3)
+        // = 21k + 2*(calldata cost) + 2*COLD_ACCOUNT_ACCESS_COST
         let expected = base_tx_gas.initial_gas
             + 2 * (calldata.len() as u64 * 16)
-            + 3 * COLD_ACCOUNT_ACCESS_COST;
-        assert_eq!(
-            gas.initial_gas, expected,
-            "Should charge per-call overhead for each call"
-        );
+            + 2 * COLD_ACCOUNT_ACCESS_COST;
+        // Should charge per-call overhead for calls beyond the first
+        assert_eq!(gas.initial_gas, expected,);
     }
 
     #[test]
@@ -1708,24 +1664,19 @@ mod tests {
             ..Default::default()
         };
 
-        let tempo_spec = tempo_chainspec::hardfork::TempoHardfork::default();
         let gas = calculate_aa_batch_intrinsic_gas(
             &aa_env,
             &GasParams::default(),
             None::<std::iter::Empty<&AccessListItem>>,
-            tempo_spec,
         )
         .unwrap();
 
         // Calculate base gas for normal tx
         let base_gas = calculate_initial_tx_gas(spec, &calldata, false, 0, 0, 0);
 
-        // Expected: normal tx + P256_VERIFY_GAS + per-call overhead
-        let expected = base_gas.initial_gas + P256_VERIFY_GAS + COLD_ACCOUNT_ACCESS_COST;
-        assert_eq!(
-            gas.initial_gas, expected,
-            "Should include P256 verification gas"
-        );
+        // Expected: normal tx + P256_VERIFY_GAS
+        let expected = base_gas.initial_gas + P256_VERIFY_GAS;
+        assert_eq!(gas.initial_gas, expected,);
     }
 
     #[test]
@@ -1754,12 +1705,10 @@ mod tests {
             ..Default::default()
         };
 
-        let tempo_spec = tempo_chainspec::hardfork::TempoHardfork::default();
         let gas = calculate_aa_batch_intrinsic_gas(
             &aa_env,
             &GasParams::default(),
             None::<std::iter::Empty<&AccessListItem>>,
-            tempo_spec,
         )
         .unwrap();
 
@@ -1769,9 +1718,8 @@ mod tests {
             0, 0, 0,
         );
 
-        // AA CREATE should be: normal CREATE + per-call overhead
-        let expected = base_gas.initial_gas + COLD_ACCOUNT_ACCESS_COST;
-        assert_eq!(gas.initial_gas, expected, "Should include CREATE costs");
+        // AA CREATE should match normal CREATE exactly
+        assert_eq!(gas.initial_gas, base_gas.initial_gas,);
     }
 
     #[test]
@@ -1798,12 +1746,10 @@ mod tests {
             ..Default::default()
         };
 
-        let spec = tempo_chainspec::hardfork::TempoHardfork::default();
         let res = calculate_aa_batch_intrinsic_gas(
             &aa_env,
             &GasParams::default(),
             None::<std::iter::Empty<&AccessListItem>>,
-            spec,
         );
 
         assert_eq!(
@@ -1839,24 +1785,18 @@ mod tests {
         };
 
         // Test without access list
-        let tempo_spec = tempo_chainspec::hardfork::TempoHardfork::default();
         let gas = calculate_aa_batch_intrinsic_gas(
             &aa_env,
             &GasParams::default(),
             None::<std::iter::Empty<&AccessListItem>>,
-            tempo_spec,
         )
         .unwrap();
 
         // Calculate expected using revm's function
         let base_gas = calculate_initial_tx_gas(spec, &calldata, false, 0, 0, 0);
 
-        // Expected: normal tx + per-call overhead (no access list in this test)
-        let expected = base_gas.initial_gas + COLD_ACCOUNT_ACCESS_COST;
-        assert_eq!(
-            gas.initial_gas, expected,
-            "Should match normal tx + per-call overhead"
-        );
+        // Expected: normal tx
+        assert_eq!(gas.initial_gas, base_gas.initial_gas,);
     }
 
     #[test]
@@ -1945,12 +1885,10 @@ mod tests {
             ..Default::default()
         };
 
-        let tempo_spec = tempo_chainspec::hardfork::TempoHardfork::default();
         let gas = calculate_aa_batch_intrinsic_gas(
             &aa_env,
             &GasParams::default(),
             None::<std::iter::Empty<&AccessListItem>>,
-            tempo_spec,
         )
         .unwrap();
 
@@ -2123,15 +2061,11 @@ mod tests {
             ..Default::default()
         };
 
-        // Use AllegroModerato to test the key authorization gas schedule
-        let spec = tempo_chainspec::hardfork::TempoHardfork::AllegroModerato;
-
         // Calculate gas WITH key authorization
         let gas_with_key_auth = calculate_aa_batch_intrinsic_gas(
             &aa_env_with_key_auth,
             &GasParams::default(),
             None::<std::iter::Empty<&AccessListItem>>,
-            spec,
         )
         .unwrap();
 
@@ -2140,7 +2074,6 @@ mod tests {
             &aa_env_without_key_auth,
             &GasParams::default(),
             None::<std::iter::Empty<&AccessListItem>>,
-            spec,
         )
         .unwrap();
 
@@ -2154,8 +2087,9 @@ mod tests {
         );
 
         // Also verify absolute values
+        let spec = tempo_chainspec::hardfork::TempoHardfork::default();
         let base_tx_gas = calculate_initial_tx_gas(spec.into(), &calldata, false, 0, 0, 0);
-        let expected_without = base_tx_gas.initial_gas + COLD_ACCOUNT_ACCESS_COST;
+        let expected_without = base_tx_gas.initial_gas; // no cold access for single call
         let expected_with = expected_without + expected_key_auth_gas;
 
         assert_eq!(
@@ -2214,5 +2148,160 @@ mod tests {
         })
         .unwrap();
         assert_eq!(gas, EXISTING_NONCE_KEY_GAS);
+    }
+
+    #[test]
+    fn test_2d_nonce_gas_limit_validation() {
+        const INTRINSIC_GAS: u64 = 21_000;
+
+        // Test cases: (gas_limit, should_succeed)
+        let cases = [
+            (INTRINSIC_GAS + 10_000, false), // Insufficient for 2D nonce
+            (INTRINSIC_GAS + NEW_NONCE_KEY_GAS + 1000, true), // Sufficient
+        ];
+
+        for (gas_limit, should_succeed) in cases {
+            let db = CacheDB::new(EmptyDB::default());
+            let journal = Journal::new(db);
+            let ctx = Context::mainnet()
+                .with_db(CacheDB::new(EmptyDB::default()))
+                .with_block(TempoBlockEnv::default())
+                .with_cfg(CfgEnv::default())
+                .with_tx(TempoTxEnv {
+                    inner: revm::context::TxEnv {
+                        gas_limit,
+                        ..Default::default()
+                    },
+                    // Set tempo_tx_env with a call to trigger AA path
+                    tempo_tx_env: Some(Box::new(TempoBatchCallEnv {
+                        aa_calls: vec![Call {
+                            to: TxKind::Call(Address::random()),
+                            value: U256::ZERO,
+                            input: Bytes::new(),
+                        }],
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                })
+                .with_new_journal(journal);
+
+            let mut evm: TempoEvm<_, ()> = TempoEvm::new(ctx, ());
+            evm.nonce_2d_gas = NEW_NONCE_KEY_GAS;
+
+            let mut handler: TempoEvmHandler<CacheDB<EmptyDB>, ()> = TempoEvmHandler::new();
+            let init_and_floor_gas = InitialAndFloorGas::new(INTRINSIC_GAS, 0);
+
+            let result = handler.execution(&mut evm, &init_and_floor_gas);
+
+            if should_succeed {
+                assert!(result.is_ok());
+            } else {
+                let err = result.expect_err("gas_limit={gas_limit}: should fail");
+                match err.as_invalid_tx_err() {
+                    Some(TempoInvalidTransaction::InsufficientGasForIntrinsicCost {
+                        gas_limit: gl,
+                        intrinsic_gas,
+                    }) => {
+                        assert_eq!(*gl, gas_limit);
+                        assert_eq!(*intrinsic_gas, INTRINSIC_GAS + NEW_NONCE_KEY_GAS);
+                    }
+                    _ => panic!("Expected InsufficientGasForIntrinsicCost, got: {err:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_multicall_gas_refund_accounting() {
+        use crate::evm::TempoEvm;
+        use alloy_primitives::{Bytes, TxKind};
+        use revm::{
+            Context, Journal,
+            context::CfgEnv,
+            database::{CacheDB, EmptyDB},
+            handler::FrameResult,
+            interpreter::{CallOutcome, Gas, InstructionResult, InterpreterResult},
+        };
+        use tempo_primitives::transaction::Call;
+
+        const GAS_LIMIT: u64 = 100_000;
+        const INTRINSIC_GAS: u64 = 21_000;
+        // Mock call's gas: (CALL_0, CALL_1)
+        const SPENT: (u64, u64) = (1000, 500);
+        const REFUND: (i64, i64) = (100, 50);
+
+        // Create minimal EVM context
+        let db = CacheDB::new(EmptyDB::default());
+        let journal = Journal::new(db);
+        let ctx = Context::mainnet()
+            .with_db(CacheDB::new(EmptyDB::default()))
+            .with_block(TempoBlockEnv::default())
+            .with_cfg(CfgEnv::default())
+            .with_tx(TempoTxEnv {
+                inner: revm::context::TxEnv {
+                    gas_limit: GAS_LIMIT,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .with_new_journal(journal);
+
+        let mut evm: TempoEvm<_, ()> = TempoEvm::new(ctx, ());
+        let mut handler: TempoEvmHandler<CacheDB<EmptyDB>, ()> = TempoEvmHandler::new();
+
+        // Create mock calls
+        let calls = vec![
+            Call {
+                to: TxKind::Call(Address::random()),
+                value: U256::ZERO,
+                input: Bytes::new(),
+            },
+            Call {
+                to: TxKind::Call(Address::random()),
+                value: U256::ZERO,
+                input: Bytes::new(),
+            },
+        ];
+
+        let (mut call_idx, calls_gas) = (0, [(SPENT.0, REFUND.0), (SPENT.1, REFUND.1)]);
+        let result = handler.execute_multi_call_with(
+            &mut evm,
+            &InitialAndFloorGas::new(INTRINSIC_GAS, 0),
+            calls,
+            |_handler, _evm, _gas| {
+                let (spent, refund) = calls_gas[call_idx];
+                call_idx += 1;
+
+                // Create gas with specific spent and refund values
+                let mut gas = Gas::new(GAS_LIMIT);
+                gas.set_spent(spent);
+                gas.record_refund(refund);
+
+                // Mock successful frame result
+                Ok(FrameResult::Call(CallOutcome::new(
+                    InterpreterResult::new(InstructionResult::Stop, Bytes::new(), gas),
+                    0..0,
+                )))
+            },
+        );
+
+        let result = result.expect("execute_multi_call_with should succeed");
+        let final_gas = result.gas();
+
+        assert_eq!(
+            final_gas.spent(),
+            INTRINSIC_GAS + SPENT.0 + SPENT.1,
+            "Total spent should be intrinsic_gas + sum of all calls' spent values"
+        );
+        assert_eq!(
+            final_gas.refunded(),
+            REFUND.0 + REFUND.1,
+            "Total refund should be sum of all calls' refunded values"
+        );
+        assert_eq!(
+            final_gas.used(),
+            INTRINSIC_GAS + SPENT.0 + SPENT.1 - (REFUND.0 + REFUND.1) as u64,
+            "used() should be spent - refund"
+        );
     }
 }

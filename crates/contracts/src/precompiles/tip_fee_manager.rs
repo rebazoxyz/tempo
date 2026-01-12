@@ -30,11 +30,8 @@ crate::sol! {
         function setValidatorToken(address token) external;
 
         // Fee functions
-        function getFeeTokenBalance(address sender, address validator) external view returns (address, uint256);
-        /// @dev Deprecated Post-AllegroModerato: This function is kept for backwards compatibility pre-AllegroModerato
-        function executeBlock() external;
-        function distributeFees(address validator) external;
-        function collectedFeesByValidator(address validator) external view returns (uint256);
+        function distributeFees(address validator, address token) external;
+        function collectedFees(address validator, address token) external view returns (uint256);
         // NOTE: collectFeePreTx is a protocol-internal function called directly by the
         // execution handler, not exposed via the dispatch interface.
 
@@ -90,8 +87,7 @@ sol! {
         function pools(bytes32 poolId) external view returns (Pool memory);
 
         // Liquidity Operations
-        function mint(address userToken, address validatorToken, uint256 amountUserToken, uint256 amountValidatorToken, address to) external returns (uint256 liquidity);
-        function mintWithValidatorToken(address userToken, address validatorToken, uint256 amountValidatorToken, address to) external returns (uint256 liquidity);
+        function mint(address userToken, address validatorToken, uint256 amountValidatorToken, address to) external returns (uint256 liquidity);
         function burn(address userToken, address validatorToken, uint256 liquidity, address to) external returns (uint256 amountUserToken, uint256 amountValidatorToken);
 
         // Liquidity Balances
@@ -102,38 +98,18 @@ sol! {
         function rebalanceSwap(address userToken, address validatorToken, uint256 amountOut, address to) external returns (uint256 amountIn);
 
         // Events
-        event Mint(address indexed sender, address indexed userToken, address indexed validatorToken, uint256 amountUserToken, uint256 amountValidatorToken, uint256 liquidity);
+        event Mint(address sender, address indexed to, address indexed userToken, address indexed validatorToken, uint256 amountValidatorToken, uint256 liquidity);
         event Burn(address indexed sender, address indexed userToken, address indexed validatorToken, uint256 amountUserToken, uint256 amountValidatorToken, uint256 liquidity, address to);
         event RebalanceSwap(address indexed userToken, address indexed validatorToken, address indexed swapper, uint256 amountIn, uint256 amountOut);
-        event FeeSwap(
-            address indexed userToken,
-            address indexed validatorToken,
-            uint256 amountIn,
-            uint256 amountOut
-        );
 
         // Errors
         error IdenticalAddresses();
-        error ZeroAddress();
-        error PoolExists();
-        error PoolDoesNotExist();
         error InvalidToken();
         error InsufficientLiquidity();
-        error OnlyProtocol();
-        error InsufficientPoolBalance();
         error InsufficientReserves();
-        error InsufficientLiquidityBalance();
-        error MustDepositLowerBalanceToken();
         error InvalidAmount();
-        error InvalidRebalanceState();
-        error InvalidRebalanceDirection();
-        error InvalidNewReserves();
-        error CannotSupportPendingSwaps();
         error DivisionByZero();
         error InvalidSwapCalculation();
-        error InsufficientLiquidityForPending();
-        error TokenTransferFailed();
-        error InternalError();
     }
 }
 
@@ -163,11 +139,6 @@ impl FeeManagerError {
         Self::InsufficientFeeTokenBalance(IFeeManager::InsufficientFeeTokenBalance {})
     }
 
-    /// Creates an error for internal errors.
-    pub const fn internal_error() -> Self {
-        Self::InternalError(IFeeManager::InternalError {})
-    }
-
     /// Creates an error for cannot change within block.
     pub const fn cannot_change_within_block() -> Self {
         Self::CannotChangeWithinBlock(IFeeManager::CannotChangeWithinBlock {})
@@ -190,21 +161,6 @@ impl TIPFeeAMMError {
         Self::IdenticalAddresses(ITIPFeeAMM::IdenticalAddresses {})
     }
 
-    /// Creates an error for zero address.
-    pub const fn zero_address() -> Self {
-        Self::ZeroAddress(ITIPFeeAMM::ZeroAddress {})
-    }
-
-    /// Creates an error when pool already exists.
-    pub const fn pool_exists() -> Self {
-        Self::PoolExists(ITIPFeeAMM::PoolExists {})
-    }
-
-    /// Creates an error when pool does not exist.
-    pub const fn pool_does_not_exist() -> Self {
-        Self::PoolDoesNotExist(ITIPFeeAMM::PoolDoesNotExist {})
-    }
-
     /// Creates an error for invalid token.
     pub const fn invalid_token() -> Self {
         Self::InvalidToken(ITIPFeeAMM::InvalidToken {})
@@ -215,34 +171,13 @@ impl TIPFeeAMMError {
         Self::InsufficientLiquidity(ITIPFeeAMM::InsufficientLiquidity {})
     }
 
-    /// Creates an error for insufficient pool balance.
-    pub const fn insufficient_pool_balance() -> Self {
-        Self::InsufficientPoolBalance(ITIPFeeAMM::InsufficientPoolBalance {})
-    }
-
     /// Creates an error for insufficient reserves.
     pub const fn insufficient_reserves() -> Self {
         Self::InsufficientReserves(ITIPFeeAMM::InsufficientReserves {})
     }
-
-    /// Creates an error for insufficient liquidity balance.
-    pub const fn insufficient_liquidity_balance() -> Self {
-        Self::InsufficientLiquidityBalance(ITIPFeeAMM::InsufficientLiquidityBalance {})
-    }
-
-    /// Creates an error when must deposit lower balance token.
-    pub const fn must_deposit_lower_balance_token() -> Self {
-        Self::MustDepositLowerBalanceToken(ITIPFeeAMM::MustDepositLowerBalanceToken {})
-    }
-
     /// Creates an error for invalid amount.
     pub const fn invalid_amount() -> Self {
         Self::InvalidAmount(ITIPFeeAMM::InvalidAmount {})
-    }
-
-    /// Creates an error for token transfer failure.
-    pub const fn token_transfer_failed() -> Self {
-        Self::TokenTransferFailed(ITIPFeeAMM::TokenTransferFailed {})
     }
 
     /// Creates an error for invalid swap calculation.
@@ -250,23 +185,8 @@ impl TIPFeeAMMError {
         Self::InvalidSwapCalculation(ITIPFeeAMM::InvalidSwapCalculation {})
     }
 
-    /// Creates an error for insufficient liquidity for pending operations.
-    pub const fn insufficient_liquidity_for_pending() -> Self {
-        Self::InsufficientLiquidityForPending(ITIPFeeAMM::InsufficientLiquidityForPending {})
-    }
-
     /// Creates an error for division by zero.
     pub const fn division_by_zero() -> Self {
         Self::DivisionByZero(ITIPFeeAMM::DivisionByZero {})
-    }
-
-    /// Creates an error for invalid new reserves.
-    pub const fn invalid_new_reserves() -> Self {
-        Self::InvalidNewReserves(ITIPFeeAMM::InvalidNewReserves {})
-    }
-
-    /// Creates an error for internal errors.
-    pub const fn internal_error() -> Self {
-        Self::InternalError(ITIPFeeAMM::InternalError {})
     }
 }

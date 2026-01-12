@@ -29,8 +29,8 @@ pub(crate) fn gen_handler_field_decl(field: &LayoutField<'_>) -> proc_macro2::To
 /// - `field_idx`: the field's index in the allocated fields array
 /// - `all_fields`: all allocated fields (for neighbor slot detection)
 /// - `packing_mod`: optional packing module identifier
-///   - `None` = contract storage (uses `slots` module, inefficient layout)
-///   - `Some(mod_ident)` = storable struct (uses packing module, efficient layout, offsets from `base_slot`)
+///   - `None` = contract storage (uses `slots` module)
+///   - `Some(mod_ident)` = storable struct (uses packing module, offsets from `base_slot`)
 pub(crate) fn gen_handler_field_init(
     field: &LayoutField<'_>,
     field_idx: usize,
@@ -57,16 +57,17 @@ pub(crate) fn gen_handler_field_init(
     match &field.kind {
         FieldKind::Direct(ty) => {
             // Calculate neighbor slot references for packing detection
-            let (prev_slot_const_ref, next_slot_const_ref) =
-                packing::get_neighbor_slot_refs(field_idx, all_fields, const_mod, |f| f.name);
+            let (prev_slot_const_ref, next_slot_const_ref) = packing::get_neighbor_slot_refs(
+                field_idx,
+                all_fields,
+                const_mod,
+                |f| f.name,
+                is_contract,
+            );
 
             // Calculate `LayoutCtx` based on context
             let layout_ctx = if is_contract {
-                // NOTE(rusowsky): we use the inefficient version for backwards compatibility.
-
-                // TODO(rusowsky): fully embrace `fn gen_layout_ctx_expr` to reduce gas usage.
-                // Note that this requires a hardfork and must be properly coordinated.
-                packing::gen_layout_ctx_expr_inefficient(
+                packing::gen_layout_ctx_expr(
                     ty,
                     matches!(field.assigned_slot, SlotAssignment::Manual(_)),
                     quote! { #const_mod::#slot_const },
@@ -176,12 +177,17 @@ pub(crate) fn gen_constructor(
             }
 
             #[cfg(any(test, feature = "test-utils"))]
-            fn emitted_events(&self) -> &Vec<::alloy::primitives::LogData> {
+            pub fn emitted_events(&self) -> &Vec<::alloy::primitives::LogData> {
                 self.storage.get_events(self.address)
             }
 
             #[cfg(any(test, feature = "test-utils"))]
-            fn assert_emitted_events(&self, expected: Vec<impl ::alloy::primitives::IntoLogData>) {
+            pub fn clear_emitted_events(&mut self) {
+                self.storage.clear_events(self.address);
+            }
+
+            #[cfg(any(test, feature = "test-utils"))]
+            pub fn assert_emitted_events(&self, expected: Vec<impl ::alloy::primitives::IntoLogData>) {
                 let emitted = self.storage.get_events(self.address);
                 assert_eq!(emitted.len(), expected.len());
 
@@ -203,7 +209,12 @@ pub(crate) fn gen_contract_storage_impl(name: &Ident) -> proc_macro2::TokenStrea
             }
 
             #[inline(always)]
-            fn storage(&mut self) -> &mut crate::storage::StorageCtx {
+            fn storage(&self) -> &crate::storage::StorageCtx {
+                &self.storage
+            }
+
+            #[inline(always)]
+            fn storage_mut(&mut self) -> &mut crate::storage::StorageCtx {
                 &mut self.storage
             }
         }
@@ -233,14 +244,12 @@ fn gen_collision_checks(allocated_fields: &[LayoutField<'_>]) -> proc_macro2::To
     let mut generated = proc_macro2::TokenStream::new();
     let mut check_fn_calls = Vec::new();
 
-    // Generate collision detection check functions
+    // Generate collision detection check functions for all fields
     for (idx, allocated) in allocated_fields.iter().enumerate() {
-        if let Some((check_fn_name, check_fn)) =
-            packing::gen_collision_check_fn(idx, allocated, allocated_fields)
-        {
-            generated.extend(check_fn);
-            check_fn_calls.push(check_fn_name);
-        }
+        let (check_fn_name, check_fn) =
+            packing::gen_collision_check_fn(idx, allocated, allocated_fields);
+        generated.extend(check_fn);
+        check_fn_calls.push(check_fn_name);
     }
 
     // Generate a module initializer that calls all check functions

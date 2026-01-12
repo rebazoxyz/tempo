@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import { TIP20Factory } from "./TIP20Factory.sol";
 import { TIP403Registry } from "./TIP403Registry.sol";
+import { TempoUtilities } from "./TempoUtilities.sol";
 import { TIP20RolesAuth } from "./abstracts/TIP20RolesAuth.sol";
 import { ITIP20 } from "./interfaces/ITIP20.sol";
 
@@ -12,8 +13,7 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
         TIP403Registry(0x403c000000000000000000000000000000000000);
 
     address internal constant TIP_FEE_MANAGER_ADDRESS = 0xfeEC000000000000000000000000000000000000;
-    address internal constant STABLECOIN_EXCHANGE_ADDRESS =
-        0xDEc0000000000000000000000000000000000000;
+    address internal constant STABLECOIN_DEX_ADDRESS = 0xDEc0000000000000000000000000000000000000;
 
     address internal constant FACTORY = 0x20Fc000000000000000000000000000000000000;
 
@@ -48,7 +48,8 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
         string memory _symbol,
         string memory _currency,
         ITIP20 _quoteToken,
-        address admin
+        address admin,
+        address sender
     ) {
         name = _name;
         symbol = _symbol;
@@ -58,6 +59,7 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
         // No currency registry; all tokens use 6 decimals by default
 
         hasRole[admin][DEFAULT_ADMIN_ROLE] = true; // Grant admin role to first admin.
+        emit RoleMembershipUpdated(DEFAULT_ADMIN_ROLE, admin, sender, true);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -111,7 +113,7 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
     function setNextQuoteToken(ITIP20 newQuoteToken) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // sets next quote token, to put the DEX for that pair into place-only mode
         // does not check for loops; that is checked in completeQuoteTokenUpdate
-        if (!TIP20Factory(FACTORY).isTIP20(address(newQuoteToken))) {
+        if (!TempoUtilities.isTIP20(address(newQuoteToken))) {
             revert InvalidQuoteToken();
         }
 
@@ -168,7 +170,7 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
 
     function burnBlocked(address from, uint256 amount) external onlyRole(BURN_BLOCKED_ROLE) {
         // Prevent burning from protected precompile addresses
-        if (from == TIP_FEE_MANAGER_ADDRESS || from == STABLECOIN_EXCHANGE_ADDRESS) {
+        if (from == TIP_FEE_MANAGER_ADDRESS || from == STABLECOIN_DEX_ADDRESS) {
             revert ProtectedAddress();
         }
 
@@ -376,7 +378,7 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
                             FEE MANAGEMENT
     //////////////////////////////////////////////////////////////*/
 
-    function transferFeePreTx(address from, uint256 amount) external {
+    function transferFeePreTx(address from, uint256 amount) external notPaused {
         require(msg.sender == TIP_FEE_MANAGER_ADDRESS);
         require(from != address(0));
 
@@ -443,14 +445,8 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
         }
     }
 
-    /// @notice Starts a reward distribution. Post-Moderato, only immediate rewards (seconds_ == 0) are allowed.
-    /// Scheduled/streaming rewards (seconds_ > 0) are disabled and will revert with ScheduledRewardsDisabled.
-    function startReward(uint256 amount, uint32 seconds_)
-        external
-        virtual
-        notPaused
-        returns (uint64)
-    {
+    /// @notice Distributes rewards to opted-in token holders.
+    function distributeReward(uint256 amount) external virtual notPaused {
         if (amount == 0) revert InvalidAmount();
         if (!TIP403_REGISTRY.isAuthorized(transferPolicyId, msg.sender)) {
             revert PolicyForbids();
@@ -459,19 +455,13 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
         // Transfer tokens from sender to this contract
         _transfer(msg.sender, address(this), amount);
 
-        if (seconds_ == 0) {
-            // Immediate payout
-            if (optedInSupply == 0) {
-                revert NoOptedInSupply();
-            }
-            uint256 deltaRPT = (amount * ACC_PRECISION) / optedInSupply;
-            globalRewardPerToken += deltaRPT;
-            emit RewardScheduled(msg.sender, 0, amount, 0);
-            return 0;
-        } else {
-            // Scheduled/streaming rewards are disabled post-Moderato
-            revert ScheduledRewardsDisabled();
+        // Immediate payout
+        if (optedInSupply == 0) {
+            revert NoOptedInSupply();
         }
+        uint256 deltaRPT = (amount * ACC_PRECISION) / optedInSupply;
+        globalRewardPerToken += deltaRPT;
+        emit RewardDistributed(msg.sender, amount);
     }
 
     function setRewardRecipient(address newRewardRecipient) external virtual notPaused {
@@ -497,7 +487,10 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
     }
 
     function claimRewards() external virtual notPaused returns (uint256 maxAmount) {
-        if (!TIP403_REGISTRY.isAuthorized(transferPolicyId, msg.sender)) {
+        if (
+            !TIP403_REGISTRY.isAuthorized(transferPolicyId, address(this))
+                || !TIP403_REGISTRY.isAuthorized(transferPolicyId, msg.sender)
+        ) {
             revert PolicyForbids();
         }
 
@@ -521,5 +514,26 @@ contract TIP20 is ITIP20, TIP20RolesAuth {
                         REWARD DISTRIBUTION VIEWS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Calculates the pending claimable rewards for an account without modifying state.
+    /// @param account The address to query pending rewards for.
+    /// @return pending The total pending claimable reward amount (stored balance + accrued pending rewards).
+    function getPendingRewards(address account) external view returns (uint256 pending) {
+        UserRewardInfo storage info = userRewardInfo[account];
+
+        // Start with the stored reward balance
+        pending = info.rewardBalance;
+
+        // If this account is self-delegated, calculate pending rewards from their own holdings
+        if (info.rewardRecipient == account) {
+            uint256 holderBalance = balanceOf[account];
+            if (holderBalance > 0) {
+                uint256 rewardPerTokenDelta = globalRewardPerToken - info.rewardPerToken;
+                if (rewardPerTokenDelta > 0) {
+                    uint256 accrued = (holderBalance * rewardPerTokenDelta) / ACC_PRECISION;
+                    pending += accrued;
+                }
+            }
+        }
+    }
 
     }

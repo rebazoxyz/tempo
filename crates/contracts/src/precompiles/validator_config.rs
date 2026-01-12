@@ -54,10 +54,35 @@ crate::sol! {
         /// @param newOwner The new owner address
         function changeOwner(address newOwner) external;
 
+        /// Get the epoch at which a fresh DKG ceremony will be triggered
+        ///
+        /// @return The epoch number. The fresh DKG ceremony runs in epoch N, and epoch N+1 uses the new DKG polynomial.
+        function getNextFullDkgCeremony() external view returns (uint64);
+
+        /// Set the epoch at which a fresh DKG ceremony will be triggered (owner only)
+        ///
+        /// @param epoch The epoch in which to run the fresh DKG ceremony. Epoch N runs the ceremony, and epoch N+1 uses the new DKG polynomial.
+        function setNextFullDkgCeremony(uint64 epoch) external;
+
+        /// Get validator address at a specific index in the validators array
+        /// @param index The index in the validators array
+        /// @return The validator address at the given index
+        function validatorsArray(uint256 index) external view returns (address);
+
+        /// Get validator information by address
+        /// @param validator The validator address to look up
+        /// @return The validator struct for the given address
+        function validators(address validator) external view returns (Validator memory);
+
+        /// Get the total number of validators
+        /// @return The count of validators
+        function validatorCount() external view returns (uint64);
+
         // Errors
         error Unauthorized();
         error ValidatorAlreadyExists();
         error ValidatorNotFound();
+        error InvalidPublicKey();
 
         error NotHostPort(string field, string input, string backtrace);
         error NotIpPort(string field, string input, string backtrace);
@@ -78,6 +103,11 @@ impl ValidatorConfigError {
     /// Creates an error when validator is not found.
     pub const fn validator_not_found() -> Self {
         Self::ValidatorNotFound(IValidatorConfig::ValidatorNotFound {})
+    }
+
+    /// Creates an error when public key is invalid (zero).
+    pub const fn invalid_public_key() -> Self {
+        Self::InvalidPublicKey(IValidatorConfig::InvalidPublicKey {})
     }
 
     pub fn not_host_port(field: String, input: String, backtrace: String) -> Self {

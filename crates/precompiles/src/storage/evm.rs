@@ -78,22 +78,21 @@ impl<'a> PrecompileStorageProvider for EvmPrecompileStorageProvider<'a> {
     ) -> Result<(), TempoPrecompileError> {
         self.deduct_gas(WARM_STORAGE_READ_COST)?;
 
-        // skip cold load if gas remaining is less than additional cost
-        let additional_cost = self.gas_params.cold_account_additional_cost();
-        let skip_cold_load = self.gas_remaining < additional_cost;
+        let additional_cost = self.gas_params.cold_storage_additional_cost();
+        let skip_cold_load = 0 < additional_cost;
+
         let mut account = self
             .internals
             .load_account_mut_skip_cold_load(address, skip_cold_load)?;
-        account.load_code()?;
-        account.touch();
 
-        // deduct gas
         if account.is_cold {
             self.gas_remaining = self
                 .gas_remaining
                 .checked_sub(additional_cost)
                 .ok_or(TempoPrecompileError::OutOfGas)?;
         }
+
+        account.load_code()?;
 
         f(&account.data.account().info);
         Ok(())
