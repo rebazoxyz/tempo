@@ -20,7 +20,7 @@ use reth_transaction_pool::{
     TransactionEvents, TransactionOrigin, TransactionPool, TransactionPoolExt,
     TransactionValidationOutcome, TransactionValidationTaskExecutor, TransactionValidator,
     ValidPoolTransaction,
-    blobstore::DiskFileBlobStore,
+    blobstore::InMemoryBlobStore,
     error::{PoolError, PoolErrorKind},
     identifier::TransactionId,
 };
@@ -34,7 +34,7 @@ pub struct TempoTransactionPool<Client> {
     protocol_pool: Pool<
         TransactionValidationTaskExecutor<TempoTransactionValidator<Client>>,
         CoinbaseTipOrdering<TempoPooledTransaction>,
-        DiskFileBlobStore,
+        InMemoryBlobStore,
     >,
     /// Minimal pool for 2D nonces (nonce_key > 0)
     aa_2d_pool: Arc<RwLock<AA2dPool>>,
@@ -45,7 +45,7 @@ impl<Client> TempoTransactionPool<Client> {
         protocol_pool: Pool<
             TransactionValidationTaskExecutor<TempoTransactionValidator<Client>>,
             CoinbaseTipOrdering<TempoPooledTransaction>,
-            DiskFileBlobStore,
+            InMemoryBlobStore,
         >,
         aa_2d_pool: AA2dPool,
     ) -> Self {
@@ -354,21 +354,32 @@ where
         tx_hashes: Vec<B256>,
         limit: GetPooledTransactionLimit,
     ) -> Vec<<Self::Transaction as PoolTransaction>::Pooled> {
-        let mut txs = self
-            .aa_2d_pool
-            .read()
-            .get_all_iter(&tx_hashes)
-            .filter_map(|tx| {
-                tx.transaction
-                    .clone()
-                    .try_into_pooled()
-                    .ok()
-                    .map(|tx| tx.into_inner())
-            })
-            .collect::<Vec<_>>();
+        let mut accumulated_size = 0;
+        let mut txs = self.aa_2d_pool.read().get_pooled_transaction_elements(
+            &tx_hashes,
+            limit,
+            &mut accumulated_size,
+        );
+
+        // If the limit is already exceeded, don't query the protocol pool
+        if limit.exceeds(accumulated_size) {
+            txs.shrink_to_fit();
+            return txs;
+        }
+
+        // Adjust the limit for the protocol pool based on what we've already collected
+        let remaining_limit = match limit {
+            GetPooledTransactionLimit::None => GetPooledTransactionLimit::None,
+            GetPooledTransactionLimit::ResponseSizeSoftLimit(max) => {
+                GetPooledTransactionLimit::ResponseSizeSoftLimit(
+                    max.saturating_sub(accumulated_size),
+                )
+            }
+        };
+
         txs.extend(
             self.protocol_pool
-                .get_pooled_transaction_elements(tx_hashes, limit),
+                .get_pooled_transaction_elements(tx_hashes, remaining_limit),
         );
 
         txs
@@ -385,7 +396,7 @@ where
                 self.aa_2d_pool
                     .read()
                     .get(&tx_hash)
-                    .and_then(|tx| tx.transaction.clone().try_into_pooled().ok())
+                    .and_then(|tx| tx.transaction.clone_into_pooled().ok())
             })
     }
 
@@ -683,6 +694,17 @@ where
     > {
         self.protocol_pool
             .get_blobs_for_versioned_hashes_v2(versioned_hashes)
+    }
+
+    fn get_blobs_for_versioned_hashes_v3(
+        &self,
+        versioned_hashes: &[B256],
+    ) -> Result<
+        Vec<Option<alloy_eips::eip4844::BlobAndProofV2>>,
+        reth_transaction_pool::blobstore::BlobStoreError,
+    > {
+        self.protocol_pool
+            .get_blobs_for_versioned_hashes_v3(versioned_hashes)
     }
 }
 

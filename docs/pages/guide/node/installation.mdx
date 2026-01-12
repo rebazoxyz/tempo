@@ -2,18 +2,23 @@
 
 We provide three different installation paths - installing a pre-built binary, building from source or using our provided Docker image.
 
+## Versions
+
+The versions across networks may not be compatible, as such, please consult the table below on what version for what network you should be running.
+
+| Network  | Version |
+|----------|---------|
+| Andantino  | v0.8.2 |
+| Moderato | v1.0.0-rc.1 |
+
 ## Pre-built Binary
 
 ```bash /dev/null/download.sh#L1-4
-# Download latest version
-# e.g.
-# curl -L https://testnet-assets.tempoxyz.dev/binaries/v<version>/tempo-v<version>-<arch>-<platform>.tar.gz -o tempo.tar.gz
-curl -L https://testnet-assets.tempoxyz.dev/binaries/v0.7.0/tempo-v0.7.0-x86_64-unknown-linux-gnu.tar.gz -o tempo.tar.gz
-tar -xzvf tempo.tar.gz
-chmod +x tempo
-sudo mv tempo /usr/local/bin/tempo
+curl -L https://tempo.xyz/install | bash
 tempo --version
 ```
+
+To update Tempo in the future, simply run `tempoup`.
 
 ## Build from Source
 
@@ -23,7 +28,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
 # Build and install from source using cargo
-cargo install --git https://github.com/tempoxyz/tempo.git tempo --root /usr/local/bin
+cargo install --git https://github.com/tempoxyz/tempo.git tempo --root /usr/local
 tempo --version
 ```
 
@@ -33,9 +38,9 @@ You can find the latest tagged version of Tempo at [the Tempo GHCR package](http
 
 ```bash /dev/null/docker.sh#L1-4
 # Pull the latest Docker image
-docker pull ghcr.io/tempoxyz/tempo:0.7.0
+docker pull ghcr.io/tempoxyz/tempo:<version>
 
 # Run the Docker container
-docker run -d --name tempo ghcr.io/tempoxyz/tempo:0.7.0 --version
+docker run -d --name tempo ghcr.io/tempoxyz/tempo:<version> --version
 docker logs tempo
 ```

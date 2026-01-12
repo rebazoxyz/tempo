@@ -3,7 +3,7 @@ mipd: true
 ---
 
 import * as Demo from '../../../components/guides/Demo.tsx'
-import { Faucet } from '../../../components/Faucet.tsx'
+import * as Step from '../../../components/guides/steps'
 import { ConnectWallet } from '../../../components/ConnectWallet.tsx'
 
 # Connect to Wallets
@@ -20,7 +20,7 @@ This guide will walk you through how to set up your application to connect to wa
   footerVariant="source" 
   src="tempoxyz/tempo-ts/tree/main/examples/accounts"
 >
-  <ConnectWallet />
+  <Step.ConnectWallet stepNumber={1} last />
 </Demo.Container>
 
 ## Wagmi Setup
@@ -42,11 +42,11 @@ We can also utilize [wallet connectors](https://wagmi.sh/react/api/connectors) f
 ```tsx twoslash [config.ts]
 // @noErrors
 import { createConfig, http } from 'wagmi'
-import { tempo } from 'tempo.ts/chains'
+import { tempoModerato } from 'viem/chains'
 import { metaMask } from 'wagmi/connectors' // [!code ++]
 
 export const config = createConfig({
-  chains: [tempo({ feeToken: '0x20c0000000000000000000000000000000000001' })],
+  chains: [tempoModerato],
   connectors: [metaMask()], // [!code ++]
   multiInjectedProviderDiscovery: true, // [!code ++]
   transports: {
@@ -103,11 +103,11 @@ export function Connect() {
 ```tsx twoslash [config.ts] filename="config.ts"
 // @noErrors
 import { createConfig, http } from 'wagmi'
-import { tempo } from 'tempo.ts/chains'
+import { tempoModerato } from 'viem/chains'
 import { metaMask } from 'wagmi/connectors' // [!code ++]
 
 export const config = createConfig({
-  chains: [tempo({ feeToken: '0x20c0000000000000000000000000000000000001' })],
+  chains: [tempoModerato],
   connectors: [metaMask()], // [!code ++]
   multiInjectedProviderDiscovery: true, // [!code ++]
   transports: {
@@ -122,7 +122,7 @@ export const config = createConfig({
 
 After the user has connected to their wallet, we can display the account information and a sign out button.
 
-We will create a new `Example.tsx` component to work in.
+We will create a new `Account.tsx` component to work in.
 
 :::code-group
 
@@ -163,11 +163,11 @@ export function Account() {
 ```tsx twoslash [config.ts] filename="config.ts"
 // @noErrors
 import { createConfig, http } from 'wagmi'
-import { tempo } from 'tempo.ts/chains'
+import { tempoModerato } from 'viem/chains'
 import { metaMask } from 'wagmi/connectors' // [!code ++]
 
 export const config = createConfig({
-  chains: [tempo({ feeToken: '0x20c0000000000000000000000000000000000001' })],
+  chains: [tempoModerato],
   connectors: [metaMask()], // [!code ++]
   multiInjectedProviderDiscovery: true, // [!code ++]
   transports: {
@@ -199,7 +199,7 @@ If the wallet is not on the Tempo network, we can display a "Add Tempo" button s
 ```tsx twoslash [Account.tsx]
 // @noErrors
 import { useConnection, useDisconnect, useSwitchChain } from 'wagmi'
-import { tempo } from 'tempo.ts/chains' // [!code ++]
+import { tempoModerato } from 'viem/chains' // [!code ++]
 
 export function Account() {
   const account = useConnection()
@@ -240,11 +240,11 @@ export function Account() {
 ```tsx twoslash [config.ts] filename="config.ts"
 // @noErrors
 import { createConfig, http } from 'wagmi'
-import { tempo } from 'tempo.ts/chains'
+import { tempoModerato } from 'viem/chains'
 import { metaMask } from 'wagmi/connectors' // [!code ++]
 
 export const config = createConfig({
-  chains: [tempo({ feeToken: '0x20c0000000000000000000000000000000000001' })],
+  chains: [tempoModerato],
   connectors: [metaMask()], // [!code ++]
   multiInjectedProviderDiscovery: true, // [!code ++]
   transports: {
@@ -279,13 +279,13 @@ For example, if you are using MetaMask:
 2. Click "Add a custom network"
 3. Enter the network details:
 
-| **Name** | `Tempo Testnet (Andantino)` |
+| **Name** | `Tempo Testnet (Moderato)` |
 |-------------------|-------|
 | **Currency** | `USD` |
-| **Chain ID** | `42429` |
-| **HTTP URL** | `https://rpc.testnet.tempo.xyz` |
-| **WebSocket URL** | `wss://rpc.testnet.tempo.xyz` |
-| **Block Explorer** | [`https://scout.tempo.xyz`](https://scout.tempo.xyz) |
+| **Chain ID** | `42431` |
+| **HTTP URL** | `https://rpc.moderato.tempo.xyz` |
+| **WebSocket URL** | `wss://rpc.moderato.tempo.xyz` |
+| **Block Explorer** | [`https://explore.tempo.xyz`](https://explore.tempo.xyz) |
 
 The official documentation from MetaMask on this process is also available [here](https://support.metamask.io/configure/networks/how-to-add-a-custom-network-rpc#adding-a-network-manually).
 

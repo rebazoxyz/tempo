@@ -1,10 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query'
 import type { VariantProps } from 'cva'
 import * as React from 'react'
-import { Hooks } from 'tempo.ts/wagmi'
 import type { Address, BaseError } from 'viem'
 import { formatUnits } from 'viem'
-import { useAccount, useConnect, useConnectors, useDisconnect } from 'wagmi'
+import { tempoModerato } from 'viem/chains'
+import {
+  useAccount,
+  useConnect,
+  useConnections,
+  useConnectors,
+  useDisconnect,
+} from 'wagmi'
+import { Hooks } from 'wagmi/tempo'
 import LucideCheck from '~icons/lucide/check'
 import LucideCopy from '~icons/lucide/copy'
 import LucideExternalLink from '~icons/lucide/external-link'
@@ -12,10 +19,14 @@ import LucidePictureInPicture2 from '~icons/lucide/picture-in-picture-2'
 import LucideRotateCcw from '~icons/lucide/rotate-ccw'
 import LucideWalletCards from '~icons/lucide/wallet-cards'
 import { cva, cx } from '../../cva.config'
+import { usePostHogTracking } from '../../lib/posthog'
 import { Container as ParentContainer } from '../Container'
 import { alphaUsd } from './tokens'
 
+export { alphaUsd, betaUsd, pathUsd, thetaUsd } from './tokens'
+
 export const FAKE_RECIPIENT = '0xbeefcafe54750903ac1c8909323af7beb21ea2cb'
+export const FAKE_RECIPIENT_2 = '0xdeadbeef54750903ac1c8909323af7beb21ea2cb'
 
 export function useWebAuthnConnector() {
   const connectors = useConnectors()
@@ -27,23 +38,27 @@ export function useWebAuthnConnector() {
 }
 
 function getExplorerHost() {
-  const { VITE_LOCAL, VITE_LOCAL_EXPLORER } = import.meta.env
+  const { VITE_ENVIRONMENT, VITE_EXPLORER_OVERRIDE } = import.meta.env
 
-  if (VITE_LOCAL === 'true' && VITE_LOCAL_EXPLORER !== undefined) {
-    return VITE_LOCAL_EXPLORER
+  if (VITE_ENVIRONMENT !== 'testnet' && VITE_EXPLORER_OVERRIDE !== undefined) {
+    return VITE_EXPLORER_OVERRIDE
   }
 
-  return 'https://explore.tempo.xyz'
+  return tempoModerato.blockExplorers.default.url
 }
 
 export function ExplorerLink({ hash }: { hash: string }) {
+  const { trackExternalLinkClick } = usePostHogTracking()
+  const url = `${getExplorerHost()}/tx/${hash}`
+
   return (
     <div className="mt-1">
       <a
-        href={`${getExplorerHost()}/tx/${hash}`}
+        href={url}
         target="_blank"
         rel="noreferrer"
         className="text-accent text-[13px] -tracking-[1%] flex items-center gap-1 hover:underline"
+        onClick={() => trackExternalLinkClick(url, 'View receipt')}
       >
         View receipt
         <LucideExternalLink className="size-3" />
@@ -53,13 +68,17 @@ export function ExplorerLink({ hash }: { hash: string }) {
 }
 
 export function ExplorerAccountLink({ address }: { address: string }) {
+  const { trackExternalLinkClick } = usePostHogTracking()
+  const url = `${getExplorerHost()}/account/${address}`
+
   return (
     <div className="mt-1">
       <a
-        href={`${getExplorerHost()}/account/${address}`}
+        href={url}
         target="_blank"
         rel="noreferrer"
         className="text-accent text-[13px] -tracking-[1%] flex items-center gap-1 hover:underline"
+        onClick={() => trackExternalLinkClick(url, 'View account')}
       >
         View account
         <LucideExternalLink className="size-3" />
@@ -80,6 +99,7 @@ export function Container(
       | {
           footerVariant: 'balances'
           tokens: Address[]
+          balanceSource?: 'webAuthn' | 'wallet' | undefined
         }
       | {
           footerVariant: 'source'
@@ -90,23 +110,47 @@ export function Container(
 ) {
   const { children, name, showBadge = true } = props
   const { address } = useAccount()
+  const connections = useConnections()
   const disconnect = useDisconnect()
   const restart = React.useCallback(() => {
     disconnect.disconnect()
   }, [disconnect.disconnect])
 
+  const balanceAddress = React.useMemo(() => {
+    if (props.footerVariant !== 'balances') return address
+
+    const source = props.balanceSource
+    if (!source) return address
+
+    if (source === 'webAuthn') {
+      const webAuthnConnection = connections.find(
+        (c) => c.connector.id === 'webAuthn',
+      )
+      return webAuthnConnection?.accounts[0]
+    }
+
+    if (source === 'wallet') {
+      const walletConnection = connections.find(
+        (c) => c.connector.id !== 'webAuthn',
+      )
+      return walletConnection?.accounts[0]
+    }
+
+    return address
+  }, [props, address, connections])
+
   const footerElement = React.useMemo(() => {
     if (props.footerVariant === 'balances')
       return (
         <Container.BalancesFooter
-          address={address}
+          address={balanceAddress}
           tokens={props.tokens || [alphaUsd]}
         />
       )
     if (props.footerVariant === 'source')
       return <Container.SourceFooter src={props.src} />
     return null
-  }, [props, address])
+  }, [props, balanceAddress])
 
   return (
     <ParentContainer
@@ -230,13 +274,20 @@ export namespace Container {
   export function SourceFooter(props: { src: string }) {
     const { src } = props
     const [isCopied, copy] = useCopyToClipboard()
+    const { trackCopy, trackDemo, trackExternalLinkClick } =
+      usePostHogTracking()
+    const command = `pnpx gitpick ${src}`
+
     return (
       <div className="flex justify-between w-full">
         {/** biome-ignore lint/a11y/noStaticElementInteractions: _ */}
         {/** biome-ignore lint/a11y/useKeyWithClickEvents: _ */}
         <div
           className="text-primary flex cursor-pointer items-center gap-[6px] font-mono text-[12px] tracking-tight max-sm:hidden"
-          onClick={() => copy(`pnpx gitpick ${src}`)}
+          onClick={() => {
+            copy(command)
+            trackCopy('command', command)
+          }}
           title="Copy to clipboard"
         >
           <div>
@@ -254,6 +305,16 @@ export namespace Container {
             href={`https://github.com/${src}`}
             rel="noreferrer"
             target="_blank"
+            onClick={() => {
+              trackDemo(
+                'source_click',
+                undefined,
+                undefined,
+                undefined,
+                `https://github.com/${src}`,
+              )
+              trackExternalLinkClick(`https://github.com/${src}`, 'Source')
+            }}
           >
             Source <LucideExternalLink className="size-[12px]" />
           </a>
@@ -372,10 +433,17 @@ export function Logout() {
   const { address, connector } = useAccount()
   const disconnect = useDisconnect()
   const [copied, copyToClipboard] = useCopyToClipboard()
+  const { trackCopy, trackButtonClick } = usePostHogTracking()
   if (!address) return null
   return (
     <div className="flex items-center gap-1">
-      <Button onClick={() => copyToClipboard(address)} variant="default">
+      <Button
+        onClick={() => {
+          copyToClipboard(address)
+          trackCopy('code', address)
+        }}
+        variant="default"
+      >
         {copied ? (
           <LucideCheck className="text-gray9 mt-px" />
         ) : (
@@ -390,7 +458,10 @@ export function Logout() {
       <Button
         variant="destructive"
         className="text-[14px] -tracking-[2%] font-normal"
-        onClick={() => disconnect.disconnect({ connector })}
+        onClick={() => {
+          disconnect.disconnect({ connector })
+          trackButtonClick('Sign out', 'destructive')
+        }}
         type="button"
       >
         Sign out

@@ -2,13 +2,28 @@
   "cleanUrls": true,
   "redirects": [
     {
+      "source": "/documentation/protocol/:path*",
+      "destination": "/protocol/:path*",
+      "permanent": true
+    },
+    {
       "source": "/sdk/typescript/api",
-      "destination": "/sdk/typescript/viem",
+      "destination": "https://viem.sh/tempo",
       "permanent": true
     },
     {
       "source": "/sdk/typescript/api/:path*",
-      "destination": "/sdk/typescript/viem/:path*",
+      "destination": "https://viem.sh/tempo",
+      "permanent": true
+    },
+    {
+      "source": "/sdk/typescript/viem",
+      "destination": "https://viem.sh/tempo",
+      "permanent": true
+    },
+    {
+      "source": "/sdk/typescript/viem/:path*",
+      "destination": "https://viem.sh/tempo",
       "permanent": true
     },
     {
@@ -23,18 +38,18 @@
     },
     {
       "source": "/errors/tx/ExceedsNonPaymentLimit",
-      "destination": "/documentation/protocol/blockspace/payment-lane-specification",
-      "permanent": false
-    },
-    {
-      "source": "/errors/tx/Keychain",
-      "destination": "/documentation/protocol/transactions/spec-default-aa",
+      "destination": "/protocol/blockspace/payment-lane-specification",
       "permanent": false
     },
     {
       "source": "/errors/tx/SubblockNonceKey",
-      "destination": "/documentation/protocol/blockspace/sub-block-specification#4-block-validity-rules",
+      "destination": "/protocol/blockspace/sub-block-specification#4-block-validity-rules",
       "permanent": false
+    },
+    {
+      "source": "/stablecoin-exchange/:path*",
+      "destination": "/stablecoin-dex/:path*",
+      "permanent": true
     }
   ]
 }

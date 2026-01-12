@@ -47,17 +47,21 @@ jobs:
     runs-on: depot-ubuntu-latest-4
     timeout-minutes: 60
     if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: rui314/setup-mold@v1
       - uses: mozilla-actions/sccache-action@v0.0.9
       - uses: taiki-e/install-action@cargo-hack
-      - run: cargo hack check --feature-powerset --depth 1
+      - run: cargo hack check --feature-powerset --depth 1 --partition ${{ matrix.partition }}/2
 
   docs:
     name: docs
-    runs-on: depot-ubuntu-latest
+    runs-on: depot-ubuntu-latest-4
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -69,16 +73,18 @@ jobs:
         env:
           RUSTDOCFLAGS: --cfg docsrs -D warnings --show-type-layout --generate-link-to-definition --enable-index-page -Zunstable-options
       - name: Setup Pages
-        if: false && github.ref_name == 'main' && github.event_name == 'push'
+        if: github.ref_name == 'main' && github.event_name == 'push'
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Upload artifact
-        if: false && github.ref_name == 'main' && github.event_name == 'push'
+        if: github.ref_name == 'main' && github.event_name == 'push'
         uses: actions/upload-pages-artifact@v4
         with:
           path: ./target/doc
 
   deploy-docs:
-    if: false && github.ref_name == 'main' && github.event_name == 'push'
+    if: github.ref_name == 'main' && github.event_name == 'push'
     needs: [docs]
     runs-on: depot-ubuntu-latest
     timeout-minutes: 30

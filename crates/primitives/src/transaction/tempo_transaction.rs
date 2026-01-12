@@ -1,16 +1,16 @@
-use alloy_consensus::{SignableTransaction, Transaction};
+use alloy_consensus::{SignableTransaction, Transaction, crypto::RecoveryError};
 use alloy_eips::{Typed2718, eip2930::AccessList, eip7702::SignedAuthorization};
 use alloy_primitives::{Address, B256, Bytes, ChainId, Signature, TxKind, U256, keccak256};
 use alloy_rlp::{Buf, BufMut, Decodable, EMPTY_STRING_CODE, Encodable};
 use core::mem;
-use reth_primitives_traits::InMemorySize;
+
+use crate::transaction::{
+    AASigned, TempoSignature, TempoSignedAuthorization, key_authorization::SignedKeyAuthorization,
+};
 
 use crate::{
     subblock::{PartialValidatorKey, has_sub_block_nonce_key_prefix},
-    transaction::{
-        AASigned, KeyAuthorization, TempoSignature, TempoSignedAuthorization,
-        key_authorization::SignedKeyAuthorization,
-    },
+    transaction::KeyAuthorization,
 };
 
 /// Tempo transaction type byte (0x76)
@@ -158,12 +158,13 @@ impl Decodable for Call {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 pub struct TempoTransaction {
     /// EIP-155: Simple replay attack protection
     #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
     pub chain_id: ChainId,
 
-    /// Optional fee token preference (nil means no preference)
+    /// Optional fee token preference (`None` means no preference)
     pub fee_token: Option<Address>,
 
     /// Max Priority fee per gas (EIP-1559)
@@ -222,6 +223,45 @@ pub struct TempoTransaction {
     pub tempo_authorization_list: Vec<TempoSignedAuthorization>,
 }
 
+/// Validates the calls list structure for Tempo transactions.
+///
+/// This is a shared validation function used by both `TempoTransaction::validate()`
+/// and the revm handler's `validate_env()` to ensure consistent validation.
+///
+/// Rules:
+/// - Calls list must not be empty
+/// - CREATE calls are not allowed when authorization list is non-empty (EIP-7702 semantics)
+/// - Only the first call can be a CREATE; all subsequent calls must be CALL
+pub fn validate_calls(calls: &[Call], has_authorization_list: bool) -> Result<(), &'static str> {
+    // Calls must not be empty (similar to EIP-7702 rejecting empty auth lists)
+    if calls.is_empty() {
+        return Err("calls list cannot be empty");
+    }
+
+    let mut calls_iter = calls.iter();
+
+    // Only the first call in the batch can be a CREATE call.
+    if let Some(call) = calls_iter.next()
+        // Authorization list validation: Can NOT have CREATE when authorization list is non-empty
+        // This follows EIP-7702 semantics - when using delegation
+        && has_authorization_list
+        && call.to.is_create()
+    {
+        return Err("calls cannot contain CREATE when 'aa_authorization_list' is non-empty");
+    }
+
+    // All subsequent calls must be CALL.
+    for call in calls_iter {
+        if call.to.is_create() {
+            return Err(
+                "only one CREATE call is allowed per transaction, and it must be the first call of the batch",
+            );
+        }
+    }
+
+    Ok(())
+}
+
 impl TempoTransaction {
     /// Get the transaction type
     #[doc(alias = "transaction_type")]
@@ -231,10 +271,8 @@ impl TempoTransaction {
 
     /// Validates the transaction according to the spec rules
     pub fn validate(&self) -> Result<(), &'static str> {
-        // calls must not be empty (similar to EIP-7702 rejecting empty auth lists)
-        if self.calls.is_empty() {
-            return Err("calls list cannot be empty");
-        }
+        // Validate calls list structure using the shared function
+        validate_calls(&self.calls, !self.tempo_authorization_list.is_empty())?;
 
         // validBefore must be greater than validAfter if both are set
         if let Some(valid_after) = self.valid_after
@@ -242,18 +280,6 @@ impl TempoTransaction {
             && valid_before <= valid_after
         {
             return Err("valid_before must be greater than valid_after");
-        }
-
-        // Authorization list validation: Cannot have Create in any call when aa_authorization_list is non-empty
-        // This follows EIP-7702 semantics - when using delegation
-        if !self.tempo_authorization_list.is_empty() {
-            for call in &self.calls {
-                if call.to.is_create() {
-                    return Err(
-                        "calls cannot contain Create when aa_authorization_list is non-empty",
-                    );
-                }
-            }
         }
 
         Ok(())
@@ -271,10 +297,10 @@ impl TempoTransaction {
             mem::size_of::<TxKind>() + mem::size_of::<U256>() + call.input.len()
         }).sum::<usize>() + // calls
         self.access_list.size() + // access_list
-        mem::size_of::<u64>() + // nonce_key
+        mem::size_of::<U256>() + // nonce_key
         mem::size_of::<u64>() + // nonce
         mem::size_of::<Option<Signature>>() + // fee_payer_signature
-        mem::size_of::<u64>() + // valid_before
+        mem::size_of::<Option<u64>>() + // valid_before
         mem::size_of::<Option<u64>>() + // valid_after
         // key_authorization (optional)
         self.key_authorization.as_ref().map(|k| k.size()).unwrap_or(mem::size_of::<Option<KeyAuthorization>>()) +
@@ -294,7 +320,8 @@ impl TempoTransaction {
         keccak256(&buf)
     }
 
-    /// Calculate the fee payer signature hash
+    /// Calculate the fee payer signature hash.
+    ///
     /// This hash is signed by the fee payer to sponsor the transaction
     pub fn fee_payer_signature_hash(&self, sender: Address) -> B256 {
         // Use helper functions for consistent encoding
@@ -319,6 +346,20 @@ impl TempoTransaction {
         );
 
         keccak256(&buf)
+    }
+
+    /// Recovers the fee payer for this transaction.
+    ///
+    /// This returns the given sender if the transaction doesn't include a fee payer signature
+    pub fn recover_fee_payer(&self, sender: Address) -> Result<Address, RecoveryError> {
+        if let Some(fee_payer_signature) = &self.fee_payer_signature {
+            alloy_consensus::crypto::secp256k1::recover_signer(
+                fee_payer_signature,
+                self.fee_payer_signature_hash(sender),
+            )
+        } else {
+            Ok(sender)
+        }
     }
 
     /// Outputs the length of the transaction's fields, without a RLP header.
@@ -740,6 +781,7 @@ impl Decodable for TempoTransaction {
     }
 }
 
+#[cfg(feature = "reth")]
 impl reth_primitives_traits::InMemorySize for TempoTransaction {
     fn size(&self) -> usize {
         Self::size(self)
@@ -749,7 +791,7 @@ impl reth_primitives_traits::InMemorySize for TempoTransaction {
 #[cfg(feature = "serde-bincode-compat")]
 impl reth_primitives_traits::serde_bincode_compat::RlpBincode for TempoTransaction {}
 
-// Custom Arbitrary implementation to ensure calls is never empty
+// Custom Arbitrary implementation to ensure calls is never empty and CREATE validation passes
 #[cfg(any(test, feature = "arbitrary"))]
 impl<'a> arbitrary::Arbitrary<'a> for TempoTransaction {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
@@ -760,7 +802,8 @@ impl<'a> arbitrary::Arbitrary<'a> for TempoTransaction {
         let max_fee_per_gas = u.arbitrary()?;
         let gas_limit = u.arbitrary()?;
 
-        // Generate calls - ensure at least one call is present
+        // Generate calls - ensure at least one call is present and CREATE validation passes
+        // CREATE must be first (if present) and only one CREATE allowed
         let mut calls: Vec<Call> = u.arbitrary()?;
         if calls.is_empty() {
             calls.push(Call {
@@ -768,6 +811,25 @@ impl<'a> arbitrary::Arbitrary<'a> for TempoTransaction {
                 value: u.arbitrary()?,
                 input: u.arbitrary()?,
             });
+        }
+
+        // Filter out CREATEs from non-first positions and ensure only one CREATE (if any)
+        let first_is_create = calls.first().map(|c| c.to.is_create()).unwrap_or(false);
+        if first_is_create {
+            // Keep the first CREATE, remove all other CREATEs
+            for call in calls.iter_mut().skip(1) {
+                if call.to.is_create() {
+                    // Replace with a CALL to a random address
+                    call.to = TxKind::Call(u.arbitrary()?);
+                }
+            }
+        } else {
+            // Remove all CREATEs (they would be at non-first positions)
+            for call in &mut calls {
+                if call.to.is_create() {
+                    call.to = TxKind::Call(u.arbitrary()?);
+                }
+            }
         }
 
         let access_list = u.arbitrary()?;
@@ -854,187 +916,14 @@ mod serde_input {
     }
 }
 
-#[cfg(feature = "reth-codec")]
-mod compact {
-    use super::*;
-    use reth_codecs::Compact;
-
-    #[derive(Compact)]
-
-    struct OldTempoTransaction {
-        chain_id: ChainId,
-        fee_token: Option<Address>,
-        max_priority_fee_per_gas: u128,
-        max_fee_per_gas: u128,
-        gas_limit: u64,
-        calls: Vec<Call>,
-        access_list: AccessList,
-        nonce_key: U256,
-        nonce: u64,
-        fee_payer_signature: Option<Signature>,
-        valid_before: Option<u64>,
-        valid_after: Option<u64>,
-        tempo_authorization_list: Vec<TempoSignedAuthorization>,
-    }
-
-    #[derive(Compact)]
-
-    struct NewTempoTransaction {
-        chain_id: ChainId,
-        fee_token: Option<Address>,
-        max_priority_fee_per_gas: u128,
-        max_fee_per_gas: u128,
-        gas_limit: u64,
-        calls: Vec<Call>,
-        access_list: AccessList,
-        nonce_key: U256,
-        nonce: u64,
-        fee_payer_signature: Option<Signature>,
-        valid_before: Option<u64>,
-        valid_after: Option<u64>,
-        key_authorization: Option<SignedKeyAuthorization>,
-        tempo_authorization_list: Vec<TempoSignedAuthorization>,
-    }
-
-    impl Compact for TempoTransaction {
-        fn to_compact<B>(&self, buf: &mut B) -> usize
-        where
-            B: alloy_rlp::bytes::BufMut + AsMut<[u8]>,
-        {
-            // copy-pasted expansion of NewTempoTransaction
-            let mut flags = NewTempoTransactionFlags::default();
-            let mut total_length = 0;
-            let mut buffer = reth_codecs::__private::bytes::BytesMut::new();
-            let chain_id_len = self.chain_id.to_compact(&mut buffer);
-            flags.set_chain_id_len(chain_id_len as u8);
-            let fee_token_len = self.fee_token.specialized_to_compact(&mut buffer);
-            flags.set_fee_token_len(fee_token_len as u8);
-            let max_priority_fee_per_gas_len =
-                self.max_priority_fee_per_gas.to_compact(&mut buffer);
-            flags.set_max_priority_fee_per_gas_len(max_priority_fee_per_gas_len as u8);
-            let max_fee_per_gas_len = self.max_fee_per_gas.to_compact(&mut buffer);
-            flags.set_max_fee_per_gas_len(max_fee_per_gas_len as u8);
-            let gas_limit_len = self.gas_limit.to_compact(&mut buffer);
-            flags.set_gas_limit_len(gas_limit_len as u8);
-            self.calls.to_compact(&mut buffer);
-            self.access_list.to_compact(&mut buffer);
-            let nonce_key_len = self.nonce_key.to_compact(&mut buffer);
-            flags.set_nonce_key_len(nonce_key_len as u8);
-            let nonce_len = self.nonce.to_compact(&mut buffer);
-            flags.set_nonce_len(nonce_len as u8);
-            let fee_payer_signature_len = self.fee_payer_signature.to_compact(&mut buffer);
-            flags.set_fee_payer_signature_len(fee_payer_signature_len as u8);
-            let valid_before_len = self.valid_before.to_compact(&mut buffer);
-            flags.set_valid_before_len(valid_before_len as u8);
-            let valid_after_len = self.valid_after.to_compact(&mut buffer);
-            flags.set_valid_after_len(valid_after_len as u8);
-            let key_authorization_len = self.key_authorization.to_compact(&mut buffer);
-            flags.set_key_authorization_len(key_authorization_len as u8);
-            self.tempo_authorization_list.to_compact(&mut buffer);
-            let flags = flags.into_bytes();
-            total_length += flags.len() + buffer.len();
-            buf.put_slice(&flags);
-            buf.put(buffer);
-            total_length
-        }
-
-        fn from_compact(buf: &[u8], len: usize) -> (Self, &[u8]) {
-            // HACK: for OldTempoTransaction 5th byte is highest non-zero chainid byte. For NewTempoTransaction its
-            // either 1 (when keyAuthorization is Some) or 0 (when keyAuthorization is None)
-            //
-            // We infer the encoding version by checking this byte. The assumption here is that this
-            // encoding will only be used for chains which chain_id's highest non-zero byte is >1.
-            //
-            // This is very hacky and should be removed ASAP.
-            if buf[4] <= 1 {
-                let (
-                    NewTempoTransaction {
-                        chain_id,
-                        fee_token,
-                        max_priority_fee_per_gas,
-                        max_fee_per_gas,
-                        gas_limit,
-                        calls,
-                        access_list,
-                        nonce_key,
-                        nonce,
-                        fee_payer_signature,
-                        valid_before,
-                        valid_after,
-                        key_authorization,
-                        tempo_authorization_list,
-                    },
-                    buf,
-                ) = NewTempoTransaction::from_compact(buf, len);
-                (
-                    Self {
-                        chain_id,
-                        fee_token,
-                        max_priority_fee_per_gas,
-                        max_fee_per_gas,
-                        gas_limit,
-                        calls,
-                        access_list,
-                        nonce_key,
-                        nonce,
-                        fee_payer_signature,
-                        valid_before,
-                        valid_after,
-                        key_authorization,
-                        tempo_authorization_list,
-                    },
-                    buf,
-                )
-            } else {
-                let (
-                    OldTempoTransaction {
-                        chain_id,
-                        fee_token,
-                        max_priority_fee_per_gas,
-                        max_fee_per_gas,
-                        gas_limit,
-                        calls,
-                        access_list,
-                        nonce_key,
-                        nonce,
-                        fee_payer_signature,
-                        valid_before,
-                        valid_after,
-                        tempo_authorization_list,
-                    },
-                    buf,
-                ) = OldTempoTransaction::from_compact(buf, len);
-
-                (
-                    Self {
-                        chain_id,
-                        fee_token,
-                        max_priority_fee_per_gas,
-                        max_fee_per_gas,
-                        gas_limit,
-                        calls,
-                        access_list,
-                        nonce_key,
-                        nonce,
-                        fee_payer_signature,
-                        valid_before,
-                        valid_after,
-                        key_authorization: None,
-                        tempo_authorization_list,
-                    },
-                    buf,
-                )
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::tt_signature::{
-        PrimitiveSignature, TempoSignature, derive_p256_address,
+    use crate::transaction::{
+        TempoSignedAuthorization,
+        tt_signature::{PrimitiveSignature, TempoSignature, derive_p256_address},
     };
+    use alloy_eips::eip7702::Authorization;
     use alloy_primitives::{Address, Bytes, Signature, TxKind, U256, address, bytes, hex};
     use alloy_rlp::{Decodable, Encodable};
 
@@ -1854,8 +1743,8 @@ mod tests {
     fn test_call_decode_rejects_malformed_rlp() {
         // Test that Call decoding rejects RLP with mismatched header length
         let call = Call {
-            to: TxKind::Call(address!("0000000000000000000000000000000000000002")),
-            value: U256::from(1000),
+            to: TxKind::Call(Address::random()),
+            value: U256::random(),
             input: Bytes::from(vec![1, 2, 3, 4]),
         };
 
@@ -1884,14 +1773,14 @@ mod tests {
     fn test_tempo_transaction_decode_rejects_malformed_rlp() {
         // Test that TempoTransaction decoding rejects RLP with mismatched header length
         let call = Call {
-            to: TxKind::Call(address!("0000000000000000000000000000000000000002")),
-            value: U256::from(1000),
+            to: TxKind::Call(Address::random()),
+            value: U256::random(),
             input: Bytes::from(vec![1, 2, 3, 4]),
         };
 
         let tx = TempoTransaction {
             chain_id: 1,
-            fee_token: Some(address!("0000000000000000000000000000000000000001")),
+            fee_token: Some(Address::random()),
             max_priority_fee_per_gas: 1000000000,
             max_fee_per_gas: 2000000000,
             gas_limit: 21000,
@@ -1939,5 +1828,169 @@ mod tests {
         );
         assert_eq!(call.value, U256::ONE);
         assert_eq!(call.input, bytes!("0x1234"));
+    }
+
+    #[test]
+    fn test_size_accounts_for_all_fields() {
+        // This test ensures the size() function correctly accounts for all field types.
+        // If you add a new field to TempoTransaction or change a field's type,
+        // you must update both this test AND the size() function.
+        //
+        // The test calculates expected size by summing the size of each field type,
+        // which should match what size() computes for a minimal transaction.
+
+        let dummy_call = Call {
+            to: TxKind::Create,
+            value: U256::ZERO,
+            input: Bytes::new(),
+        };
+
+        let tx = TempoTransaction {
+            chain_id: 1,
+            fee_token: None,
+            max_priority_fee_per_gas: 0,
+            max_fee_per_gas: 0,
+            gas_limit: 0,
+            calls: vec![dummy_call],
+            access_list: Default::default(),
+            nonce_key: U256::ZERO,
+            nonce: 0,
+            fee_payer_signature: None,
+            valid_before: None,
+            valid_after: None,
+            key_authorization: None,
+            tempo_authorization_list: vec![],
+        };
+
+        // Calculate expected size by manually summing field sizes
+        // This acts as a specification that the size() function must match
+        let expected_size = mem::size_of::<ChainId>() + // chain_id: u64
+            mem::size_of::<Option<Address>>() + // fee_token: Option<Address>
+            mem::size_of::<u128>() + // max_priority_fee_per_gas: u128
+            mem::size_of::<u128>() + // max_fee_per_gas: u128
+            mem::size_of::<u64>() + // gas_limit: u64
+            (mem::size_of::<TxKind>() + mem::size_of::<U256>()) + // calls: one call with empty input
+            tx.access_list.size() + // access_list: AccessList
+            mem::size_of::<U256>() + // nonce_key: U256
+            mem::size_of::<u64>() + // nonce: u64
+            mem::size_of::<Option<Signature>>() + // fee_payer_signature: Option<Signature>
+            mem::size_of::<Option<u64>>() + // valid_before: Option<u64>
+            mem::size_of::<Option<u64>>() + // valid_after: Option<u64>
+            mem::size_of::<Option<KeyAuthorization>>(); // key_authorization + empty tempo_authorization_list
+
+        assert_eq!(
+            tx.size(),
+            expected_size,
+            "size() calculation doesn't match expected field sizes. \
+             If you added/changed a field in TempoTransaction, update both size() and this test."
+        );
+    }
+
+    #[test]
+    fn test_create_must_be_first_call() {
+        let create_call = Call {
+            to: TxKind::Create,
+            value: U256::ZERO,
+            input: Bytes::new(),
+        };
+        let call_call = Call {
+            to: TxKind::Call(Address::random()),
+            value: U256::ZERO,
+            input: Bytes::new(),
+        };
+
+        // Valid: CREATE as first call
+        let tx_valid = TempoTransaction {
+            calls: vec![create_call.clone(), call_call.clone()],
+            ..Default::default()
+        };
+        assert!(tx_valid.validate().is_ok());
+
+        // Invalid: CREATE as second call
+        let tx_invalid = TempoTransaction {
+            calls: vec![call_call, create_call],
+            ..Default::default()
+        };
+        assert!(tx_invalid.validate().is_err());
+        assert!(tx_invalid.validate().unwrap_err().contains("first call"));
+    }
+
+    #[test]
+    fn test_only_one_create_allowed() {
+        let create_call = Call {
+            to: TxKind::Create,
+            value: U256::ZERO,
+            input: Bytes::new(),
+        };
+
+        // Valid: Single CREATE
+        let tx_valid = TempoTransaction {
+            calls: vec![create_call.clone()],
+            ..Default::default()
+        };
+        assert!(tx_valid.validate().is_ok());
+
+        // Invalid: Multiple CREATEs (both at first position, second one triggers error)
+        let tx_invalid = TempoTransaction {
+            calls: vec![create_call.clone(), create_call],
+            ..Default::default()
+        };
+        assert!(tx_invalid.validate().is_err());
+        assert!(
+            tx_invalid
+                .validate()
+                .unwrap_err()
+                .contains("only one CREATE")
+        );
+    }
+
+    #[test]
+    fn test_create_forbidden_with_auth_list() {
+        let create_call = Call {
+            to: TxKind::Create,
+            value: U256::ZERO,
+            input: Bytes::new(),
+        };
+
+        let signed_auth = TempoSignedAuthorization::new_unchecked(
+            Authorization {
+                chain_id: U256::ONE,
+                address: Address::random(),
+                nonce: 1,
+            },
+            TempoSignature::Primitive(PrimitiveSignature::Secp256k1(Signature::test_signature())),
+        );
+
+        // Invalid: CREATE call with auth list
+        let tx = TempoTransaction {
+            calls: vec![create_call],
+            tempo_authorization_list: vec![signed_auth],
+            ..Default::default()
+        };
+
+        let result = tx.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("aa_authorization_list"));
+    }
+
+    #[test]
+    fn test_create_validation_allows_call_only_batch() {
+        // A batch with only CALL operations should be valid
+        let call1 = Call {
+            to: TxKind::Call(Address::random()),
+            value: U256::ZERO,
+            input: Bytes::new(),
+        };
+        let call2 = Call {
+            to: TxKind::Call(Address::random()),
+            value: U256::random(),
+            input: Bytes::from(vec![1, 2, 3]),
+        };
+
+        let tx = TempoTransaction {
+            calls: vec![call1, call2],
+            ..Default::default()
+        };
+        assert!(tx.validate().is_ok());
     }
 }
