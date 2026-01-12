@@ -67,10 +67,10 @@ where
     // Used as an RNG source.
     context: TContext,
 
-    state: metadata::Metadata<TContext, U64, Encrypted<InMemory>>,
+    state: metadata::Metadata<TContext, U64, Encrypted<State>>,
     events: segmented::variable::Journal<TContext, Encrypted<Event>>,
 
-    current: InMemory,
+    current: State,
     cache: BTreeMap<Epoch, Events>,
 
     encryption_key: EncryptionKey,
@@ -81,7 +81,7 @@ where
     TContext: commonware_runtime::Storage + Metrics + Clock + CryptoRngCore,
 {
     /// Appends the outcome of a DKG ceremony to state
-    pub(super) async fn set_state(&mut self, state: InMemory) -> eyre::Result<()> {
+    pub(super) async fn set_state(&mut self, state: State) -> eyre::Result<()> {
         self.state
             .put_sync(
                 STATE_KEY,
@@ -343,7 +343,7 @@ where
     }
 
     /// Returns the DKG outcome for the current epoch.
-    pub(super) fn current(&self) -> InMemory {
+    pub(super) fn current(&self) -> State {
         self.current.clone()
     }
 
@@ -505,7 +505,7 @@ where
 
 #[derive(Default)]
 pub(super) struct Builder {
-    initial_state: Option<BoxFuture<'static, eyre::Result<InMemory>>>,
+    initial_state: Option<BoxFuture<'static, eyre::Result<State>>>,
     partition_prefix: Option<String>,
     /// The encryption key used for encrypting sensitive data - the share of
     /// this node and the individual shares this node receives from other
@@ -516,7 +516,7 @@ pub(super) struct Builder {
 impl Builder {
     pub(super) fn initial_state(
         self,
-        initial_state: impl Future<Output = eyre::Result<InMemory>> + Send + 'static,
+        initial_state: impl Future<Output = eyre::Result<State>> + Send + 'static,
     ) -> Self {
         Self {
             initial_state: Some(initial_state.boxed()),
@@ -638,7 +638,7 @@ impl Builder {
 
 /// The outcome of a DKG ceremony.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct InMemory {
+pub(super) struct State {
     pub(super) epoch: Epoch,
     pub(super) seed: Summary,
     pub(super) output: Output<MinSig, PublicKey>,
@@ -651,7 +651,7 @@ pub(super) struct InMemory {
     pub(super) is_full_dkg: bool,
 }
 
-impl InMemory {
+impl State {
     pub(super) fn construct_merged_peer_set(&self) -> ordered::Map<PublicKey, Address> {
         ordered::Map::from_iter_dedup(
             self.dealers
@@ -663,7 +663,7 @@ impl InMemory {
     }
 }
 
-impl EncodeSize for InMemory {
+impl EncodeSize for State {
     fn encode_size(&self) -> usize {
         self.epoch.encode_size()
             + self.seed.encode_size()
@@ -676,7 +676,7 @@ impl EncodeSize for InMemory {
     }
 }
 
-impl Write for InMemory {
+impl Write for State {
     fn write(&self, buf: &mut impl bytes::BufMut) {
         self.epoch.write(buf);
         self.seed.write(buf);
@@ -689,7 +689,7 @@ impl Write for InMemory {
     }
 }
 
-impl Read for InMemory {
+impl Read for State {
     type Cfg = ();
 
     fn read_cfg(
@@ -1016,7 +1016,7 @@ pub(super) struct Round {
 }
 
 impl Round {
-    pub(super) fn from_state(state: &InMemory, namespace: &[u8]) -> Self {
+    pub(super) fn from_state(state: &State, namespace: &[u8]) -> Self {
         // For full DKG, don't pass the previous output - this creates a new polynomial
         let previous_output = if state.is_full_dkg {
             None
@@ -1267,7 +1267,7 @@ async fn open_or_encrypt_state<TContext>(
     buffer_pool: PoolRef,
     partition_prefix: &str,
     key: &EncryptionKey,
-) -> eyre::Result<Metadata<TContext, U64, Encrypted<InMemory>>>
+) -> eyre::Result<Metadata<TContext, U64, Encrypted<State>>>
 where
     TContext: commonware_runtime::Storage + Metrics + Clock + CryptoRngCore,
 {
@@ -1288,7 +1288,7 @@ where
         return Ok(state_metadata);
     };
 
-    let unencrypted = contiguous::variable::Journal::<_, InMemory>::init(
+    let unencrypted = contiguous::variable::Journal::<_, State>::init(
         context.with_label("states"),
         contiguous::variable::Config {
             partition: format!("{partition_prefix}_states"),
@@ -1433,7 +1433,7 @@ where
 
             if should_write {
                 events_encrypted
-                    .append(section, Encrypted::encrypt(&event, &key, context))
+                    .append(section, Encrypted::encrypt(&event, key, context))
                     .await
                     .wrap_err("failed appending encrypted event to encrypted journal")?;
                 events_encrypted

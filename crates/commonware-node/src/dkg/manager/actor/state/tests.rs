@@ -24,7 +24,7 @@ use tempo_commonware_node_config::EncryptionKey;
 
 use crate::dkg::manager::actor::state::READ_BUFFER;
 
-use super::{Event, InMemory, PAGE_SIZE, POOL_CAPACITY};
+use super::{Event, PAGE_SIZE, POOL_CAPACITY, State};
 
 const PARTITION_PREFIX: &str = "test";
 
@@ -32,11 +32,11 @@ fn buffer_pool() -> PoolRef {
     PoolRef::new(PAGE_SIZE, POOL_CAPACITY)
 }
 
-async fn write_state_unencrypted<TContext>(context: &mut TContext, state: InMemory)
+async fn write_state_unencrypted<TContext>(context: &mut TContext, state: State)
 where
     TContext: Metrics + Storage,
 {
-    let mut journal = contiguous::variable::Journal::<_, InMemory>::init(
+    let mut journal = contiguous::variable::Journal::<_, State>::init(
         context.with_label("states"),
         contiguous::variable::Config {
             partition: format!("{PARTITION_PREFIX}_states"),
@@ -78,7 +78,6 @@ where
 fn can_encrypt_state() {
     Runner::from(Config::default().with_seed(42)).start(|mut context| async move {
         let signers = (0..10)
-            .into_iter()
             .map(|_| PrivateKey::random(&mut context))
             .collect::<Vec<_>>();
         let peers = ordered::Map::from_iter_dedup(
@@ -89,7 +88,7 @@ fn can_encrypt_state() {
         let (output, shares) =
             dkg::deal::<MinSig, _>(&mut context, Mode::NonZeroCounter, peers.keys().clone())
                 .unwrap();
-        let unencrypted_state = InMemory {
+        let unencrypted_state = State {
             epoch: Epoch::new(42),
             seed: Summary::random(&mut context),
             output,
@@ -123,7 +122,6 @@ fn can_encrypt_state() {
 fn does_not_reencrypt_state() {
     Runner::from(Config::default().with_seed(42)).start(|mut context| async move {
         let signers = (0..10)
-            .into_iter()
             .map(|_| PrivateKey::random(&mut context))
             .collect::<Vec<_>>();
         let peers = ordered::Map::from_iter_dedup(
@@ -134,7 +132,7 @@ fn does_not_reencrypt_state() {
         let (output, shares) =
             dkg::deal::<MinSig, _>(&mut context, Mode::NonZeroCounter, peers.keys().clone())
                 .unwrap();
-        let unencrypted_state = InMemory {
+        let unencrypted_state = State {
             epoch: Epoch::new(42),
             seed: Summary::random(&mut context),
             output,
@@ -242,7 +240,7 @@ fn can_encrypt_events() {
             };
             unencrypted_events.push(Event::Ack {
                 player: pub_key.clone(),
-                ack: ack,
+                ack,
             });
         }
         for (pub_key, priv_msg) in bob_priv_msgs {
@@ -343,7 +341,7 @@ fn does_not_reencrypt() {
             };
             unencrypted_events.push(Event::Ack {
                 player: pub_key.clone(),
-                ack: ack,
+                ack,
             });
         }
         for (pub_key, priv_msg) in bob_priv_msgs {
@@ -464,7 +462,7 @@ fn continues_encryption() {
             };
             unencrypted_events.push(Event::Ack {
                 player: pub_key.clone(),
-                ack: ack,
+                ack,
             });
         }
         for (pub_key, priv_msg) in bob_priv_msgs {

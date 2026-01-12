@@ -6,7 +6,7 @@ use rand::SeedableRng as _;
 use reth_network_peers::pk2id;
 use secp256k1::SECP256K1;
 use serde::Serialize;
-use tempo_commonware_node_config::SIGNING_SHARE_KEY_ENV;
+use tempo_commonware_node_config::DKG_ENCRYPTION_KEY;
 
 use crate::genesis_args::GenesisArgs;
 
@@ -168,7 +168,7 @@ impl GenerateLocalnet {
 
             println!("run the node with the following command:\n");
             let cmd = format!(
-                "{SIGNING_SHARE_KEY_ENV}={encryption_key} \
+                "{DKG_ENCRYPTION_KEY}={encryption_key} \
                 \\\ncargo run --bin tempo -- node \
                 \\\n--consensus.signing-key {signing_key} \
                 \\\n--consensus.signing-share {signing_share} \

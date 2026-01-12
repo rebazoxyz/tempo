@@ -43,6 +43,7 @@ use crate::{
     consensus::{Digest, block::Block},
     dkg::manager::{
         Command,
+        actor::state::State,
         ingress::{GetDkgOutcome, VerifyDealerLog},
         validators::{self, DecodedValidator},
     },
@@ -485,7 +486,7 @@ where
 
     fn handle_verify_dealer_log(
         &self,
-        state: &state::InMemory,
+        state: &State,
         round: &state::Round,
         VerifyDealerLog {
             epoch,
@@ -613,14 +614,14 @@ where
     async fn handle_finalized_block<TStorageContext, TSender>(
         &mut self,
         cause: Span,
-        state: &state::InMemory,
+        state: &State,
         round: &state::Round,
         round_channel: &mut TSender,
         storage: &mut state::Storage<TStorageContext>,
         dealer_state: &mut Option<state::Dealer>,
         player_state: &mut Option<state::Player>,
         block: Block,
-    ) -> eyre::Result<Option<state::InMemory>>
+    ) -> eyre::Result<Option<State>>
     where
         TStorageContext:
             commonware_runtime::Metrics + commonware_runtime::Storage + Clock + CryptoRngCore,
@@ -787,7 +788,7 @@ where
             self.metrics.successes.inc();
         }
 
-        Ok(Some(state::InMemory {
+        Ok(Some(State {
             epoch: onchain_outcome.epoch,
             seed: Summary::random(&mut self.context),
             output: onchain_outcome.output.clone(),
@@ -824,7 +825,7 @@ where
         cause: Span,
         round: &state::Round,
         block: Block,
-    ) -> eyre::Result<Option<state::InMemory>> {
+    ) -> eyre::Result<Option<State>> {
         let epoch_info = self
             .config
             .epoch_strategy
@@ -859,7 +860,7 @@ where
         )
         .await;
 
-        Ok(Some(state::InMemory {
+        Ok(Some(State {
             epoch: onchain_outcome.epoch,
             seed: Summary::random(&mut self.context),
             output: onchain_outcome.output.clone(),
@@ -1041,7 +1042,7 @@ where
         storage: &mut state::Storage<TStorageContext>,
         player_state: &Option<state::Player>,
         round: &state::Round,
-        state: &state::InMemory,
+        state: &State,
         request: GetDkgOutcome,
     ) -> Option<(Digest, GetDkgOutcome)>
     where
@@ -1171,7 +1172,7 @@ where
     }
 
     #[instrument(skip_all, fields(epoch = %state.epoch), err(level = Level::WARN))]
-    fn enter_epoch(&mut self, state: &state::InMemory) -> eyre::Result<()> {
+    fn enter_epoch(&mut self, state: &State) -> eyre::Result<()> {
         self.config
             .epoch_manager
             .enter(
@@ -1184,7 +1185,7 @@ where
     }
 
     #[instrument(skip_all, fields(epoch = %state.epoch), err(level = Level::WARN))]
-    fn exit_epoch(&mut self, state: &state::InMemory) -> eyre::Result<()> {
+    fn exit_epoch(&mut self, state: &State) -> eyre::Result<()> {
         self.config
             .epoch_manager
             .exit(state.epoch)
@@ -1200,7 +1201,7 @@ async fn read_initial_state_and_set_floor<TContext>(
     epoch_strategy: &FixedEpocher,
     marshal: &mut crate::alias::marshal::Mailbox,
     key: &EncryptionKey,
-) -> eyre::Result<state::InMemory>
+) -> eyre::Result<State>
 where
     TContext: CryptoRngCore,
 {
@@ -1288,7 +1289,7 @@ where
     info!(%newest_height, "setting sync floor");
     marshal.set_floor(newest_height).await;
 
-    Ok(state::InMemory {
+    Ok(State {
         epoch: onchain_outcome.epoch,
         seed: Summary::random(context),
         output: onchain_outcome.output.clone(),
