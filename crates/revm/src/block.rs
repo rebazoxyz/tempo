@@ -22,8 +22,10 @@ impl TempoBlockEnv {
     pub fn timestamp_millis(&self) -> U256 {
         self.inner
             .timestamp
-            .saturating_mul(uint!(1000_U256))
-            .saturating_add(U256::from(self.timestamp_millis_part))
+            .checked_mul(uint!(1000_U256))
+            .expect("timestamp overflow")
+            .checked_add(U256::from(self.timestamp_millis_part))
+            .expect("timestamp millis overflow")
     }
 }
 

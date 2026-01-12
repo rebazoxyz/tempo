@@ -85,7 +85,13 @@ fn primitive_signature_verification_gas(signature: &PrimitiveSignature) -> u64 {
         PrimitiveSignature::P256(_) => P256_VERIFY_GAS,
         PrimitiveSignature::WebAuthn(webauthn_sig) => {
             let tokens = get_tokens_in_calldata(&webauthn_sig.webauthn_data, true);
-            P256_VERIFY_GAS + tokens * STANDARD_TOKEN_COST
+            P256_VERIFY_GAS
+                .checked_add(
+                    tokens
+                        .checked_mul(STANDARD_TOKEN_COST)
+                        .expect("token gas overflow"),
+                )
+                .expect("signature gas overflow")
         }
     }
 }
@@ -100,7 +106,9 @@ fn tempo_signature_verification_gas(signature: &TempoSignature) -> u64 {
         TempoSignature::Primitive(prim_sig) => primitive_signature_verification_gas(prim_sig),
         TempoSignature::Keychain(keychain_sig) => {
             // Keychain = inner signature + key validation overhead (SLOAD + processing)
-            primitive_signature_verification_gas(&keychain_sig.signature) + KEYCHAIN_VALIDATION_GAS
+            primitive_signature_verification_gas(&keychain_sig.signature)
+                .checked_add(KEYCHAIN_VALIDATION_GAS)
+                .expect("keychain gas overflow")
         }
     }
 }
@@ -116,18 +124,28 @@ fn calculate_key_authorization_gas(
     // All signature types pay ECRECOVER_GAS (3k) as the baseline since
     // primitive_signature_verification_gas assumes ecrecover is already in base 21k.
     // For KeyAuthorization, we're doing an additional signature verification.
-    let sig_gas = ECRECOVER_GAS + primitive_signature_verification_gas(&key_auth.signature);
+    let sig_gas = ECRECOVER_GAS
+        .checked_add(primitive_signature_verification_gas(&key_auth.signature))
+        .expect("key auth sig gas overflow");
 
     // Per-limit storage gas
     let limits_gas = key_auth
         .authorization
         .limits
         .as_ref()
-        .map(|limits| limits.len() as u64 * KEY_AUTH_PER_LIMIT_GAS)
+        .map(|limits| {
+            (limits.len() as u64)
+                .checked_mul(KEY_AUTH_PER_LIMIT_GAS)
+                .expect("key auth limits gas overflow")
+        })
         .unwrap_or(0);
 
     // Total: base (27k) + sig verification + limits
-    KEY_AUTH_BASE_GAS + sig_gas + limits_gas
+    KEY_AUTH_BASE_GAS
+        .checked_add(sig_gas)
+        .expect("key auth gas overflow")
+        .checked_add(limits_gas)
+        .expect("key auth total gas overflow")
 }
 
 /// Calculates the gas cost for 2D nonce usage.
@@ -234,7 +252,12 @@ where
             <<TempoEvm<DB, I> as EvmTr>::Frame as FrameTr>::FrameInit,
         ) -> Result<FrameResult, EVMError<DB::Error, TempoInvalidTransaction>>,
     {
-        let gas_limit = evm.ctx().tx().gas_limit() - init_and_floor_gas.initial_gas;
+        let gas_limit = evm
+            .ctx()
+            .tx()
+            .gas_limit()
+            .checked_sub(init_and_floor_gas.initial_gas)
+            .expect("gas limit underflow");
 
         // Create first frame action
         let first_frame_input = self.first_frame_input(evm, gas_limit)?;
@@ -292,7 +315,9 @@ where
         let checkpoint = evm.ctx().journal_mut().checkpoint();
 
         let gas_limit = evm.ctx().tx().gas_limit();
-        let mut remaining_gas = gas_limit - init_and_floor_gas.initial_gas;
+        let mut remaining_gas = gas_limit
+            .checked_sub(init_and_floor_gas.initial_gas)
+            .expect("gas limit underflow");
         let mut accumulated_gas_refund = 0i64;
 
         // Store original TxEnv values to restore after batch execution
@@ -361,7 +386,11 @@ where
 
                 // Include gas from all previous successful calls + failed call
                 let gas_spent_by_failed_call = frame_result.gas().spent();
-                let total_gas_spent = (gas_limit - remaining_gas) + gas_spent_by_failed_call;
+                let total_gas_spent = gas_limit
+                    .checked_sub(remaining_gas)
+                    .expect("remaining_gas <= gas_limit")
+                    .checked_add(gas_spent_by_failed_call)
+                    .expect("total gas spent overflow");
 
                 // Create new Gas with correct limit, because Gas does not have a set_limit method
                 // (the frame_result has the limit from just the last call)
@@ -381,9 +410,13 @@ where
             let gas_spent = frame_result.gas().spent();
             let gas_refunded = frame_result.gas().refunded();
 
-            accumulated_gas_refund = accumulated_gas_refund.saturating_add(gas_refunded);
+            accumulated_gas_refund = accumulated_gas_refund
+                .checked_add(gas_refunded)
+                .expect("gas refund overflow");
             // Subtract only execution gas (intrinsic gas already deducted upfront)
-            remaining_gas = remaining_gas.saturating_sub(gas_spent);
+            remaining_gas = remaining_gas
+                .checked_sub(gas_spent)
+                .expect("gas spent exceeds remaining gas");
 
             final_result = Some(frame_result);
         }
@@ -395,7 +428,9 @@ where
         let mut result =
             final_result.ok_or_else(|| EVMError::Custom("No calls executed".into()))?;
 
-        let total_gas_spent = gas_limit - remaining_gas;
+        let total_gas_spent = gas_limit
+            .checked_sub(remaining_gas)
+            .expect("remaining_gas <= gas_limit");
 
         // Create new Gas with correct limit, because Gas does not have a set_limit method
         // (the frame_result has the limit from just the last call)
@@ -495,7 +530,10 @@ where
     ) -> Result<FrameResult, Self::Error> {
         // Add 2D nonce gas to the initial gas
         let adjusted_gas = InitialAndFloorGas::new(
-            init_and_floor_gas.initial_gas + evm.nonce_2d_gas,
+            init_and_floor_gas
+                .initial_gas
+                .checked_add(evm.nonce_2d_gas)
+                .expect("nonce gas overflow"),
             init_and_floor_gas.floor_gas,
         );
 
@@ -555,7 +593,7 @@ where
             let (tx, journal) = evm.ctx().tx_journal_mut();
 
             let tempo_tx_env = tx.tempo_tx_env.as_ref().unwrap();
-            let mut refunded_accounts = 0;
+            let mut refunded_accounts = 0u64;
 
             for authorization in &tempo_tx_env.tempo_authorization_list {
                 // Access keys cannot perform EIP-7702 delegation - skip keychain signatures
@@ -599,7 +637,9 @@ where
                 if !(authority_acc.is_empty()
                     && authority_acc.is_loaded_as_not_existing_not_touched())
                 {
-                    refunded_accounts += 1;
+                    refunded_accounts = refunded_accounts
+                        .checked_add(1)
+                        .expect("refunded accounts overflow");
                 }
 
                 // 7. Set the code of `authority` to be `0xef0100 || address`. This is a delegation designation.
@@ -609,8 +649,11 @@ where
                 authority_acc.delegate(*authorization.address());
             }
 
-            let refunded_gas =
-                refunded_accounts * (eip7702::PER_EMPTY_ACCOUNT_COST - eip7702::PER_AUTH_BASE_COST);
+            let refunded_gas = refunded_accounts.checked_mul(
+                eip7702::PER_EMPTY_ACCOUNT_COST
+                    .checked_sub(eip7702::PER_AUTH_BASE_COST)
+                    .expect("PER_EMPTY_ACCOUNT_COST >= PER_AUTH_BASE_COST"),
+            ).expect("refunded gas overflow");
             return Ok(refunded_gas);
         }
 
@@ -728,7 +771,9 @@ where
         let new_balance = calculate_caller_fee(account_balance, tx, block, cfg)?;
         // doing max to avoid underflow as new_balance can be more than
         // account balance if `cfg.is_balance_check_disabled()` is true.
-        let gas_balance_spending = core::cmp::max(account_balance, new_balance) - new_balance;
+        let gas_balance_spending = core::cmp::max(account_balance, new_balance)
+            .checked_sub(new_balance)
+            .expect("max(a,b) >= b");
 
         // Note: Signature verification happens during recover_signer() before entering the pool
         // Note: Transaction parameter validation (priority fee, time window) happens in validate_env()
@@ -809,7 +854,7 @@ where
                 let expiry = key_auth.expiry.unwrap_or(u64::MAX);
 
                 // Validate expiry is not in the past
-                let current_timestamp = block.timestamp().saturating_to::<u64>();
+                let current_timestamp: u64 = block.timestamp().try_into().expect("timestamp fits in u64");
                 if expiry <= current_timestamp {
                     return Err(TempoInvalidTransaction::AccessKeyAuthorizationFailed {
                         reason: format!(
@@ -993,11 +1038,15 @@ where
 
         // Calculate actual used and refund amounts
         let actual_spending = calc_gas_balance_spending(gas.used(), effective_gas_price);
-        let refund_amount = tx.effective_balance_spending(
-            context.block.basefee.into(),
-            context.block.blob_gasprice().unwrap_or_default(),
-        )? - tx.value
-            - actual_spending;
+        let refund_amount = tx
+            .effective_balance_spending(
+                context.block.basefee.into(),
+                context.block.blob_gasprice().unwrap_or_default(),
+            )?
+            .checked_sub(tx.value)
+            .expect("effective balance >= tx value")
+            .checked_sub(actual_spending)
+            .expect("effective balance >= tx value + actual spending");
 
         // Skip `collectFeePostTx` call if the initial fee collected in
         // `collectFeePreTx` was zero, but spending is non-zero.
@@ -1097,7 +1146,7 @@ where
             )?;
 
             // Validate time window for AA transactions
-            let block_timestamp = evm.ctx_ref().block().timestamp().saturating_to();
+            let block_timestamp: u64 = evm.ctx_ref().block().timestamp().try_into().expect("timestamp fits in u64");
             validate_time_window(aa_env.valid_after, aa_env.valid_before, block_timestamp)?;
         }
 
@@ -1187,25 +1236,41 @@ pub fn calculate_aa_batch_intrinsic_gas<'a>(
     let key_authorization = aa_env.key_authorization.as_ref();
     let mut gas = InitialAndFloorGas::default();
 
+    // Helper macro to add gas with checked arithmetic
+    macro_rules! add_gas {
+        ($amount:expr) => {
+            gas.initial_gas = gas
+                .initial_gas
+                .checked_add($amount)
+                .expect("intrinsic gas overflow");
+        };
+    }
+
     // 1. Base stipend (21k, once per transaction)
-    gas.initial_gas += 21_000;
+    add_gas!(21_000);
 
     // 2. Signature verification gas
-    gas.initial_gas += tempo_signature_verification_gas(signature);
+    add_gas!(tempo_signature_verification_gas(signature));
 
     // 3. Per-call overhead: cold account access for additional calls beyond the first.
-    gas.initial_gas += COLD_ACCOUNT_ACCESS_COST * calls.len().saturating_sub(1) as u64;
+    #[allow(clippy::manual_saturating_arithmetic)]
+    let additional_calls = calls.len().checked_sub(1).unwrap_or(0) as u64;
+    add_gas!(COLD_ACCOUNT_ACCESS_COST
+        .checked_mul(additional_calls)
+        .expect("cold access gas overflow"));
 
     // 4. Authorization list costs (EIP-7702)
-    gas.initial_gas += authorization_list.len() as u64 * eip7702::PER_EMPTY_ACCOUNT_COST;
+    add_gas!((authorization_list.len() as u64)
+        .checked_mul(eip7702::PER_EMPTY_ACCOUNT_COST)
+        .expect("auth list gas overflow"));
     // Add signature verification costs for each authorization
     for auth in authorization_list {
-        gas.initial_gas += tempo_signature_verification_gas(auth.signature());
+        add_gas!(tempo_signature_verification_gas(auth.signature()));
     }
 
     // 5. Key authorization costs (if present)
     if let Some(key_auth) = key_authorization {
-        gas.initial_gas += calculate_key_authorization_gas(key_auth);
+        add_gas!(calculate_key_authorization_gas(key_auth));
     }
 
     // 6. Per-call costs
@@ -1214,15 +1279,17 @@ pub fn calculate_aa_batch_intrinsic_gas<'a>(
     for call in calls {
         // 4a. Calldata gas using revm helper
         let tokens = get_tokens_in_calldata(&call.input, true);
-        total_tokens += tokens;
+        total_tokens = total_tokens
+            .checked_add(tokens)
+            .expect("total tokens overflow");
 
         // 4b. CREATE-specific costs
         if call.to.is_create() {
             // CREATE costs 32000 additional gas
-            gas.initial_gas += CREATE; // 32000 gas
+            add_gas!(CREATE); // 32000 gas
 
             // EIP-3860: Initcode analysis gas using revm helper
-            gas.initial_gas += initcode_cost(call.input.len());
+            add_gas!(initcode_cost(call.input.len()));
         }
 
         // Note: Transaction value is not allowed in AA transactions as there is no balances in accounts yet.
@@ -1234,23 +1301,31 @@ pub fn calculate_aa_batch_intrinsic_gas<'a>(
         // 4c. Value transfer cost using revm constant
         // left here for future reference.
         if !call.value.is_zero() && call.to.is_call() {
-            gas.initial_gas += CALLVALUE; // 9000 gas
+            add_gas!(CALLVALUE); // 9000 gas
         }
     }
 
-    gas.initial_gas += total_tokens * STANDARD_TOKEN_COST;
+    add_gas!(total_tokens
+        .checked_mul(STANDARD_TOKEN_COST)
+        .expect("token gas overflow"));
 
     // 5. Access list costs using revm constants
     if let Some(access_list) = access_list {
         let (accounts, storages) =
             access_list.fold((0u64, 0u64), |(acc_count, storage_count), item| {
                 (
-                    acc_count + 1,
-                    storage_count + item.storage_slots().count() as u64,
+                    acc_count.checked_add(1).expect("access list count overflow"),
+                    storage_count
+                        .checked_add(item.storage_slots().count() as u64)
+                        .expect("storage slots count overflow"),
                 )
             });
-        gas.initial_gas += accounts * ACCESS_LIST_ADDRESS; // 2400 per account
-        gas.initial_gas += storages * ACCESS_LIST_STORAGE_KEY; // 1900 per storage
+        add_gas!(accounts
+            .checked_mul(ACCESS_LIST_ADDRESS)
+            .expect("access list address gas overflow")); // 2400 per account
+        add_gas!(storages
+            .checked_mul(ACCESS_LIST_STORAGE_KEY)
+            .expect("access list storage gas overflow")); // 1900 per storage
     }
 
     // 6. Floor gas  using revm helper
@@ -1371,7 +1446,10 @@ where
     ) -> Result<FrameResult, Self::Error> {
         // Add 2D nonce gas to the initial gas (calculated in validate_against_state_and_deduct_caller)
         let adjusted_gas = InitialAndFloorGas::new(
-            init_and_floor_gas.initial_gas + evm.nonce_2d_gas,
+            init_and_floor_gas
+                .initial_gas
+                .checked_add(evm.nonce_2d_gas)
+                .expect("nonce gas overflow"),
             init_and_floor_gas.floor_gas,
         );
 

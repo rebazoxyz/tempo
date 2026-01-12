@@ -7,8 +7,27 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-[lints]
-workspace = true
+[lints.clippy]
+# Inherit workspace lints
+dbg-macro = "warn"
+manual-string-new = "warn"
+uninlined-format-args = "warn"
+use-self = "warn"
+redundant-clone = "warn"
+default-constructed-unit-structs = "allow"
+# Enforce checked arithmetic - no unchecked or saturating math allowed
+arithmetic_side_effects = "deny"
+integer_division = "deny"
+
+[lints.rust]
+rust-2018-idioms = "warn"
+unreachable-pub = "warn"
+unused-must-use = "warn"
+redundant-lifetimes = "warn"
+unnameable-types = "warn"
+
+[lints.rustdoc]
+all = "warn"
 
 [dependencies]
 tempo-precompiles.workspace = true
