@@ -217,7 +217,10 @@ impl ClickHouseReporter {
         Ok(())
     }
 
-    pub async fn insert_transactions(&self, transactions: &[TempoBenchTransaction]) -> eyre::Result<()> {
+    pub async fn insert_transactions(
+        &self,
+        transactions: &[TempoBenchTransaction],
+    ) -> eyre::Result<()> {
         if transactions.is_empty() {
             return Ok(());
         }

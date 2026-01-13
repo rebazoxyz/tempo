@@ -40,7 +40,6 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressIterator};
 use rand::{random_range, seq::IndexedRandom};
 use rlimit::Resource;
 use serde::Serialize;
-use uuid::Uuid;
 use std::{
     collections::VecDeque,
     fs::File,
@@ -72,11 +71,11 @@ use tokio::{
     time::{Sleep, interval, sleep},
 };
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::cmd::{
     clickhouse::{
-        ClickHouseConfig, ClickHouseReporter, TempoBenchBlock, TempoBenchRun,
-        TempoBenchTransaction,
+        ClickHouseConfig, ClickHouseReporter, TempoBenchBlock, TempoBenchRun, TempoBenchTransaction,
     },
     signer_providers::SignerProviderManager,
 };
@@ -906,11 +905,7 @@ pub async fn generate_report(
         let total_failed: u64 = report.blocks.iter().map(|b| b.err_count as u64).sum();
         let total_gas_used: u64 = report.blocks.iter().map(|b| b.gas_used).sum();
 
-        let latencies: Vec<u64> = report
-            .blocks
-            .iter()
-            .filter_map(|b| b.latency_ms)
-            .collect();
+        let latencies: Vec<u64> = report.blocks.iter().filter_map(|b| b.latency_ms).collect();
         let avg_block_time_ms = if latencies.is_empty() {
             0.0
         } else {
@@ -927,9 +922,7 @@ pub async fn generate_report(
         let config = ClickHouseConfig::new(clickhouse_url.clone())
             .with_database(args.clickhouse_database.clone());
         let config = match (&args.clickhouse_user, &args.clickhouse_password) {
-            (Some(user), Some(password)) => {
-                config.with_credentials(user.clone(), password.clone())
-            }
+            (Some(user), Some(password)) => config.with_credentials(user.clone(), password.clone()),
             _ => config,
         };
 
@@ -982,17 +975,16 @@ pub async fn generate_report(
         let transactions: Vec<TempoBenchTransaction> = all_receipts
             .iter()
             .flat_map(|(block_number, receipts)| {
-                receipts.iter().enumerate().map(move |(idx, receipt)| {
-                    TempoBenchTransaction {
+                receipts
+                    .iter()
+                    .enumerate()
+                    .map(move |(idx, receipt)| TempoBenchTransaction {
                         run_id,
                         block_number: *block_number,
                         tx_index: idx as u32,
                         tx_hash: format!("{:?}", receipt.transaction_hash()),
                         from_address: format!("{:?}", receipt.from()),
-                        to_address: receipt
-                            .to()
-                            .map(|a| format!("{:?}", a))
-                            .unwrap_or_default(),
+                        to_address: receipt.to().map(|a| format!("{:?}", a)).unwrap_or_default(),
                         status: receipt.status(),
                         gas_used: receipt.gas_used(),
                         effective_gas_price: receipt.effective_gas_price() as u64,
@@ -1003,8 +995,7 @@ pub async fn generate_report(
                             .unwrap_or_default(),
                         fee_payer: format!("{:?}", receipt.fee_payer),
                         logs_count: receipt.inner.inner.logs().len() as u32,
-                    }
-                })
+                    })
             })
             .collect();
 
