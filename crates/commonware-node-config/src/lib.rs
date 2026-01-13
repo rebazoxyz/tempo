@@ -13,7 +13,7 @@ use commonware_cryptography::{
     ed25519::{PrivateKey, PublicKey},
 };
 use crypto_common::{KeySizeUser, generic_array::typenum::Unsigned as _, rand_core::CryptoRngCore};
-use zeroize::{Zeroize as _, ZeroizeOnDrop};
+use zeroize::{Zeroize as _, ZeroizeOnDrop, Zeroizing};
 
 #[cfg(test)]
 mod tests;
@@ -37,8 +37,7 @@ pub struct EncryptionKey {
 
 impl Drop for EncryptionKey {
     fn drop(&mut self) {
-        // self.cipher already implements ZeroizeOnDrop
-        self.key.as_mut_slice().zeroize();
+        self.key.zeroize()
     }
 }
 
@@ -73,23 +72,26 @@ impl EncryptionKey {
     }
 
     pub fn from_hex(hex: &[u8]) -> Result<Self, EncryptionKeyError> {
-        let bytes = const_hex::decode(hex).map_err(EncryptionKeyErrorKind::Hex)?;
+        let bytes = Zeroizing::new(const_hex::decode(hex).map_err(EncryptionKeyErrorKind::Hex)?);
         Self::from_bytes(&bytes)
     }
 
-    /// Generates a random secret.
+    /// Converst the encryption to a hex-encoded byte slice.
     pub fn to_hex(&self) -> String {
         const_hex::encode(self.key.as_slice())
     }
 
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), EncryptionKeyError> {
-        std::fs::write(path, self.to_hex()).map_err(EncryptionKeyErrorKind::Write)?;
+        let hexed = Zeroizing::new(self.to_hex());
+        std::fs::write(path, hexed).map_err(EncryptionKeyErrorKind::Write)?;
         Ok(())
     }
 
     pub fn from_env(name: &'static str) -> Result<Self, EncryptionKeyError> {
-        let hex = std::env::var(name)
-            .map_err(|source| EncryptionKeyErrorKind::EnvVar { source, name })?;
+        let hex = Zeroizing::new(
+            std::env::var(name)
+                .map_err(|source| EncryptionKeyErrorKind::EnvVar { source, name })?,
+        );
         Self::from_hex(hex.as_bytes())
     }
 
@@ -98,8 +100,15 @@ impl EncryptionKey {
         encodable: &impl Encode,
         rng: &mut impl CryptoRngCore,
     ) -> Vec<u8> {
-        let bytes = encodable.encode();
-        self.encrypt(bytes.as_ref(), rng)
+        struct Z(bytes::BytesMut);
+        impl Drop for Z {
+            fn drop(&mut self) {
+                self.0.iter_mut().zeroize();
+            }
+        }
+        impl ZeroizeOnDrop for Z {}
+        let bytes = Z(encodable.encode_mut());
+        self.encrypt(bytes.0.as_ref(), rng)
     }
 
     /// Encrypts `bytes` using the key.
@@ -129,12 +138,12 @@ impl EncryptionKey {
         let plaintext = self
             .cipher
             .decrypt(nonce, ciphertext)
-            .map_err(|source| DecryptErrorKind::BadCipherText(source))?;
+            .map_err(DecryptErrorKind::BadCipherText)?;
         Ok(plaintext)
     }
 
     pub fn decrypt_decodable<T: ReadExt>(&self, encoded: &[u8]) -> Result<T, DecryptError> {
-        let plaintext = self.decrypt(encoded)?;
+        let plaintext = Zeroizing::new(self.decrypt(encoded)?);
         let this = ReadExt::read(&mut &plaintext[..]).map_err(DecryptErrorKind::Decode)?;
         Ok(this)
     }

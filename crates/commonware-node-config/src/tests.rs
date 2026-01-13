@@ -51,3 +51,9 @@ fn signing_share_roundtrip() {
         SigningShare::try_from_hex(signing_share.to_hex(&key, &mut rng).as_bytes(), &key).unwrap(),
     );
 }
+
+#[test]
+fn zeroize_feature_is_actived() {
+    fn implements_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+    implements_zeroize_on_drop::<super::ChaCha20Poly1305>();
+}
