@@ -22,11 +22,11 @@ user's preferred fee token and the validator's preferred token.
     // @noErrors
     import { client } from './viem.config'
 
-    const alphaUsd = '0x20c0000000000000000000000000000000000001'
+    const DONOTUSE = '0x20c000000000000000000000033abb6ac7d235e5'
 
     const receipt = await client.sendTransactionSync({
       data: '0xdeadbeef',
-      feeToken: alphaUsd, // [!code hl]
+      feeToken: DONOTUSE, // [!code hl]
       to: '0xcafebabecafebabecafebabecafebabecafebabe',
     })
     ```
@@ -50,11 +50,11 @@ user's preferred fee token and the validator's preferred token.
 
     const { sendTransactionSync } = useSendTransactionSync()
 
-    const alphaUsd = '0x20c0000000000000000000000000000000000001'
+    const DONOTUSE = '0x20c000000000000000000000033abb6ac7d235e5'
 
     sendTransactionSync({
       data: '0xdeadbeef',
-      feeToken: alphaUsd, // [!code hl]
+      feeToken: DONOTUSE, // [!code hl]
       to: '0xcafebabecafebabecafebabecafebabecafebabe',
     })
     ```

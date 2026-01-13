@@ -37,7 +37,7 @@ import { Handler } from 'tempo.ts/server'
 
 const client = createClient({
   chain: tempo.extend({ 
-    feeToken: '0x20c0000000000000000000000000000000000001' 
+    feeToken: '0x20c000000000000000000000033abb6ac7d235e5' 
   }),
   transport: http('https://username:password@rpc.tempo.xyz'),
 })

@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { tempo } from 'viem/chains'
 import {
   useChains,
   useConnect,
@@ -8,7 +9,6 @@ import {
 } from 'wagmi'
 import { Button, Logout } from './guides/Demo'
 import { filterSupportedInjectedConnectors } from './lib/wallets'
-import { tempo } from 'viem/chains'
 
 export function ConnectWallet({
   showAddChain = true,

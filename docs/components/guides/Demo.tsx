@@ -21,9 +21,9 @@ import LucideWalletCards from '~icons/lucide/wallet-cards'
 import { cva, cx } from '../../cva.config'
 import { usePostHogTracking } from '../../lib/posthog'
 import { Container as ParentContainer } from '../Container'
-import { alphaUsd } from './tokens'
+import { DONOTUSE } from './tokens'
 
-export { alphaUsd, betaUsd, pathUsd, thetaUsd } from './tokens'
+export { betaUsd, DONOTUSE, pathUsd, thetaUsd } from './tokens'
 
 export const FAKE_RECIPIENT = '0xbeefcafe54750903ac1c8909323af7beb21ea2cb'
 export const FAKE_RECIPIENT_2 = '0xdeadbeef54750903ac1c8909323af7beb21ea2cb'
@@ -144,7 +144,7 @@ export function Container(
       return (
         <Container.BalancesFooter
           address={balanceAddress}
-          tokens={props.tokens || [alphaUsd]}
+          tokens={props.tokens || [DONOTUSE]}
         />
       )
     if (props.footerVariant === 'source')

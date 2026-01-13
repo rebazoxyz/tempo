@@ -7,7 +7,7 @@ import { Actions } from 'viem/tempo'
 import { useBlockNumber, useClient, useConnection } from 'wagmi'
 import { Hooks } from 'wagmi/tempo'
 import { Button, ExplorerLink, Step } from '../../Demo'
-import { alphaUsd } from '../../tokens'
+import { DONOTUSE } from '../../tokens'
 import type { DemoStepProps } from '../types'
 
 export function AddFundsToOthers(props: DemoStepProps) {
@@ -30,7 +30,7 @@ export function AddFundsToOthers(props: DemoStepProps) {
 
   const { data: balance, refetch: balanceRefetch } = Hooks.token.useGetBalance({
     account: targetAddress as Address | undefined,
-    token: alphaUsd,
+    token: DONOTUSE,
   })
   const { data: blockNumber } = useBlockNumber({
     query: {
@@ -62,7 +62,7 @@ export function AddFundsToOthers(props: DemoStepProps) {
             ),
             amount: parseUnits('10000', 6),
             to: targetAddress as Address,
-            token: alphaUsd,
+            token: DONOTUSE,
           },
         )
         receipts = [result.receipt]
