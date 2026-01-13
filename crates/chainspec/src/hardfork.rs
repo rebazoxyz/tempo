@@ -40,8 +40,8 @@ hardfork!(
     #[derive(Default)]
     TempoHardfork {
         /// Genesis hardfork
-        Genesis,
         #[default]
+        Genesis,
         /// T0 hardfork (default)
         T0,
     }
