@@ -16,9 +16,11 @@ pub mod exec;
 pub mod handler;
 mod instructions;
 mod tx;
+mod utils;
 
 pub use block::TempoBlockEnv;
-pub use error::{GasMode, TempoHaltReason, TempoInvalidTransaction};
+pub use error::{TempoHaltReason, TempoInvalidTransaction};
+pub use utils::{GasCalc, GasMode};
 pub use evm::TempoEvm;
 pub use handler::calculate_aa_batch_intrinsic_gas;
 pub use revm::interpreter::instructions::utility::IntoAddress;

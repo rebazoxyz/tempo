@@ -44,9 +44,9 @@ use tempo_primitives::transaction::{
 };
 
 use crate::{
-    TempoBatchCallEnv, TempoEvm, TempoInvalidTransaction,
+    GasMode, TempoBatchCallEnv, TempoEvm, TempoInvalidTransaction,
     common::TempoStateAccess,
-    error::{FeePaymentError, GasMode, TempoHaltReason},
+    error::{FeePaymentError, TempoHaltReason},
     evm::TempoContext,
 };
 
@@ -88,8 +88,11 @@ fn primitive_signature_verification_gas(
         PrimitiveSignature::P256(_) => Ok(P256_VERIFY_GAS),
         PrimitiveSignature::WebAuthn(webauthn_sig) => {
             let tokens = get_tokens_in_calldata(&webauthn_sig.webauthn_data, true);
-            let cost = gas_mode.mul(tokens, STANDARD_TOKEN_COST)?;
-            gas_mode.add(cost, P256_VERIFY_GAS)
+            gas_mode
+                .calc(tokens)
+                .mul(STANDARD_TOKEN_COST)?
+                .add(P256_VERIFY_GAS)?
+                .into()
         }
     }
 }
@@ -137,8 +140,11 @@ fn calculate_key_authorization_gas(
     };
 
     // Total: base (27k) + sig verification + limits
-    let base_plus_sig = gas_mode.add(KEY_AUTH_BASE_GAS, sig_gas)?;
-    gas_mode.add(base_plus_sig, limits_gas)
+    gas_mode
+        .calc(KEY_AUTH_BASE_GAS)
+        .add(sig_gas)?
+        .add(limits_gas)?
+        .into()
 }
 
 /// Calculates the gas cost for 2D nonce usage.
@@ -374,10 +380,11 @@ where
 
                 // Include gas from all previous successful calls + failed call
                 let gas_spent_by_failed_call = frame_result.gas().spent();
-                let total_gas_spent = gas_mode.add(
-                    gas_mode.sub(gas_limit, remaining_gas)?,
-                    gas_spent_by_failed_call,
-                )?;
+                let total_gas_spent: u64 = gas_mode
+                    .calc(gas_limit)
+                    .sub(remaining_gas)?
+                    .add(gas_spent_by_failed_call)?
+                    .into();
 
                 // Create new Gas with correct limit, because Gas does not have a set_limit method
                 // (the frame_result has the limit from just the last call)
