@@ -66,7 +66,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
         // Define which handlers the fuzzer should call
         // NOTE: Core handlers only - additional handlers need ghost state sync fixes (see INVARIANT_TEST_PLAN.md)
-        bytes4[] memory selectors = new bytes4[](14);
+        bytes4[] memory selectors = new bytes4[](23);
         // Legacy transaction handlers (core)
         selectors[0] = this.handler_transfer.selector;
         selectors[1] = this.handler_sequentialTransfers.selector;
@@ -86,6 +86,19 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         // CREATE handlers
         selectors[12] = this.handler_tempoCreate.selector;
         selectors[13] = this.handler_createGasScaling.selector;
+        // Replay protection handlers (N12-N15)
+        selectors[14] = this.handler_replayProtocolNonce.selector;
+        selectors[15] = this.handler_replay2dNonce.selector;
+        selectors[16] = this.handler_nonceTooHigh.selector;
+        selectors[17] = this.handler_nonceTooLow.selector;
+        // CREATE structure handlers (C1-C4)
+        selectors[18] = this.handler_createNotFirst.selector;
+        selectors[19] = this.handler_createMultiple.selector;
+        // Tempo access key handlers (TX11)
+        selectors[20] = this.handler_tempoUseAccessKey.selector;
+        // Multicall handlers (M1-M9)
+        selectors[21] = this.handler_tempoMulticall.selector;
+        selectors[22] = this.handler_tempoMulticallWithFailure.selector;
         targetSelector(FuzzSelector({addr: address(this), selectors: selectors}));
 
         // Initialize previous nonce tracking for secp256k1 actors
@@ -116,11 +129,29 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
     /// @notice Called after invariant testing for final checks
     function afterInvariant() public view {
+        // Existing check
         assertEq(
             ghost_totalCallsExecuted + ghost_totalCreatesExecuted,
             ghost_totalTxExecuted,
             "Calls + Creates should equal total executed"
         );
+
+        // Replay protection invariants (N12-N15)
+        assertEq(ghost_replayProtocolAllowed, 0, "N12: Protocol nonce replay unexpectedly allowed");
+        assertEq(ghost_replay2dAllowed, 0, "N13: 2D nonce replay unexpectedly allowed");
+        assertEq(ghost_nonceTooHighAllowed, 0, "N14: Nonce too high unexpectedly allowed");
+        assertEq(ghost_nonceTooLowAllowed, 0, "N15: Nonce too low unexpectedly allowed");
+
+        // CREATE structure rules (C1-C4, C8)
+        assertEq(ghost_createNotFirstAllowed, 0, "C1: CREATE not first unexpectedly allowed");
+        assertEq(ghost_createMultipleAllowed, 0, "C2: Multiple CREATEs unexpectedly allowed");
+        assertEq(ghost_createWithAuthAllowed, 0, "C3: CREATE with auth list unexpectedly allowed");
+        assertEq(ghost_createWithValueAllowed, 0, "C4: CREATE with value unexpectedly allowed");
+        assertEq(ghost_createOversizedAllowed, 0, "C8: Oversized initcode unexpectedly allowed");
+
+        // Key authorization rules (K1, K3)
+        assertEq(ghost_keyWrongSignerAllowed, 0, "K1: Wrong signer key auth unexpectedly allowed");
+        assertEq(ghost_keyWrongChainAllowed, 0, "K3: Wrong chain key auth unexpectedly allowed");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -364,38 +395,48 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         SignatureType sigType = _getRandomSignatureType(sigTypeSeed);
         address sender = _getSenderForSigType(senderIdx, sigType);
 
-        // Build tx first to get actual sender (may differ for P256/WebAuthn)
-        uint64 currentNonce = uint64(ghost_protocolNonce[sender]);
+        // Get actual sender first by doing a dry-run build
         bytes memory initcode = InitcodeHelper.revertingContractInitcode();
-        (bytes memory signedTx, address actualSender) = _buildAndSignLegacyCreateWithSigType(senderIdx, initcode, currentNonce, sigTypeSeed);
+        (, address actualSender) = _buildAndSignLegacyCreateWithSigType(senderIdx, initcode, 0, sigTypeSeed);
 
-        // Re-check nonce with actual sender if different
-        if (actualSender != sender) {
-            currentNonce = uint64(ghost_protocolNonce[actualSender]);
-            (signedTx,) = _buildAndSignLegacyCreateWithSigType(senderIdx, initcode, currentNonce, sigTypeSeed);
+        // Use actual on-chain nonce, not ghost state, to ensure tx is valid
+        uint64 currentNonce = uint64(vm.getNonce(actualSender));
+        
+        // Sync ghost state if needed
+        if (ghost_protocolNonce[actualSender] != currentNonce) {
+            ghost_protocolNonce[actualSender] = currentNonce;
         }
+
+        // Build the actual transaction with correct nonce
+        (bytes memory signedTx,) = _buildAndSignLegacyCreateWithSigType(senderIdx, initcode, currentNonce, sigTypeSeed);
 
         ghost_previousProtocolNonce[actualSender] = ghost_protocolNonce[actualSender];
 
         vm.coinbase(validator);
 
-        // Execute and verify on-chain nonce to update ghost state
+        // Snapshot nonce BEFORE execution
+        uint256 nonceBefore = vm.getNonce(actualSender);
+
         try vmExec.executeTransaction(signedTx) {
-            // Sync ghost state with actual on-chain nonce (use vm.getNonce for protocol nonce)
-            uint256 actualNonce = vm.getNonce(actualSender);
-            if (actualNonce > currentNonce) {
-                ghost_protocolNonce[actualSender] = actualNonce;
-                ghost_totalTxExecuted++;
-                ghost_totalCreatesExecuted++;
-                ghost_totalProtocolNonceTxs++;
-            }
+            uint256 nonceAfter = vm.getNonce(actualSender);
+            // CREATE tx that reverts internally still consumes nonce when tx is included
+            assertEq(nonceAfter, nonceBefore + 1, "C7: Nonce must burn even when create reverts");
+            ghost_protocolNonce[actualSender] = nonceAfter;
+            ghost_totalTxExecuted++;
+            ghost_totalCreatesExecuted++;
+            ghost_totalProtocolNonceTxs++;
         } catch {
-            // Verify if nonce was consumed despite tx failure
-            uint256 actualNonce = vm.getNonce(actualSender);
-            if (actualNonce > currentNonce) {
-                ghost_protocolNonce[actualSender] = actualNonce;
+            uint256 nonceAfter = vm.getNonce(actualSender);
+            // Two cases:
+            // 1. Tx rejected (invalid sig format, etc.) - nonce unchanged
+            // 2. Tx included but CREATE reverted - nonce consumed (C7)
+            if (nonceAfter > nonceBefore) {
+                // Case 2: Tx was included, nonce consumed
+                assertEq(nonceAfter, nonceBefore + 1, "C7: Nonce must burn exactly +1 on included reverting create");
+                ghost_protocolNonce[actualSender] = nonceAfter;
                 ghost_totalProtocolNonceTxs++;
             }
+            // Case 1: Tx was rejected, nonce unchanged - this is fine
             ghost_totalTxReverted++;
         }
     }
@@ -473,13 +514,13 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
         uint64 nonceKey = 0;
         uint64 currentNonce = uint64(ghost_protocolNonce[ctx.sender]);
-        (bytes memory signedTx,) = _buildAndSignTempoTransferWithSigType(ctx.senderIdx, ctx.recipient, ctx.amount, nonceKey, currentNonce, sigTypeSeed);
+        (bytes memory signedTx, address sender) = _buildAndSignTempoTransferWithSigType(ctx.senderIdx, ctx.recipient, ctx.amount, nonceKey, currentNonce, sigTypeSeed);
 
-        ghost_previousProtocolNonce[ctx.sender] = ghost_protocolNonce[ctx.sender];
+        ghost_previousProtocolNonce[sender] = ghost_protocolNonce[sender];
         vm.coinbase(validator);
 
         try vmExec.executeTransaction(signedTx) {
-            _recordProtocolNonceTxSuccess(ctx.sender);
+            _recordProtocolNonceTxSuccess(sender);
         } catch {
             ghost_totalTxReverted++;
         }
@@ -654,15 +695,24 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
         vm.coinbase(validator);
 
+        // Snapshot nonce before execution
+        uint256 nonceBefore = vm.getNonce(sender);
+
         // Legacy tx uses protocol nonce - nonce is consumed even if inner call reverts
         try vmExec.executeTransaction(signedTx) {
-            ghost_protocolNonce[sender]++;
+            uint256 nonceAfter = vm.getNonce(sender);
+            // Tx was included, nonce consumed
+            assertEq(nonceAfter, nonceBefore + 1, "F9: Legacy tx must consume nonce on success");
+            ghost_protocolNonce[sender] = nonceAfter;
             ghost_totalTxExecuted++;
             ghost_totalCallsExecuted++;
             ghost_totalProtocolNonceTxs++;
         } catch {
-            // Legacy tx still consumes nonce even when reverted
-            ghost_protocolNonce[sender]++;
+            uint256 nonceAfter = vm.getNonce(sender);
+            // For legacy tx with insufficient balance, the tx is still included (nonce consumed)
+            // but the inner call reverts
+            assertEq(nonceAfter, nonceBefore + 1, "F9: Legacy tx must consume nonce even when call reverts");
+            ghost_protocolNonce[sender] = nonceAfter;
             ghost_totalProtocolNonceTxs++;
             ghost_totalTxReverted++;
         }
@@ -735,6 +785,8 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         vm.coinbase(validator);
 
         try vmExec.executeTransaction(signedTx) {
+            // Unexpected success - sync ghost state to prevent false invariant failures
+            _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey, ctx.current2dNonce);
             ghost_createNotFirstAllowed++;
         } catch {
             _recordCreateRejectedStructure();
@@ -765,6 +817,8 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         vm.coinbase(validator);
 
         try vmExec.executeTransaction(signedTx) {
+            // Unexpected success - sync ghost state to prevent false invariant failures
+            _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey, ctx.current2dNonce);
             ghost_createMultipleAllowed++;
         } catch {
             _recordCreateRejectedStructure();
@@ -803,6 +857,8 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         vm.coinbase(validator);
 
         try vmExec.executeTransaction(signedTx) {
+            // Unexpected success - sync ghost state to prevent false invariant failures
+            _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey, ctx.current2dNonce);
             ghost_createWithAuthAllowed++;
         } catch {
             ghost_protocolNonce[ctx.sender]++;
@@ -834,6 +890,8 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         vm.coinbase(validator);
 
         try vmExec.executeTransaction(signedTx) {
+            // Unexpected success - sync ghost state to prevent false invariant failures
+            _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey, ctx.current2dNonce);
             ghost_createWithValueAllowed++;
         } catch {
             _recordCreateRejectedStructure();
@@ -861,6 +919,8 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         vm.coinbase(validator);
 
         try vmExec.executeTransaction(signedTx) {
+            // Unexpected success - sync ghost state to prevent false invariant failures
+            _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey, ctx.current2dNonce);
             ghost_createOversizedAllowed++;
         } catch {
             _recordCreateRejectedSize();
@@ -923,24 +983,29 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
         vm.coinbase(validator);
 
+        // Snapshot nonce before first tx
+        uint256 nonce0 = vm.getNonce(sender);
+
+        // First execution should succeed and consume exactly 1 nonce
         try vmExec.executeTransaction(signedTx) {
-            // Sync ghost with actual on-chain nonce
-            uint256 actualNonce = vm.getNonce(sender);
-            if (actualNonce > ghost_protocolNonce[sender]) {
-                uint256 diff = actualNonce - ghost_protocolNonce[sender];
-                ghost_protocolNonce[sender] = actualNonce;
-                ghost_totalTxExecuted++;
-                ghost_totalCallsExecuted++;
-                ghost_totalProtocolNonceTxs += diff;
-            }
+            uint256 nonce1 = vm.getNonce(sender);
+            assertEq(nonce1, nonce0 + 1, "N12: First tx must consume exactly one nonce");
+            ghost_protocolNonce[sender] = nonce1;
+            ghost_totalTxExecuted++;
+            ghost_totalCallsExecuted++;
+            ghost_totalProtocolNonceTxs++;
         } catch {
+            // First tx failed - skip replay test
             ghost_totalTxReverted++;
             return;
         }
 
+        // Replay should fail - nonce already consumed
         try vmExec.executeTransaction(signedTx) {
+            // Replay unexpectedly succeeded - this is a BUG in the protocol!
             ghost_replayProtocolAllowed++;
         } catch {
+            // Expected: replay rejected
             ghost_totalTxReverted++;
         }
     }
@@ -1007,8 +1072,10 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         }
 
         try vmExec.executeTransaction(signedTx) {
+            // Replay unexpectedly succeeded - this is a BUG in the protocol!
             ghost_replay2dAllowed++;
         } catch {
+            // Expected: replay rejected
             ghost_totalTxReverted++;
         }
     }
@@ -1040,8 +1107,10 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         vm.coinbase(validator);
 
         try vmExec.executeTransaction(signedTx) {
+            // Tx with future nonce unexpectedly succeeded - this is a BUG!
             ghost_nonceTooHighAllowed++;
         } catch {
+            // Expected: tx rejected
             ghost_totalTxReverted++;
         }
     }
@@ -1713,6 +1782,13 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         try vmExec.executeTransaction(signedTx) {
             _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey);
         } catch {
+            // Nonce is consumed even if tx reverts during execution (nonce incremented in pre-execution)
+            // Sync ghost state if on-chain nonce changed
+            uint64 actualNonce = nonce.getNonce(ctx.sender, ctx.nonceKey);
+            if (actualNonce > ctx.currentNonce) {
+                ghost_2dNonce[ctx.sender][ctx.nonceKey] = actualNonce;
+                ghost_2dNonceUsed[ctx.sender][ctx.nonceKey] = true;
+            }
             ghost_totalTxReverted++;
             ghost_totalMulticallsFailed++;
 
@@ -2070,11 +2146,14 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
         // Tempo txs with nonceKey > 0 only increment 2D nonce, not protocol nonce
         try vmExec.executeTransaction(signedTx) {
-            ghost_2dNonce[sender][nonceKey]++;
-            ghost_2dNonceUsed[sender][nonceKey] = true;
-            ghost_totalTxExecuted++;
-            ghost_totalCallsExecuted++;
-            ghost_total2dNonceTxs++;
+            uint64 actualNonce = nonce.getNonce(sender, nonceKey);
+            if (actualNonce > currentNonce) {
+                ghost_2dNonce[sender][nonceKey] = actualNonce;
+                ghost_2dNonceUsed[sender][nonceKey] = true;
+                ghost_totalTxExecuted++;
+                ghost_totalCallsExecuted++;
+                ghost_total2dNonceTxs++;
+            }
         } catch {
             _recordInvalidFeeTokenRejected();
             ghost_totalTxReverted++;
@@ -2129,13 +2208,15 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
         // Tempo txs with nonceKey > 0 only increment 2D nonce, not protocol nonce
         try vmExec.executeTransaction(signedTx) {
-            _recordExplicitFeeTokenUsed();
-
-            ghost_2dNonce[sender][nonceKey]++;
-            ghost_2dNonceUsed[sender][nonceKey] = true;
-            ghost_totalTxExecuted++;
-            ghost_totalCallsExecuted++;
-            ghost_total2dNonceTxs++;
+            uint64 actualNonce = nonce.getNonce(sender, nonceKey);
+            if (actualNonce > currentNonce) {
+                ghost_2dNonce[sender][nonceKey] = actualNonce;
+                ghost_2dNonceUsed[sender][nonceKey] = true;
+                ghost_totalTxExecuted++;
+                ghost_totalCallsExecuted++;
+                ghost_total2dNonceTxs++;
+                _recordExplicitFeeTokenUsed();
+            }
         } catch {
             ghost_totalTxReverted++;
         }
@@ -2188,13 +2269,15 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
         // Tempo txs with nonceKey > 0 only increment 2D nonce, not protocol nonce
         try vmExec.executeTransaction(signedTx) {
-            _recordFeeTokenFallbackUsed();
-
-            ghost_2dNonce[sender][nonceKey]++;
-            ghost_2dNonceUsed[sender][nonceKey] = true;
-            ghost_totalTxExecuted++;
-            ghost_totalCallsExecuted++;
-            ghost_total2dNonceTxs++;
+            uint64 actualNonce = nonce.getNonce(sender, nonceKey);
+            if (actualNonce > currentNonce) {
+                ghost_2dNonce[sender][nonceKey] = actualNonce;
+                ghost_2dNonceUsed[sender][nonceKey] = true;
+                ghost_totalTxExecuted++;
+                ghost_totalCallsExecuted++;
+                ghost_total2dNonceTxs++;
+                _recordFeeTokenFallbackUsed();
+            }
         } catch {
             ghost_totalTxReverted++;
         }
@@ -2251,11 +2334,14 @@ contract TempoTransactionInvariantTest is InvariantChecker {
 
         // Tempo txs with nonceKey > 0 only increment 2D nonce, not protocol nonce
         try vmExec.executeTransaction(signedTx) {
-            ghost_2dNonce[sender][nonceKey]++;
-            ghost_2dNonceUsed[sender][nonceKey] = true;
-            ghost_totalTxExecuted++;
-            ghost_totalCallsExecuted++;
-            ghost_total2dNonceTxs++;
+            uint64 actualNonce = nonce.getNonce(sender, nonceKey);
+            if (actualNonce > currentNonce) {
+                ghost_2dNonce[sender][nonceKey] = actualNonce;
+                ghost_2dNonceUsed[sender][nonceKey] = true;
+                ghost_totalTxExecuted++;
+                ghost_totalCallsExecuted++;
+                ghost_total2dNonceTxs++;
+            }
         } catch {
             _recordInsufficientLiquidityRejected();
             ghost_totalTxReverted++;
@@ -2710,12 +2796,15 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         vm.coinbase(validator);
 
         try vmExec.executeTransaction(signedTx) {
-            ghost_2dNonce[sender][nonceKey]++;
-            ghost_2dNonceUsed[sender][nonceKey] = true;
-            ghost_totalTxExecuted++;
-            ghost_totalCallsExecuted++;
-            ghost_total2dNonceTxs++;
-            ghost_totalFeeSponsoredTxs++;
+            uint64 actualNonce = nonce.getNonce(sender, nonceKey);
+            if (actualNonce > currentNonce) {
+                ghost_2dNonce[sender][nonceKey] = actualNonce;
+                ghost_2dNonceUsed[sender][nonceKey] = true;
+                ghost_totalTxExecuted++;
+                ghost_totalCallsExecuted++;
+                ghost_total2dNonceTxs++;
+                ghost_totalFeeSponsoredTxs++;
+            }
         } catch {
             ghost_totalTxReverted++;
         }
@@ -2852,11 +2941,6 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_total2dNonceTxs++;
             _recordGasTrackingMulticall();
         } catch {
-            uint64 actual2dNonce = nonce.getNonce(sender, nonceKey);
-            if (actual2dNonce > ghost_2dNonce[sender][nonceKey]) {
-                ghost_2dNonce[sender][nonceKey]++;
-                ghost_2dNonceUsed[sender][nonceKey] = true;
-            }
             ghost_totalTxReverted++;
         }
     }
@@ -2959,12 +3043,6 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_totalProtocolNonceTxs++;
             _recordGasTrackingSignature();
         } catch {
-            uint256 actualNonce = vm.getNonce(sender);
-            if (actualNonce > ghost_protocolNonce[sender]) {
-                uint256 diff = actualNonce - ghost_protocolNonce[sender];
-                ghost_protocolNonce[sender] = actualNonce;
-                ghost_totalProtocolNonceTxs += diff;
-            }
             ghost_totalTxReverted++;
         }
     }

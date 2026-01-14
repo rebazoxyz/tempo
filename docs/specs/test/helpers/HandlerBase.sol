@@ -107,32 +107,18 @@ abstract contract HandlerBase is InvariantBase {
         ctx.currentNonce = uint64(ghost_2dNonce[ctx.sender][ctx.nonceKey]);
     }
 
-    // ============ Nonce Sync Helpers ============
+    // ============ Nonce Assertion Helpers ============
 
-    /// @notice Sync ghost protocol nonce with actual on-chain nonce
-    /// @param account The account to sync
-    /// @return diff The number of nonces that were out of sync
-    function _syncProtocolNonce(address account) internal returns (uint256 diff) {
-        uint256 actualNonce = vm.getNonce(account);
-        if (actualNonce > ghost_protocolNonce[account]) {
-            diff = actualNonce - ghost_protocolNonce[account];
-            ghost_protocolNonce[account] = actualNonce;
-            ghost_totalProtocolNonceTxs += diff;
-        }
+    /// @notice Assert protocol nonce matches ghost state (for debugging)
+    function _assertProtocolNonceEq(address account, string memory context) internal view {
+        uint256 actual = vm.getNonce(account);
+        assertEq(actual, ghost_protocolNonce[account], string.concat("Protocol nonce mismatch: ", context));
     }
 
-    /// @notice Sync ghost 2D nonce with actual on-chain nonce
-    /// @param account The account to sync
-    /// @param nonceKey The nonce key to sync
-    /// @return incremented True if the nonce was incremented
-    function _sync2dNonce(address account, uint64 nonceKey) internal returns (bool incremented) {
+    /// @notice Assert 2D nonce matches ghost state (for debugging)
+    function _assert2dNonceEq(address account, uint64 nonceKey, string memory context) internal view {
         uint64 actual = nonce.getNonce(account, nonceKey);
-        if (actual > ghost_2dNonce[account][nonceKey]) {
-            ghost_2dNonce[account][nonceKey] = actual;
-            ghost_2dNonceUsed[account][nonceKey] = true;
-            return true;
-        }
-        return false;
+        assertEq(actual, ghost_2dNonce[account][nonceKey], string.concat("2D nonce mismatch: ", context));
     }
 
     /// @notice Update ghost state after successful 2D nonce transaction
