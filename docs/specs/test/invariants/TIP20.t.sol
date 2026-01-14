@@ -809,6 +809,55 @@ contract TIP20InvariantTest is InvariantBaseTest {
         }
     }
 
+    /// @notice Handler for unauthorized unpause attempts
+    /// @dev Tests TEMPO-TIP28 (only UNPAUSE_ROLE can unpause)
+    function unpauseUnauthorized(uint256 actorSeed, uint256 tokenSeed) external {
+        address attacker = _selectActor(actorSeed);
+        TIP20 token = _selectBaseToken(tokenSeed);
+
+        // Ensure attacker doesn't have UNPAUSE_ROLE
+        vm.assume(!token.hasRole(attacker, _UNPAUSE_ROLE));
+        vm.assume(token.paused());
+
+        vm.startPrank(attacker);
+        try token.unpause() {
+            vm.stopPrank();
+            revert("TEMPO-TIP28: Non-unpause-role should not be able to unpause");
+        } catch {
+            vm.stopPrank();
+            // Expected to revert - access control enforced
+        }
+    }
+
+    /// @notice Handler for unauthorized burnBlocked attempts
+    /// @dev Tests TEMPO-TIP29 (only BURN_BLOCKED_ROLE can call burnBlocked)
+    function burnBlockedUnauthorized(
+        uint256 actorSeed,
+        uint256 tokenSeed,
+        uint256 targetSeed,
+        uint256 amount
+    ) external {
+        address attacker = _selectActor(actorSeed);
+        address target = _selectActor(targetSeed);
+        TIP20 token = _selectBaseToken(tokenSeed);
+
+        // Ensure attacker doesn't have BURN_BLOCKED_ROLE
+        vm.assume(!token.hasRole(attacker, _BURN_BLOCKED_ROLE));
+
+        uint256 targetBalance = token.balanceOf(target);
+        vm.assume(targetBalance > 0);
+        amount = bound(amount, 1, targetBalance);
+
+        vm.startPrank(attacker);
+        try token.burnBlocked(target, amount) {
+            vm.stopPrank();
+            revert("TEMPO-TIP29: Non-burn-blocked-role should not be able to call burnBlocked");
+        } catch {
+            vm.stopPrank();
+            // Expected to revert - access control enforced
+        }
+    }
+
     /// @notice Handler for changing transfer policy ID
     /// @dev Tests that only admin can change policy, and policy must exist
     function changeTransferPolicyId(uint256 tokenSeed, uint256 policySeed) external {

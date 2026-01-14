@@ -183,7 +183,9 @@ TIP20 is the Tempo token standard that extends ERC-20 with transfer policies, me
 ### Access Control Invariants
 
 - **TEMPO-TIP26**: Issuer-only minting - only accounts with `ISSUER_ROLE` can call `mint` (non-issuers revert with `Unauthorized`).
-- **TEMPO-TIP27**: Pause-role enforcement - only accounts with `PAUSE_ROLE` can call `pause`/`unpause` (non-role holders revert with `Unauthorized`).
+- **TEMPO-TIP27**: Pause-role enforcement - only accounts with `PAUSE_ROLE` can call `pause` (non-role holders revert with `Unauthorized`).
+- **TEMPO-TIP28**: Unpause-role enforcement - only accounts with `UNPAUSE_ROLE` can call `unpause` (non-role holders revert with `Unauthorized`).
+- **TEMPO-TIP29**: Burn-blocked-role enforcement - only accounts with `BURN_BLOCKED_ROLE` can call `burnBlocked` (non-role holders revert with `Unauthorized`).
 
 ## TIP20Factory
 
