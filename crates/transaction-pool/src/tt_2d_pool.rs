@@ -646,13 +646,23 @@ impl AA2dPool {
         (promoted, mined)
     }
 
-    /// Removes stale transactions if the pool is above capacity.
+    /// Removes the lowest priority transactions if the pool is above capacity.
+    ///
+    /// This evicts transactions with the lowest priority first (not by address order),
+    /// preventing attackers from using addresses with leading zeroes to protect their
+    /// transactions from eviction.
     fn discard(&mut self) -> Vec<Arc<ValidPoolTransaction<TempoPooledTransaction>>> {
         let mut removed = Vec::new();
 
         while self.by_id.len() > self.config.aa_2d_limit.max_txs {
-            // TODO: this needs a more sophisticated approach for now simply pop any non pending
-            let Some(id) = self.by_id.last_key_value().map(|(id, _)| *id) else {
+            // Find the transaction with the lowest priority to evict
+            let lowest_priority_id = self
+                .by_id
+                .iter()
+                .min_by(|(_, a), (_, b)| a.inner.priority.cmp(&b.inner.priority))
+                .map(|(id, _)| *id);
+
+            let Some(id) = lowest_priority_id else {
                 return removed;
             };
             removed.push(self.remove_transaction_by_id(&id).unwrap());
@@ -3061,7 +3071,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discard_removes_from_back() {
+    fn test_discard_removes_lowest_priority() {
         let config = AA2dPoolConfig {
             price_bump_config: PriceBumpConfig::default(),
             aa_2d_limit: SubPoolLimit {
@@ -3072,19 +3082,37 @@ mod tests {
         let mut pool = AA2dPool::new(config);
         let sender = Address::random();
 
-        let tx0 = TxBuilder::aa(sender).nonce_key(U256::ZERO).build();
-        let tx1 = TxBuilder::aa(sender).nonce_key(U256::ZERO).nonce(1).build();
-        let tx2 = TxBuilder::aa(sender).nonce_key(U256::ZERO).nonce(2).build();
-        let tx0_hash = *tx0.hash();
-        let tx1_hash = *tx1.hash();
-        let tx2_hash = *tx2.hash();
+        // Create transactions with different priorities (based on max_priority_fee)
+        // Low priority tx (low fee)
+        let tx_low = TxBuilder::aa(sender)
+            .nonce_key(U256::ZERO)
+            .max_priority_fee(1_000_000)
+            .max_fee(2_000_000)
+            .build();
+        // Medium priority tx
+        let tx_med = TxBuilder::aa(sender)
+            .nonce_key(U256::ZERO)
+            .nonce(1)
+            .max_priority_fee(5_000_000)
+            .max_fee(10_000_000)
+            .build();
+        // High priority tx
+        let tx_high = TxBuilder::aa(sender)
+            .nonce_key(U256::ZERO)
+            .nonce(2)
+            .max_priority_fee(10_000_000)
+            .max_fee(20_000_000)
+            .build();
+        let tx_low_hash = *tx_low.hash();
+        let tx_med_hash = *tx_med.hash();
+        let tx_high_hash = *tx_high.hash();
 
-        pool.add_transaction(Arc::new(wrap_valid_tx(tx0, TransactionOrigin::Local)), 0)
+        pool.add_transaction(Arc::new(wrap_valid_tx(tx_low, TransactionOrigin::Local)), 0)
             .unwrap();
-        pool.add_transaction(Arc::new(wrap_valid_tx(tx1, TransactionOrigin::Local)), 0)
+        pool.add_transaction(Arc::new(wrap_valid_tx(tx_med, TransactionOrigin::Local)), 0)
             .unwrap();
         let result =
-            pool.add_transaction(Arc::new(wrap_valid_tx(tx2, TransactionOrigin::Local)), 0);
+            pool.add_transaction(Arc::new(wrap_valid_tx(tx_high, TransactionOrigin::Local)), 0);
         assert!(result.is_ok());
 
         let added = result.unwrap();
@@ -3093,18 +3121,20 @@ mod tests {
                 !pending.discarded.is_empty(),
                 "Should have discarded transactions"
             );
+            // The lowest priority (tx_low) should be discarded
             assert_eq!(
                 pending.discarded[0].hash(),
-                &tx2_hash,
-                "tx2 (highest nonce) should be discarded"
+                &tx_low_hash,
+                "tx_low (lowest priority) should be discarded, not highest nonce"
             );
         } else {
             panic!("Expected Pending result");
         }
 
-        assert!(pool.contains(&tx0_hash));
-        assert!(pool.contains(&tx1_hash));
-        assert!(!pool.contains(&tx2_hash));
+        // tx_low should be discarded, tx_med and tx_high should remain
+        assert!(!pool.contains(&tx_low_hash));
+        assert!(pool.contains(&tx_med_hash));
+        assert!(pool.contains(&tx_high_hash));
 
         pool.assert_invariants();
     }

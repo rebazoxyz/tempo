@@ -160,7 +160,14 @@ where
             return Ok(Err("access key does not exist"));
         }
 
-        // Expiry checks are skipped here, they are done in the EVM handler where block timestamp is easily available.
+        // Check if key has expired using mempool-safe timestamp.
+        // This prevents expired access-key transactions from remaining in the mempool forever
+        // and causing DoS by repeatedly failing at execution time.
+        let current_time = self.inner.fork_tracker().tip_timestamp();
+        if authorized_key.expiry <= current_time {
+            return Ok(Err("access key has expired"));
+        }
+
         Ok(Ok(()))
     }
 
