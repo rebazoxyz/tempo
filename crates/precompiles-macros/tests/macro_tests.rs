@@ -330,3 +330,163 @@ fn test_full_module_integration() {
     let event = Event::transfer(user1, user2, transfer_amount);
     assert!(matches!(event, Event::Transfer(_)));
 }
+
+// =============================================================================
+// Dummy Types Tests
+// =============================================================================
+
+#[solidity]
+mod interface_only {
+    use super::*;
+
+    pub trait Interface {
+        fn get_value(&self) -> Result<U256>;
+        fn set_value(&mut self, value: U256) -> Result<()>;
+    }
+}
+
+#[test]
+fn test_dummy_error_for_interface_only_module() {
+    // Module with only Interface should have dummy Error
+    assert!(interface_only::Error::SELECTORS.is_empty());
+    assert!(!interface_only::Error::valid_selector([0xde, 0xad, 0xbe, 0xef]));
+
+    // abi_decode should return error for any input
+    let result = <interface_only::Error as SolInterface>::abi_decode(&[0xde, 0xad, 0xbe, 0xef]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dummy_event_for_interface_only_module() {
+    // Module with only Interface should have dummy Event
+    assert!(interface_only::Event::SELECTORS.is_empty());
+}
+
+#[test]
+fn test_real_calls_for_interface_only_module() {
+    // Module with Interface should have real Calls with selectors
+    assert!(!interface_only::Calls::SELECTORS.is_empty());
+    assert_eq!(interface_only::Calls::SELECTORS.len(), 2); // get_value, set_value
+
+    // Verify decode works
+    let call = interface_only::getValueCall {};
+    let encoded = call.abi_encode();
+    let decoded = interface_only::Calls::abi_decode(&encoded).unwrap();
+    assert!(matches!(decoded, interface_only::Calls::getValue(_)));
+}
+
+#[solidity]
+mod struct_only {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Data {
+        pub value: U256,
+        pub owner: Address,
+    }
+}
+
+#[test]
+fn test_dummy_types_for_struct_only_module() {
+    // Module with only struct should have all dummy types
+    assert!(struct_only::Error::SELECTORS.is_empty());
+    assert!(struct_only::Event::SELECTORS.is_empty());
+    assert!(struct_only::Calls::SELECTORS.is_empty());
+
+    // Dummy Calls should return error on decode
+    let result = struct_only::Calls::abi_decode(&[0xde, 0xad, 0xbe, 0xef, 0x00, 0x00]);
+    assert!(result.is_err());
+}
+
+#[solidity]
+mod error_and_event_only {
+    use super::*;
+
+    pub enum Error {
+        Forbidden,
+    }
+
+    pub enum Event {
+        Updated { #[indexed] account: Address, value: U256 },
+    }
+}
+
+#[test]
+fn test_real_error_with_dummy_calls() {
+    // Real Error
+    assert!(!error_and_event_only::Error::SELECTORS.is_empty());
+    let err = error_and_event_only::Error::forbidden();
+    assert!(matches!(err, error_and_event_only::Error::Forbidden(_)));
+
+    // Real Event
+    assert!(!error_and_event_only::Event::SELECTORS.is_empty());
+
+    // Dummy Calls (no Interface)
+    assert!(error_and_event_only::Calls::SELECTORS.is_empty());
+}
+
+// =============================================================================
+// Auto Re-export Tests
+// =============================================================================
+
+#[solidity]
+pub mod reexport_test {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct TestStruct {
+        pub value: U256,
+    }
+
+    pub enum TestStatus {
+        Active,
+        Inactive,
+    }
+}
+
+#[test]
+fn test_auto_reexport_types() {
+    // Types should be accessible directly (via `pub use self::reexport_test::*`)
+    let _ = TestStruct { value: U256::ZERO };
+    let _ = TestStatus::Active;
+}
+
+#[test]
+fn test_interface_alias_module() {
+    // Interface alias module should exist: reexport_test -> IReexportTest
+    let _ = IReexportTest::TestStruct { value: U256::ZERO };
+    let _ = IReexportTest::TestStatus::Active;
+}
+
+#[solidity(no_reexport)]
+pub mod no_reexport_test {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct NoReexportStruct {
+        pub value: U256,
+    }
+}
+
+#[test]
+fn test_no_reexport_requires_qualified_access() {
+    // With no_reexport, types require qualified access
+    let _ = no_reexport_test::NoReexportStruct { value: U256::ZERO };
+    // Note: NoReexportStruct and INoReexportTest would NOT be in scope
+}
+
+#[solidity(interface_alias = "CustomAlias")]
+pub mod custom_alias_test {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct AliasedStruct {
+        pub value: U256,
+    }
+}
+
+#[test]
+fn test_custom_interface_alias() {
+    // Custom alias should work
+    let _ = CustomAlias::AliasedStruct { value: U256::ZERO };
+}

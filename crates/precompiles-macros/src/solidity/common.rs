@@ -227,9 +227,7 @@ pub(super) fn signature_doc(
             "{kind} with signature `{signature}` and selector `0x{hash}`.\n```solidity\n{sol}\n```"
         )
     } else {
-        format!(
-            "{kind} with signature `{signature}` and selector `0x{hash}`."
-        )
+        format!("{kind} with signature `{signature}` and selector `0x{hash}`.")
     }
 }
 
@@ -286,6 +284,7 @@ pub(super) fn generate_error_container(
 /// NOTE: Generated container enums are always `pub` within the module,
 /// regardless of the original item's visibility.
 pub(super) fn generate_event_container(variants: &[EnumVariantDef]) -> TokenStream {
+    let topic_selectors = generate_event_selectors(variants);
     let names: Vec<&Ident> = variants.iter().map(|v| &v.name).collect();
 
     quote! {
@@ -293,6 +292,13 @@ pub(super) fn generate_event_container(variants: &[EnumVariantDef]) -> TokenStre
         #[derive(Clone, Debug, PartialEq, Eq)]
         pub enum Event {
             #(#[allow(missing_docs)] #names(#names),)*
+        }
+
+        impl Event {
+            /// Topic0 selectors (keccak256 hashes) for all event variants.
+            pub const SELECTORS: &'static [::alloy::primitives::B256] = &[
+                #(#topic_selectors),*
+            ];
         }
 
         #[automatically_derived]
@@ -314,6 +320,170 @@ pub(super) fn generate_event_container(variants: &[EnumVariantDef]) -> TokenStre
                 }
             }
         )*
+    }
+}
+
+/// Generate event topic selectors (keccak256 of event signature).
+fn generate_event_selectors(variants: &[EnumVariantDef]) -> Vec<TokenStream> {
+    variants
+        .iter()
+        .map(|v| {
+            // Build signature: EventName(type1,type2,...)
+            let params: Vec<String> = v
+                .fields
+                .iter()
+                .filter_map(|f| SynSolType::parse(&f.ty).ok().map(|t| t.sol_name()))
+                .collect();
+            let signature = format!("{}({})", v.name, params.join(","));
+            let hash = alloy::primitives::keccak256(&signature);
+            let bytes = hash.0;
+            quote! {
+                ::alloy::primitives::B256::new([#(#bytes),*])
+            }
+        })
+        .collect()
+}
+
+/// Wrap trait implementations in a const block to avoid type alias conflicts.
+pub(super) fn wrap_const_block(inner: TokenStream) -> TokenStream {
+    quote! {
+        #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields, clippy::style)]
+        const _: () = {
+            use alloy_sol_types as alloy_sol_types;
+            #inner
+        };
+    }
+}
+
+/// Kind of Solidity container enum (Error, Event, or Calls).
+///
+/// Used for:
+/// - Dummy container generation (modules missing Error/Event/Interface)
+/// - Variant enum generation (Error/Event enums with fields)
+/// - Composition generation (unified enums across multiple modules)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AbiType {
+    Error,
+    Event,
+    Calls,
+}
+
+/// Generate a dummy container enum for modules missing Error/Event/Interface.
+pub(super) fn generate_dummy_container(kind: AbiType) -> TokenStream {
+    match kind {
+        AbiType::Error => {
+            let name = format_ident!("Error");
+            let sol_interface = empty_sol_interface_impl(&name);
+            quote! {
+                /// Dummy error enum (no error variants defined).
+                #[derive(Clone, Debug, PartialEq, Eq)]
+                pub enum Error {}
+
+                impl Error {
+                    /// Error selectors (empty).
+                    pub const SELECTORS: &'static [[u8; 4]] = &[];
+
+                    #[inline]
+                    pub fn valid_selector(_: [u8; 4]) -> bool { false }
+
+                    #[inline]
+                    pub fn selector(&self) -> [u8; 4] { match *self {} }
+                }
+
+                #sol_interface
+            }
+        }
+        AbiType::Event => {
+            quote! {
+                /// Dummy event enum (no events defined).
+                #[derive(Clone, Debug, PartialEq, Eq)]
+                pub enum Event {}
+
+                impl Event {
+                    /// Topic0 selectors (empty).
+                    pub const SELECTORS: &'static [::alloy::primitives::B256] = &[];
+                }
+
+                #[automatically_derived]
+                impl ::alloy::primitives::IntoLogData for Event {
+                    fn to_log_data(&self) -> ::alloy::primitives::LogData { match *self {} }
+                    fn into_log_data(self) -> ::alloy::primitives::LogData { match self {} }
+                }
+            }
+        }
+        AbiType::Calls => {
+            let name = format_ident!("Calls");
+            let sol_interface = empty_sol_interface_impl(&name);
+            quote! {
+                /// Dummy calls enum (no interface methods defined).
+                #[derive(Clone, Debug, PartialEq, Eq)]
+                pub enum Calls {}
+
+                impl Calls {
+                    /// Function selectors (empty).
+                    pub const SELECTORS: &'static [[u8; 4]] = &[];
+
+                    #[inline]
+                    pub fn valid_selector(_: [u8; 4]) -> bool { false }
+
+                    #[inline]
+                    pub fn abi_decode(data: &[u8]) -> alloy_sol_types::Result<Self> {
+                        ::core::result::Result::Err(alloy_sol_types::Error::unknown_selector(
+                            <Self as alloy_sol_types::SolInterface>::NAME,
+                            data.get(..4).and_then(|s| <[u8; 4]>::try_from(s).ok()).unwrap_or_default(),
+                        ))
+                    }
+                }
+
+                #sol_interface
+            }
+        }
+    }
+}
+
+/// Generate an empty `SolInterface` impl for a dummy enum.
+fn empty_sol_interface_impl(name: &Ident) -> TokenStream {
+    let name_str = name.to_string();
+    quote! {
+        #[automatically_derived]
+        impl alloy_sol_types::SolInterface for #name {
+            const NAME: &'static str = #name_str;
+            const MIN_DATA_LENGTH: usize = 0;
+            const COUNT: usize = 0;
+
+            #[inline]
+            fn selector(&self) -> [u8; 4] { match *self {} }
+
+            #[inline]
+            fn selector_at(_i: usize) -> ::core::option::Option<[u8; 4]> {
+                ::core::option::Option::None
+            }
+
+            #[inline]
+            fn valid_selector(_selector: [u8; 4]) -> bool { false }
+
+            #[inline]
+            fn abi_decode_raw(_selector: [u8; 4], _data: &[u8]) -> alloy_sol_types::Result<Self> {
+                ::core::result::Result::Err(alloy_sol_types::Error::unknown_selector(
+                    <Self as alloy_sol_types::SolInterface>::NAME,
+                    _selector,
+                ))
+            }
+
+            #[inline]
+            fn abi_decode_raw_validate(_selector: [u8; 4], _data: &[u8]) -> alloy_sol_types::Result<Self> {
+                ::core::result::Result::Err(alloy_sol_types::Error::unknown_selector(
+                    <Self as alloy_sol_types::SolInterface>::NAME,
+                    _selector,
+                ))
+            }
+
+            #[inline]
+            fn abi_encoded_size(&self) -> usize { match *self {} }
+
+            #[inline]
+            fn abi_encode_raw(&self, _out: &mut alloy_sol_types::private::Vec<u8>) { match *self {} }
+        }
     }
 }
 

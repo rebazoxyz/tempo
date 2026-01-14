@@ -72,14 +72,11 @@ pub(super) fn generate_struct(
         }
     };
 
+    let const_block = common::wrap_const_block(sol_struct_impl);
+
     Ok(quote! {
         #struct_def
-
-        #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields, clippy::style)]
-        const _: () = {
-            use alloy_sol_types as alloy_sol_types;
-            #sol_struct_impl
-        };
+        #const_block
     })
 }
 

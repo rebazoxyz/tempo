@@ -7,15 +7,15 @@
 use alloy_sol_macro_expander::{
     ErrorCodegen, EventCodegen, EventFieldInfo, StructLayout, gen_from_into_tuple,
 };
-use proc_macro2::{Ident, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 
 use crate::utils::to_snake_case;
 
 use super::{
-    common::{self, SynSolType},
-    parser::{EnumVariantDef, FieldAccessors, SolEnumDef, UnitEnumDef},
+    common::{self, AbiType, SynSolType},
+    parser::{EnumVariantDef, FieldAccessors, FieldDef, SolEnumDef, UnitEnumDef},
     registry::TypeRegistry,
 };
 
@@ -168,19 +168,16 @@ fn expand_unit_enum_traits(
     }
 }
 
-/// Kind of variant enum being generated.
-#[derive(Clone, Copy)]
-pub(super) enum VariantEnumKind {
-    Error,
-    Event,
-}
-
 /// Generate code for Error or Event enum.
 pub(super) fn generate_variant_enum(
     def: &SolEnumDef,
     registry: &TypeRegistry,
-    kind: VariantEnumKind,
+    kind: AbiType,
 ) -> syn::Result<TokenStream> {
+    debug_assert!(
+        matches!(kind, AbiType::Error | AbiType::Event),
+        "generate_variant_enum only supports Error and Event"
+    );
     let variant_impls = def
         .variants
         .iter()
@@ -188,13 +185,15 @@ pub(super) fn generate_variant_enum(
         .collect::<syn::Result<Vec<_>>>()?;
 
     let container_name = match kind {
-        VariantEnumKind::Error => format_ident!("Error"),
-        VariantEnumKind::Event => format_ident!("Event"),
+        AbiType::Error => format_ident!("Error"),
+        AbiType::Event => format_ident!("Event"),
+        AbiType::Calls => unreachable!(),
     };
 
     let container = match kind {
-        VariantEnumKind::Error => common::generate_error_container(&def.variants, registry)?,
-        VariantEnumKind::Event => common::generate_event_container(&def.variants),
+        AbiType::Error => common::generate_error_container(&def.variants, registry)?,
+        AbiType::Event => common::generate_event_container(&def.variants),
+        AbiType::Calls => unreachable!(),
     };
 
     let constructors = generate_constructors(&container_name, &def.variants, kind)?;
@@ -206,32 +205,76 @@ pub(super) fn generate_variant_enum(
     })
 }
 
-/// Check if an indexed field should be stored as a hash (keccak256).
+/// Precomputed field projections for event code generation.
 ///
 /// In Solidity, indexed dynamic types (String, Bytes, arrays) are stored as their
-/// keccak256 hash in event topics. This function identifies such fields so their
-/// struct type can be converted to `FixedBytes<32>`.
-fn is_indexed_as_hash(field: &super::parser::FieldDef) -> syn::Result<bool> {
-    if !field.indexed {
-        return Ok(false);
+/// keccak256 hash in event topics. This struct computes type conversions once
+/// and provides all the data needed for struct generation, trait impls, and constructors.
+struct EventFieldProjection {
+    /// Field name
+    name: Ident,
+    /// Type for the Rust struct definition (converted for indexed dynamic types)
+    struct_type: syn::Type,
+    /// Rust type as TokenStream for from/into tuple
+    rust_type: TokenStream,
+    /// Sol type as TokenStream for SolEvent codegen
+    sol_type: TokenStream,
+    /// Whether this field is indexed
+    is_indexed: bool,
+    /// Whether this indexed field is stored as a hash (dynamic types)
+    indexed_as_hash: bool,
+    /// Span for error reporting
+    span: Span,
+}
+
+impl EventFieldProjection {
+    /// Compute field projection from a field definition.
+    fn from_field(field: &FieldDef) -> syn::Result<Self> {
+        let sol_ty = SynSolType::parse(&field.ty)?;
+        let indexed_as_hash = field.indexed && !sol_ty.is_value_type();
+
+        let (struct_type, rust_type, sol_type) = if indexed_as_hash {
+            (
+                syn::parse_quote!(::alloy::primitives::FixedBytes<32>),
+                quote!(::alloy::primitives::FixedBytes<32>),
+                quote!(alloy_sol_types::sol_data::FixedBytes<32>),
+            )
+        } else {
+            let ty = &field.ty;
+            (field.ty.clone(), quote!(#ty), sol_ty.to_sol_data())
+        };
+
+        Ok(Self {
+            name: field.name.clone(),
+            struct_type,
+            rust_type,
+            sol_type,
+            is_indexed: field.indexed,
+            indexed_as_hash,
+            span: field.ty.span(),
+        })
     }
-    let sol_ty = SynSolType::parse(&field.ty)?;
-    Ok(!sol_ty.is_value_type())
+
+    /// Compute projections for all fields in a variant.
+    fn from_variant(variant: &EnumVariantDef) -> syn::Result<Vec<Self>> {
+        variant.fields.iter().map(Self::from_field).collect()
+    }
 }
 
 /// Generate code for a single variant (Error or Event).
 fn generate_variant(
     variant: &EnumVariantDef,
     registry: &TypeRegistry,
-    kind: VariantEnumKind,
+    kind: AbiType,
 ) -> syn::Result<TokenStream> {
     let struct_name = &variant.name;
     let signature =
         registry.compute_signature_from_fields(&variant.name.to_string(), &variant.fields)?;
 
     let (doc_kind, sol_kind, use_full_hash) = match kind {
-        VariantEnumKind::Error => ("Custom error", "error", false),
-        VariantEnumKind::Event => ("Event", "event", true),
+        AbiType::Error => ("Custom error", "error", false),
+        AbiType::Event => ("Event", "event", true),
+        AbiType::Calls => unreachable!(),
     };
 
     let doc = common::signature_doc(
@@ -241,34 +284,20 @@ fn generate_variant(
         variant.solidity_decl(sol_kind),
     );
 
-    // For events, convert indexed dynamic types to FixedBytes<32> (B256) in the struct.
-    // This matches sol! macro behavior where indexed String/Bytes/arrays are stored as hashes.
-    let variant_struct = match kind {
-        VariantEnumKind::Event => {
-            let converted_fields: Vec<(Ident, syn::Type)> = variant
-                .fields
-                .iter()
-                .map(|f| {
-                    let ty = if is_indexed_as_hash(f)? {
-                        syn::parse_quote!(::alloy::primitives::FixedBytes<32>)
-                    } else {
-                        f.ty.clone()
-                    };
-                    Ok((f.name.clone(), ty))
-                })
-                .collect::<syn::Result<Vec<_>>>()?;
-            let field_refs: Vec<_> = converted_fields.iter().map(|(n, t)| (n, t)).collect();
-            common::generate_simple_struct(struct_name, &field_refs, &doc)
+    let (variant_struct, trait_impl) = match kind {
+        AbiType::Event => {
+            let projections = EventFieldProjection::from_variant(variant)?;
+            let struct_ts = generate_event_struct(struct_name, &projections, &doc);
+            let impl_ts = generate_sol_event_impl(struct_name, &projections, &signature);
+            (struct_ts, impl_ts)
         }
-        VariantEnumKind::Error => {
+        AbiType::Error => {
             let field_pairs: Vec<_> = variant.fields().collect();
-            common::generate_simple_struct(struct_name, &field_pairs, &doc)
+            let struct_ts = common::generate_simple_struct(struct_name, &field_pairs, &doc);
+            let impl_ts = generate_sol_error_impl(variant, &signature)?;
+            (struct_ts, impl_ts)
         }
-    };
-
-    let trait_impl = match kind {
-        VariantEnumKind::Error => generate_sol_error_impl(variant, &signature)?,
-        VariantEnumKind::Event => generate_sol_event_impl(variant, &signature)?,
+        AbiType::Calls => unreachable!(),
     };
 
     Ok(quote! {
@@ -277,10 +306,44 @@ fn generate_variant(
     })
 }
 
+/// Generate event struct using precomputed projections.
+fn generate_event_struct(
+    name: &Ident,
+    projections: &[EventFieldProjection],
+    doc: &str,
+) -> TokenStream {
+    if projections.is_empty() {
+        quote! {
+            #[doc = #doc]
+            #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields, clippy::style)]
+            #[derive(Clone, Debug, PartialEq, Eq)]
+            pub struct #name;
+        }
+    } else {
+        let fields: Vec<_> = projections
+            .iter()
+            .map(|p| {
+                let n = &p.name;
+                let t = &p.struct_type;
+                quote! {
+                    #[allow(missing_docs)]
+                    pub #n: #t
+                }
+            })
+            .collect();
+
+        quote! {
+            #[doc = #doc]
+            #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields, clippy::style)]
+            #[derive(Clone, Debug, PartialEq, Eq)]
+            pub struct #name {
+                #(#fields),*
+            }
+        }
+    }
+}
+
 /// Generate SolError trait implementation (wrapped in const block to avoid type alias conflicts).
-///
-/// Note: Unlike `EventCodegen`, `ErrorCodegen.expand()` already includes `gen_from_into_tuple`
-/// internally, so we only need to wrap it in a const block.
 fn generate_sol_error_impl(variant: &EnumVariantDef, signature: &str) -> syn::Result<TokenStream> {
     let struct_name = &variant.name;
     let param_names = variant.field_names();
@@ -290,48 +353,18 @@ fn generate_sol_error_impl(variant: &EnumVariantDef, signature: &str) -> syn::Re
     let error_impl =
         ErrorCodegen::new(param_names, sol_types, rust_types, false).expand(struct_name, signature);
 
-    Ok(quote! {
-        #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields, clippy::style)]
-        const _: () = {
-            use alloy_sol_types as alloy_sol_types;
-            #error_impl
-        };
-    })
+    Ok(common::wrap_const_block(error_impl))
 }
 
-/// Generate SolEvent trait implementation (wrapped in const block to avoid type alias conflicts).
-///
-/// For indexed dynamic types (String, Bytes, arrays), both the Rust type and sol_data type
-/// are converted to FixedBytes<32> to match the struct definition and sol! macro behavior.
-fn generate_sol_event_impl(variant: &EnumVariantDef, signature: &str) -> syn::Result<TokenStream> {
-    let struct_name = &variant.name;
-    let field_names = variant.field_names();
-
-    // Build field info with type conversions for indexed dynamic types
-    let field_data: Vec<_> = variant
-        .fields
-        .iter()
-        .map(|f| {
-            let sol_ty = SynSolType::parse(&f.ty)?;
-            let indexed_as_hash = f.indexed && !sol_ty.is_value_type();
-
-            // For both struct and tuple conversion, use converted types
-            let (rust_type_ts, sol_type_ts) = if indexed_as_hash {
-                (
-                    quote!(::alloy::primitives::FixedBytes<32>),
-                    quote!(alloy_sol_types::sol_data::FixedBytes<32>),
-                )
-            } else {
-                let ty = &f.ty;
-                (quote!(#ty), sol_ty.to_sol_data())
-            };
-
-            Ok((f, rust_type_ts, sol_type_ts, indexed_as_hash))
-        })
-        .collect::<syn::Result<Vec<_>>>()?;
-
-    let rust_types: Vec<_> = field_data.iter().map(|(_, r, _, _)| r.clone()).collect();
-    let sol_types: Vec<_> = field_data.iter().map(|(_, _, s, _)| s.clone()).collect();
+/// Generate SolEvent trait implementation using precomputed projections.
+fn generate_sol_event_impl(
+    struct_name: &Ident,
+    projections: &[EventFieldProjection],
+    signature: &str,
+) -> TokenStream {
+    let field_names: Vec<_> = projections.iter().map(|p| p.name.clone()).collect();
+    let rust_types: Vec<_> = projections.iter().map(|p| p.rust_type.clone()).collect();
+    let sol_types: Vec<_> = projections.iter().map(|p| p.sol_type.clone()).collect();
 
     let layout = if field_names.is_empty() {
         StructLayout::Unit
@@ -341,83 +374,77 @@ fn generate_sol_event_impl(variant: &EnumVariantDef, signature: &str) -> syn::Re
     let from_tuple =
         gen_from_into_tuple(struct_name, &field_names, &sol_types, &rust_types, layout);
 
-    let fields: Vec<EventFieldInfo> = field_data
+    let fields: Vec<EventFieldInfo> = projections
         .iter()
-        .map(|(f, _, sol_type, indexed_as_hash)| EventFieldInfo {
-            name: f.name.clone(),
-            sol_type: sol_type.clone(),
-            is_indexed: f.indexed,
-            indexed_as_hash: *indexed_as_hash,
-            span: f.ty.span(),
+        .map(|p| EventFieldInfo {
+            name: p.name.clone(),
+            sol_type: p.sol_type.clone(),
+            is_indexed: p.is_indexed,
+            indexed_as_hash: p.indexed_as_hash,
+            span: p.span,
         })
         .collect();
 
     let event_impl = EventCodegen::new(false, fields).expand(struct_name, signature);
 
-    // Wrap in const block to avoid type alias conflicts between events
-    Ok(quote! {
-        #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields, clippy::style)]
-        const _: () = {
-            use alloy_sol_types as alloy_sol_types;
-            #from_tuple
-            #event_impl
-        };
+    common::wrap_const_block(quote! {
+        #from_tuple
+        #event_impl
     })
 }
 
 /// Generate constructor methods for container enum.
-///
-/// For Events, indexed dynamic types are converted to FixedBytes<32> to match the struct fields.
 fn generate_constructors(
     container: &Ident,
     variants: &[EnumVariantDef],
-    kind: VariantEnumKind,
+    kind: AbiType,
 ) -> syn::Result<TokenStream> {
     let constructors: Vec<TokenStream> = variants
         .iter()
-        .map(|v| {
-            let variant_name = &v.name;
-            let fn_name = format_ident!("{}", to_snake_case(&v.name.to_string()));
-
-            if v.fields.is_empty() {
-                Ok(quote! {
-                    #[doc = concat!("Creates a new `", stringify!(#variant_name), "`.")]
-                    pub const fn #fn_name() -> Self {
-                        Self::#variant_name(#variant_name)
-                    }
-                })
-            } else {
-                let param_names: Vec<_> = v.fields.iter().map(|f| &f.name).collect();
-
-                // For events, convert indexed dynamic types to FixedBytes<32>
-                let param_types: Vec<syn::Type> = match kind {
-                    VariantEnumKind::Event => v
-                        .fields
-                        .iter()
-                        .map(|f| {
-                            if is_indexed_as_hash(f)? {
-                                Ok(syn::parse_quote!(::alloy::primitives::FixedBytes<32>))
-                            } else {
-                                Ok(f.ty.clone())
-                            }
-                        })
-                        .collect::<syn::Result<Vec<_>>>()?,
-                    VariantEnumKind::Error => v.fields.iter().map(|f| f.ty.clone()).collect(),
-                };
-
-                Ok(quote! {
-                    #[doc = concat!("Creates a new `", stringify!(#variant_name), "`.")]
-                    pub fn #fn_name(#(#param_names: #param_types),*) -> Self {
-                        Self::#variant_name(#variant_name { #(#param_names),* })
-                    }
-                })
-            }
-        })
+        .map(|v| generate_constructor(v, kind))
         .collect::<syn::Result<Vec<_>>>()?;
 
     Ok(quote! {
         impl #container {
             #(#constructors)*
+        }
+    })
+}
+
+/// Generate a single constructor method.
+fn generate_constructor(variant: &EnumVariantDef, kind: AbiType) -> syn::Result<TokenStream> {
+    let variant_name = &variant.name;
+    let fn_name = format_ident!("{}", to_snake_case(&variant.name.to_string()));
+
+    if variant.fields.is_empty() {
+        return Ok(quote! {
+            #[doc = concat!("Creates a new `", stringify!(#variant_name), "`.")]
+            pub const fn #fn_name() -> Self {
+                Self::#variant_name(#variant_name)
+            }
+        });
+    }
+
+    let (param_names, param_types): (Vec<_>, Vec<_>) = match kind {
+        AbiType::Event => {
+            let projections = EventFieldProjection::from_variant(variant)?;
+            projections
+                .into_iter()
+                .map(|p| (p.name, p.struct_type))
+                .unzip()
+        }
+        AbiType::Error => variant
+            .fields
+            .iter()
+            .map(|f| (f.name.clone(), f.ty.clone()))
+            .unzip(),
+        AbiType::Calls => unreachable!(),
+    };
+
+    Ok(quote! {
+        #[doc = concat!("Creates a new `", stringify!(#variant_name), "`.")]
+        pub fn #fn_name(#(#param_names: #param_types),*) -> Self {
+            Self::#variant_name(#variant_name { #(#param_names),* })
         }
     })
 }

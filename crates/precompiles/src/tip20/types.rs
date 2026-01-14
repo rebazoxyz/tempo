@@ -238,59 +238,17 @@ pub mod rewards {
 
 pub use rewards::UserRewardInfo;
 
-// =============================================================================
-// Re-exports for TIP20 Core
-// =============================================================================
-
-pub use self::tip20::{
-    Approval, Burn, BurnBlocked, Calls as TIP20Calls, ContractPaused, Error as TIP20Error,
-    Event as TIP20Event, InsufficientAllowance, InsufficientBalance, Interface as ITIP20Interface,
-    InvalidAmount, InvalidCurrency, InvalidPayload, InvalidQuoteToken, InvalidRecipient,
-    InvalidSupplyCap, InvalidToken, InvalidTransferPolicyId, Mint, NextQuoteTokenSet,
-    NoOptedInSupply, PauseStateUpdate, PolicyForbids, ProtectedAddress, QuoteTokenUpdate,
-    StringTooLong, SupplyCapExceeded, SupplyCapUpdate, Transfer, TransferPolicyUpdate,
-    TransferWithMemo, TransfersDisabled, Uninitialized,
-};
-
-#[allow(non_snake_case)]
-pub mod ITIP20 {
-    #![allow(ambiguous_glob_reexports)]
-    pub use super::tip20::*;
-}
-
-// =============================================================================
-// Re-exports for Roles Auth
-// =============================================================================
-
-pub use roles_auth::{
-    Error as RolesAuthError, Event as RolesAuthEvent, RoleAdminUpdated, RoleMembershipUpdated,
-    Unauthorized,
-};
-
-#[allow(non_snake_case)]
-pub mod IRolesAuth {
-    pub use super::roles_auth::{
-        Calls, Interface, getRoleAdminCall, getRoleAdminReturn, grantRoleCall, grantRoleReturn,
-        hasRoleCall, hasRoleReturn, new, renounceRoleCall, renounceRoleReturn, revokeRoleCall,
-        revokeRoleReturn, roles_authInstance as IRolesAuthInstance, setRoleAdminCall,
-        setRoleAdminReturn,
-    };
-}
-
 pub const DEFAULT_ADMIN_ROLE: B256 = B256::ZERO;
 pub const UNGRANTABLE_ROLE: B256 = B256::new([0xff; 32]);
 
-// =============================================================================
-// Re-exports for Rewards
-// =============================================================================
+// Backward-compatibility aliases for Error/Event types
+pub use tip20::Error as TIP20Error;
+pub use tip20::Event as TIP20Event;
+pub use tip20::Calls as TIP20Calls;
+pub use tip20::Interface as ITIP20Interface;
+pub use tip20::{InvalidCurrency, PolicyForbids};
+pub use roles_auth::Error as RolesAuthError;
+pub use roles_auth::Event as RolesAuthEvent;
 
-#[allow(non_snake_case)]
-pub mod IRewards {
-    pub use super::rewards::{
-        Calls, Interface, claimRewardsCall, claimRewardsReturn, distributeRewardCall,
-        distributeRewardReturn, getPendingRewardsCall, getPendingRewardsReturn,
-        globalRewardPerTokenCall, globalRewardPerTokenReturn, new, optedInSupplyCall,
-        optedInSupplyReturn, rewardsInstance as IRewardsInstance, setRewardRecipientCall,
-        setRewardRecipientReturn, userRewardInfoCall, userRewardInfoReturn,
-    };
-}
+// Backward-compatibility module alias (ITIP20 -> ITip20)
+pub use ITip20 as ITIP20;

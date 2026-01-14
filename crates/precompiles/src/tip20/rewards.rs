@@ -3,7 +3,7 @@
 use crate::{
     error::{Result, TempoPrecompileError},
     storage::Handler,
-    tip20::{TIP20Error, TIP20Event, TIP20Token, Transfer},
+    tip20::{TIP20Error, TIP20Event, TIP20Token},
 };
 use alloy::primitives::{Address, U256};
 
@@ -139,11 +139,7 @@ impl rewards::Interface for TIP20Token {
                 )?;
             }
 
-            self.emit_event(TIP20Event::Transfer(Transfer {
-                from: contract_address,
-                to: msg_sender,
-                amount: max_amount,
-            }))?;
+            self.emit_event(TIP20Event::transfer(contract_address, msg_sender, max_amount))?;
         }
 
         Ok(max_amount)

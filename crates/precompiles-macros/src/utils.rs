@@ -82,15 +82,45 @@ pub(crate) fn to_camel_case(s: &str) -> String {
             continue;
         }
 
-        if first_word {
+        // Handle "tip" prefix - always uppercase to "TIP"
+        if word.to_lowercase().starts_with("tip") {
+            result.push_str("TIP");
+            result.push_str(&word[3..]);
+        } else if first_word {
             result.push_str(word);
-            first_word = false;
         } else {
             let mut chars = word.chars();
             if let Some(first) = chars.next() {
                 result.push_str(&first.to_uppercase().collect::<String>());
                 result.push_str(chars.as_str());
             }
+        }
+        first_word = false;
+    }
+    result
+}
+
+/// Converts snake_case to PascalCase. Preserves SCREAMING_SNAKE_CASE.
+pub(crate) fn to_pascal_case(s: &str) -> String {
+    if s.contains('_')
+        && s.chars()
+            .filter(|c| c.is_alphabetic())
+            .all(|c| c.is_uppercase())
+    {
+        return s.to_string();
+    }
+
+    let mut result = String::new();
+
+    for word in s.split('_') {
+        if word.is_empty() {
+            continue;
+        }
+
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            result.push_str(&first.to_uppercase().collect::<String>());
+            result.push_str(chars.as_str());
         }
     }
     result
@@ -311,6 +341,35 @@ mod tests {
 
         // Mixed case still converts
         assert_eq!(to_camel_case("get_Balance"), "getBalance");
+
+        // TIP prefix handling - always uppercase
+        assert_eq!(to_camel_case("tip20_factory"), "TIP20Factory");
+        assert_eq!(to_camel_case("is_tip20"), "isTIP20");
+        assert_eq!(to_camel_case("get_tip20_balance"), "getTIP20Balance");
+    }
+
+    #[test]
+    fn test_to_pascal_case() {
+        use super::to_pascal_case;
+
+        // snake_case → PascalCase
+        assert_eq!(to_pascal_case("tip20"), "Tip20");
+        assert_eq!(to_pascal_case("roles_auth"), "RolesAuth");
+        assert_eq!(to_pascal_case("rewards"), "Rewards");
+        assert_eq!(to_pascal_case("balance_of"), "BalanceOf");
+        assert_eq!(to_pascal_case("transfer_from"), "TransferFrom");
+
+        // Single word
+        assert_eq!(to_pascal_case("name"), "Name");
+        assert_eq!(to_pascal_case("token"), "Token");
+
+        // Already PascalCase (stays same)
+        assert_eq!(to_pascal_case("Already"), "Already");
+
+        // SCREAMING_SNAKE_CASE preserved (Solidity constants)
+        assert_eq!(to_pascal_case("DOMAIN_SEPARATOR"), "DOMAIN_SEPARATOR");
+        assert_eq!(to_pascal_case("PAUSE_ROLE"), "PAUSE_ROLE");
+        assert_eq!(to_pascal_case("ISSUER_ROLE"), "ISSUER_ROLE");
     }
 
     #[test]

@@ -8,6 +8,7 @@
 //! - `storable_alloy_bytes!` macro for generating alloy FixedBytes storage implementations
 //! - `storable_rust_ints!` macro for generating standard Rust integer storage implementations
 
+mod composition;
 mod layout;
 mod packing;
 mod solidity;
@@ -20,7 +21,7 @@ use alloy::primitives::U256;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Data, DeriveInput, Expr, Fields, Ident, Token, Type, Visibility,
+    Data, DeriveInput, Expr, Fields, Ident, Path, Token, Type, Visibility,
     parse::{Parse, ParseStream, Parser},
     parse_macro_input,
     punctuated::Punctuated,
@@ -29,31 +30,47 @@ use syn::{
 use crate::utils::extract_attributes;
 
 /// Configuration parsed from `#[contract(...)]` attribute arguments.
+#[derive(Default)]
 struct ContractConfig {
     /// Optional address expression for generating `Self::new()` and `Default`.
     address: Option<Expr>,
+    /// Solidity modules to compose into unified Calls/Error/Event enums.
+    solidity_modules: Vec<Path>,
 }
 
 impl Parse for ContractConfig {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        if input.is_empty() {
-            return Ok(Self { address: None });
+        let mut config = Self::default();
+
+        while !input.is_empty() {
+            let ident: Ident = input.parse()?;
+            match ident.to_string().as_str() {
+                "addr" | "address" => {
+                    input.parse::<Token![=]>()?;
+                    config.address = Some(input.parse()?);
+                }
+                "abi" => {
+                    let content;
+                    syn::parenthesized!(content in input);
+                    config.solidity_modules =
+                        Punctuated::<Path, Token![,]>::parse_terminated(&content)?
+                            .into_iter()
+                            .collect();
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!("unknown attribute `{other}`, expected `addr` or `abi`"),
+                    ));
+                }
+            }
+
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+            }
         }
 
-        let ident: Ident = input.parse()?;
-        if ident != "addr" && ident != "address" {
-            return Err(syn::Error::new(
-                ident.span(),
-                "only `addr` attribute is supported",
-            ));
-        }
-
-        input.parse::<Token![=]>()?;
-        let address: Expr = input.parse()?;
-
-        Ok(Self {
-            address: Some(address),
-        })
+        Ok(config)
     }
 }
 
@@ -63,7 +80,13 @@ const RESERVED: &[&str] = &["address", "storage", "msg_sender"];
 /// easily interact with the EVM storage.
 /// Its packing and encoding schemes aim to be an exact representation of the storage model used by Solidity.
 ///
-/// # Input: Storage Layout
+/// # Attributes
+///
+/// - `#[contract]` - Basic contract with storage accessors
+/// - `#[contract(addr = EXPR)]` - Contract with fixed address (generates `new()` and `Default`)
+/// - `#[contract(abi(mod1, mod2, ...))]` - Compose multiple `#[solidity]` modules into unified types
+///
+/// # Storage Layout Example
 ///
 /// ```ignore
 /// #[contract]
@@ -78,26 +101,103 @@ const RESERVED: &[&str] = &["address", "storage", "msg_sender"];
 /// }
 /// ```
 ///
-/// # Output: Contract with accessible storage via getter and setter methods.
+/// # Generated Types
 ///
 /// The macro generates:
 /// 1. Transformed struct with generic parameters and runtime fields
 /// 2. Constructor: `__new(address, storage)`
 /// 3. Type-safe (private) getter and setter methods
 ///
+/// # ABI Composition
+///
+/// When using `#[contract(abi(mod1, mod2, ...))]`, the macro generates unified types from
+/// multiple `#[solidity]` modules:
+///
+/// ```ignore
+/// #[contract(abi(types::tip20, types::roles_auth, types::rewards))]
+/// pub struct TIP20Token { ... }
+///
+/// // Generates:
+/// // - `TIP20TokenCalls` - Unified calls enum with variants for each module
+/// // - `TIP20TokenError` - Unified error enum with `From` impls
+/// // - `TIP20TokenEvent` - Unified event enum with `IntoLogData` impl
+/// ```
+///
+/// **Generated `{Name}Calls`:**
+/// - `SELECTORS: &[[u8; 4]]` - Flattened selectors from all modules
+/// - `valid_selector(sel) -> bool` - Check if selector matches any module
+/// - `abi_decode(data) -> Result<Self>` - Decode by selector routing
+/// - `SolInterface` trait impl
+///
+/// **Generated `{Name}Error`:**
+/// - `SELECTORS: &[[u8; 4]]` - All error selectors
+/// - `selector(&self) -> [u8; 4]` - Get selector for this error
+/// - `From<module::Error>` impls for ergonomic error conversion
+/// - `SolInterface` trait impl
+///
+/// **Generated `{Name}Event`:**
+/// - `SELECTORS: &[B256]` - All event topic0 hashes
+/// - `From<module::Event>` impls
+/// - `IntoLogData` trait impl
+///
 /// # Requirements
 ///
 /// - No duplicate slot assignments
 /// - Unique field names, excluding the reserved ones: `address`, `storage`, `msg_sender`.
 /// - All field types must implement `Storable`, and mapping keys must implement `StorageKey`.
+/// - For `abi(...)`: All referenced modules must be `#[solidity]` modules with `Calls`, `Error`, and `Event` types.
 #[proc_macro_attribute]
 pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
     let config = parse_macro_input!(attr as ContractConfig);
     let input = parse_macro_input!(item as DeriveInput);
 
-    match gen_contract_output(input, config.address.as_ref()) {
+    match gen_contract_output(input, &config) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Configuration parsed from `#[solidity(...)]` attribute arguments.
+#[derive(Default)]
+pub(crate) struct SolidityConfig {
+    /// Custom name for the interface alias module (defaults to `I{PascalCaseName}`).
+    pub interface_alias: Option<String>,
+    /// Disable auto re-export of module contents.
+    pub no_reexport: bool,
+}
+
+impl Parse for SolidityConfig {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let mut config = Self::default();
+
+        while !input.is_empty() {
+            let ident: Ident = input.parse()?;
+            match ident.to_string().as_str() {
+                "interface_alias" => {
+                    input.parse::<Token![=]>()?;
+                    let lit: syn::LitStr = input.parse()?;
+                    config.interface_alias = Some(lit.value());
+                }
+                "no_reexport" => {
+                    config.no_reexport = true;
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!(
+                            "unknown attribute `{other}`, expected `interface_alias` or `no_reexport`"
+                        ),
+                    ));
+                }
+            }
+
+            // Consume optional trailing comma
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+            }
+        }
+
+        Ok(config)
     }
 }
 
@@ -106,6 +206,31 @@ pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// This macro processes an entire module containing Solidity type definitions,
 /// enabling correct selector computation for functions with struct parameters
 /// and proper EIP-712 component tracking for nested structs.
+///
+/// # Attributes
+///
+/// - `#[solidity]` - Default behavior with auto re-exports
+/// - `#[solidity(interface_alias = "CustomName")]` - Custom interface alias module name
+/// - `#[solidity(no_reexport)]` - Disable auto re-export behavior
+///
+/// # Auto Re-exports
+///
+/// By default, the macro generates sibling re-export items after the module:
+///
+/// ```ignore
+/// #[solidity]
+/// pub mod tip20 { ... }
+///
+/// // Auto-generated:
+/// pub use self::tip20::*;
+/// #[allow(non_snake_case)]
+/// pub mod ITip20 { pub use super::tip20::*; }
+/// ```
+///
+/// The interface alias uses PascalCase naming: `tip20` → `ITip20`, `roles_auth` → `IRolesAuth`.
+///
+/// Use `#[solidity(no_reexport)]` to disable this behavior, or
+/// `#[solidity(interface_alias = "CustomName")]` to customize the alias name.
 ///
 /// # Naming Conventions
 ///
@@ -118,6 +243,11 @@ pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// | Other enums | Any valid identifier | 0 or more (unit variants only) |
 ///
 /// # Generated Types
+///
+/// **Always generated** (for `#[contract(abi(...))]` composition):
+/// - `Error` enum with `SELECTORS`, `valid_selector()`, `selector()` (dummy if not defined)
+/// - `Event` enum with `SELECTORS`, `IntoLogData` impl (dummy if not defined)
+/// - `Calls` enum with `SELECTORS`, `valid_selector()`, `abi_decode()` (dummy if not defined)
 ///
 /// For each struct:
 /// - `SolStruct`, `SolType`, `SolValue`, `EventTopic` implementations
@@ -141,6 +271,26 @@ pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `{camelCaseName}Call` structs with `SolCall` implementations
 /// - `Calls` enum with `SolInterface` implementation
 /// - Trait with `msg_sender: Address` auto-injected for `&mut self` methods
+///
+/// # Dummy Types
+///
+/// When a module doesn't define `Error`, `Event`, or `Interface`, the macro generates
+/// empty "dummy" types to ensure compatibility with `#[contract(abi(...))]` composition:
+///
+/// ```ignore
+/// #[solidity]
+/// pub mod rewards {
+///     pub trait Interface {
+///         fn claim_rewards(&mut self) -> Result<U256>;
+///     }
+/// }
+/// // Generates real Calls enum + dummy Error and Event enums
+/// ```
+///
+/// Dummy types implement the required API with empty selectors:
+/// - `Error::SELECTORS` = `&[]`, `valid_selector()` returns `false`
+/// - `Event::SELECTORS` = `&[]`
+/// - `Calls` (if no Interface) = empty enum with `abi_decode()` returning error
 ///
 /// # Example
 ///
@@ -183,33 +333,29 @@ pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn solidity(attr: TokenStream, item: TokenStream) -> TokenStream {
-    if !attr.is_empty() {
-        return syn::Error::new_spanned(
-            proc_macro2::TokenStream::from(attr),
-            "#[solidity] does not accept any arguments",
-        )
-        .to_compile_error()
-        .into();
-    }
-
+    let config = parse_macro_input!(attr as SolidityConfig);
     let input = parse_macro_input!(item as syn::ItemMod);
 
-    match solidity::expand(input) {
+    match solidity::expand(input, config) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-/// Main code generation function with optional call trait generation
 fn gen_contract_output(
     input: DeriveInput,
-    address: Option<&Expr>,
+    config: &ContractConfig,
 ) -> syn::Result<proc_macro2::TokenStream> {
     let (ident, vis) = (input.ident.clone(), input.vis.clone());
     let fields = parse_fields(input)?;
 
-    let storage_output = gen_contract_storage(&ident, &vis, &fields, address)?;
-    Ok(quote! { #storage_output })
+    let storage_output = gen_contract_storage(&ident, &vis, &fields, config.address.as_ref())?;
+    let composition_output = composition::generate_composition(&ident, &config.solidity_modules)?;
+
+    Ok(quote! {
+        #storage_output
+        #composition_output
+    })
 }
 
 /// Information extracted from a field in the storage schema

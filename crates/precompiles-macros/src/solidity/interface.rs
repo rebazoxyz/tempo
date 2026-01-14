@@ -9,7 +9,7 @@ use alloy_sol_macro_expander::{
     CallCodegen, CallLayout, ContractCodegen, ContractFunctionInfo, ReturnInfo, SolInterfaceKind,
     StructLayout, gen_from_into_tuple, is_reserved_method_name,
 };
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
 use super::{
@@ -18,18 +18,43 @@ use super::{
     registry::TypeRegistry,
 };
 
+/// Precomputed method metadata to avoid redundant signature computation.
+struct MethodCodegen<'a> {
+    method: &'a MethodDef,
+    signature: String,
+    call_name: Ident,
+    variant_name: Ident,
+}
+
+impl<'a> MethodCodegen<'a> {
+    fn from_method(method: &'a MethodDef, registry: &TypeRegistry) -> syn::Result<Self> {
+        let signature = registry.compute_signature(&method.sol_name, &method.field_raw_types())?;
+        Ok(Self {
+            method,
+            signature,
+            call_name: format_ident!("{}Call", method.sol_name),
+            variant_name: format_ident!("{}", method.sol_name),
+        })
+    }
+}
+
 /// Generate code for the Interface trait.
 pub(super) fn generate_interface(
     def: &InterfaceDef,
     registry: &TypeRegistry,
 ) -> syn::Result<TokenStream> {
-    let method_impls = def
+    let methods: Vec<MethodCodegen<'_>> = def
         .methods
         .iter()
-        .map(|m| generate_method_code(m, registry))
+        .map(|m| MethodCodegen::from_method(m, registry))
         .collect::<syn::Result<Vec<_>>>()?;
 
-    let calls_enum = generate_calls_enum(&def.methods, registry)?;
+    let method_impls = methods
+        .iter()
+        .map(generate_method_code)
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    let calls_enum = generate_calls_enum(&methods);
 
     let transformed_trait = generate_transformed_trait(def);
 
@@ -80,9 +105,11 @@ fn generate_transformed_trait(def: &InterfaceDef) -> TokenStream {
     }
 }
 
-/// Generate code for a single method.
-fn generate_method_code(method: &MethodDef, registry: &TypeRegistry) -> syn::Result<TokenStream> {
-    let call_name = format_ident!("{}Call", method.sol_name);
+/// Generate code for a single method using precomputed metadata.
+fn generate_method_code(mc: &MethodCodegen<'_>) -> syn::Result<TokenStream> {
+    let method = mc.method;
+    let call_name = &mc.call_name;
+    let signature = &mc.signature;
     let return_name = format_ident!("{}Return", method.sol_name);
 
     let param_names = method.field_names();
@@ -95,17 +122,15 @@ fn generate_method_code(method: &MethodDef, registry: &TypeRegistry) -> syn::Res
         tokenize_impl,
     } = common::encode_params(&param_names, &param_raw_types)?;
 
-    let signature = registry.compute_signature(&method.sol_name, &param_raw_types)?;
-
     let doc = common::signature_doc(
         "Function",
-        &signature,
+        signature,
         false,
         method.solidity_decl("function"),
     );
 
     let call_fields: Vec<_> = method.fields().collect();
-    let call_struct = common::generate_simple_struct(&call_name, &call_fields, &doc);
+    let call_struct = common::generate_simple_struct(call_name, &call_fields, &doc);
 
     let (return_struct, return_from_tuple, return_sol_tuple, return_info) =
         if let Some(ref ret_ty) = method.return_type {
@@ -137,7 +162,6 @@ fn generate_method_code(method: &MethodDef, registry: &TypeRegistry) -> syn::Res
                 },
             )
         } else {
-            // For empty returns, generate _tokenize method required by CallCodegen
             (
                 quote! {
                     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -164,7 +188,7 @@ fn generate_method_code(method: &MethodDef, registry: &TypeRegistry) -> syn::Res
         StructLayout::Named
     };
     let call_from_tuple = gen_from_into_tuple(
-        &call_name,
+        call_name,
         &param_names,
         &param_sol_types,
         &param_rust_types,
@@ -172,53 +196,66 @@ fn generate_method_code(method: &MethodDef, registry: &TypeRegistry) -> syn::Res
     );
 
     let sol_call_impl = CallCodegen::new(call_tuple, return_sol_tuple, tokenize_impl, return_info)
-        .expand(&call_name, &signature);
+        .expand(call_name, signature);
 
-    // Wrap trait impls in const blocks to avoid type alias conflicts between calls
+    let call_const_block = common::wrap_const_block(quote! {
+        #call_from_tuple
+        #sol_call_impl
+    });
+    let return_const_block = common::wrap_const_block(return_from_tuple);
+
     Ok(quote! {
         #call_struct
         #return_struct
-
-        #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields, clippy::style)]
-        const _: () = {
-            use alloy_sol_types as alloy_sol_types;
-            #call_from_tuple
-            #sol_call_impl
-        };
-
-        #[allow(non_camel_case_types, non_snake_case, clippy::pub_underscore_fields, clippy::style)]
-        const _: () = {
-            use alloy_sol_types as alloy_sol_types;
-            #return_from_tuple
-        };
+        #call_const_block
+        #return_const_block
     })
 }
 
-/// Generate the container enum for all calls.
-fn generate_calls_enum(methods: &[MethodDef], registry: &TypeRegistry) -> syn::Result<TokenStream> {
-    fn vec<T>(capacity: usize) -> Vec<T> {
-        Vec::with_capacity(capacity)
-    }
+/// Generate the container enum for all calls using precomputed metadata.
+fn generate_calls_enum(methods: &[MethodCodegen<'_>]) -> TokenStream {
+    let (variants, types, signatures, field_counts): (Vec<_>, Vec<_>, Vec<_>, Vec<_>) = methods
+        .iter()
+        .map(|mc| {
+            (
+                mc.variant_name.clone(),
+                mc.call_name.clone(),
+                mc.signature.clone(),
+                mc.method.params.len(),
+            )
+        })
+        .unzip4();
 
-    let cap = methods.len();
-    let (mut variants, mut types, mut signatures, mut field_counts) =
-        (vec(cap), vec(cap), vec(cap), vec(cap));
-
-    for m in methods {
-        variants.push(format_ident!("{}", m.sol_name));
-        types.push(format_ident!("{}Call", m.sol_name));
-        signatures.push(registry.compute_signature(&m.sol_name, &m.field_raw_types())?);
-        field_counts.push(m.params.len());
-    }
-
-    Ok(common::generate_sol_interface_container(
+    common::generate_sol_interface_container(
         "Calls",
         &variants,
         &types,
         &signatures,
         &field_counts,
         SolInterfaceKind::Call,
-    ))
+    )
+}
+
+/// Helper trait to unzip an iterator of 4-tuples.
+trait Unzip4<A, B, C, D> {
+    fn unzip4(self) -> (Vec<A>, Vec<B>, Vec<C>, Vec<D>);
+}
+
+impl<I, A, B, C, D> Unzip4<A, B, C, D> for I
+where
+    I: Iterator<Item = (A, B, C, D)>,
+{
+    fn unzip4(self) -> (Vec<A>, Vec<B>, Vec<C>, Vec<D>) {
+        let (mut a_vec, mut b_vec, mut c_vec, mut d_vec) = (vec![], vec![], vec![], vec![]);
+        for (a, b, c, d) in self {
+            a_vec.push(a);
+            b_vec.push(b);
+            c_vec.push(c);
+            d_vec.push(d);
+        }
+
+        (a_vec, b_vec, c_vec, d_vec)
+    }
 }
 
 /// Generate provider-bound instance struct for RPC interactions.
