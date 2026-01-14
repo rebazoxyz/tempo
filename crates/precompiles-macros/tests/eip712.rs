@@ -13,8 +13,10 @@
 //!
 //! 3. **Edge cases**: Deep nesting, diamond dependencies, arrays of structs, etc.
 
-use alloy::primitives::{Address, B256, U256, b256};
-use alloy::sol_types::{SolStruct, SolValue, eip712_domain};
+use alloy::{
+    primitives::{Address, B256, U256, b256},
+    sol_types::{SolStruct, SolValue, eip712_domain},
+};
 use tempo_precompiles_macros::solidity;
 
 #[solidity]

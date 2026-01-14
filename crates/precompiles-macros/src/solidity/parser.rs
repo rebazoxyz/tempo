@@ -47,7 +47,7 @@ pub(super) trait FieldAccessors {
         self.fields()
             .map(|(name, ty)| {
                 let sol_name = super::common::SynSolType::parse(ty)?.sol_name();
-                Ok(format!("{} {}", sol_name, name))
+                Ok(format!("{sol_name} {name}"))
             })
             .collect::<syn::Result<Vec<_>>>()
             .map(|v| v.join(", "))

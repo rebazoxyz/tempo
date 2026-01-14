@@ -4,7 +4,7 @@ use std::hint::black_box;
 use tempo_precompiles::{
     storage::{StorageCtx, hashmap::HashMapStorageProvider},
     test_util::TIP20Setup,
-    tip20::{ISSUER_ROLE, ITIP20, PAUSE_ROLE, UNPAUSE_ROLE},
+    tip20::{ISSUER_ROLE, ITIP20Interface, PAUSE_ROLE, UNPAUSE_ROLE},
     tip403_registry::{ITIP403Registry, TIP403Registry},
 };
 
@@ -82,15 +82,7 @@ fn tip20_metadata(c: &mut Criterion) {
                 .apply()
                 .unwrap();
             let _ = token.grant_role_internal(admin, *ISSUER_ROLE);
-            token
-                .mint(
-                    admin,
-                    ITIP20::mintCall {
-                        to: user,
-                        amount: U256::from(1000),
-                    },
-                )
-                .unwrap();
+            token.mint(admin, user, U256::from(1000)).unwrap();
 
             b.iter(|| {
                 let token = black_box(&mut token);
@@ -111,20 +103,12 @@ fn tip20_view(c: &mut Criterion) {
                 .apply()
                 .unwrap();
             let _ = token.grant_role_internal(admin, *ISSUER_ROLE);
-            token
-                .mint(
-                    admin,
-                    ITIP20::mintCall {
-                        to: user,
-                        amount: U256::from(1000),
-                    },
-                )
-                .unwrap();
+            token.mint(admin, user, U256::from(1000)).unwrap();
 
             b.iter(|| {
                 let token = black_box(&mut token);
-                let call = black_box(ITIP20::balanceOfCall { account: user });
-                let result = token.balance_of(call).unwrap();
+                let user = black_box(user);
+                let result = token.balance_of(user).unwrap();
                 black_box(result);
             });
         });
@@ -139,20 +123,13 @@ fn tip20_view(c: &mut Criterion) {
             let mut token = TIP20Setup::create("TestToken", "TEST", admin)
                 .apply()
                 .unwrap();
-            token
-                .approve(
-                    owner,
-                    ITIP20::approveCall {
-                        spender,
-                        amount: U256::from(500),
-                    },
-                )
-                .unwrap();
+            token.approve(owner, spender, U256::from(500)).unwrap();
 
             b.iter(|| {
                 let token = black_box(&mut token);
-                let call = black_box(ITIP20::allowanceCall { owner, spender });
-                let result = token.allowance(call).unwrap();
+                let owner = black_box(owner);
+                let spender = black_box(spender);
+                let result = token.allowance(owner, spender).unwrap();
                 black_box(result);
             });
         });
@@ -222,8 +199,9 @@ fn tip20_mutate(c: &mut Criterion) {
             b.iter(|| {
                 let token = black_box(&mut token);
                 let admin = black_box(admin);
-                let call = black_box(ITIP20::mintCall { to: user, amount });
-                token.mint(admin, call).unwrap();
+                let user = black_box(user);
+                let amount = black_box(amount);
+                token.mint(admin, user, amount).unwrap();
             });
         });
     });
@@ -237,22 +215,14 @@ fn tip20_mutate(c: &mut Criterion) {
                 .unwrap();
             let _ = token.grant_role_internal(admin, *ISSUER_ROLE);
             // Pre-mint tokens for burning
-            token
-                .mint(
-                    admin,
-                    ITIP20::mintCall {
-                        to: admin,
-                        amount: U256::from(u128::MAX),
-                    },
-                )
-                .unwrap();
+            token.mint(admin, admin, U256::from(u128::MAX)).unwrap();
 
             let amount = U256::ONE;
             b.iter(|| {
                 let token = black_box(&mut token);
                 let admin = black_box(admin);
-                let call = black_box(ITIP20::burnCall { amount });
-                token.burn(admin, call).unwrap();
+                let amount = black_box(amount);
+                token.burn(admin, amount).unwrap();
             });
         });
     });
@@ -271,8 +241,9 @@ fn tip20_mutate(c: &mut Criterion) {
             b.iter(|| {
                 let token = black_box(&mut token);
                 let owner = black_box(owner);
-                let call = black_box(ITIP20::approveCall { spender, amount });
-                let result = token.approve(owner, call).unwrap();
+                let spender = black_box(spender);
+                let amount = black_box(amount);
+                let result = token.approve(owner, spender, amount).unwrap();
                 black_box(result);
             });
         });
@@ -289,22 +260,15 @@ fn tip20_mutate(c: &mut Criterion) {
                 .unwrap();
             let _ = token.grant_role_internal(admin, *ISSUER_ROLE);
             // Pre-mint tokens for transfers
-            token
-                .mint(
-                    admin,
-                    ITIP20::mintCall {
-                        to: from,
-                        amount: U256::from(u128::MAX),
-                    },
-                )
-                .unwrap();
+            token.mint(admin, from, U256::from(u128::MAX)).unwrap();
 
             let amount = U256::ONE;
             b.iter(|| {
                 let token = black_box(&mut token);
                 let from = black_box(from);
-                let call = black_box(ITIP20::transferCall { to, amount });
-                let result = token.transfer(from, call).unwrap();
+                let to = black_box(to);
+                let amount = black_box(amount);
+                let result = token.transfer(from, to, amount).unwrap();
                 black_box(result);
             });
         });
@@ -322,23 +286,9 @@ fn tip20_mutate(c: &mut Criterion) {
                 .unwrap();
             let _ = token.grant_role_internal(admin, *ISSUER_ROLE);
             // Pre-mint tokens and set allowance
+            token.mint(admin, owner, U256::from(u128::MAX)).unwrap();
             token
-                .mint(
-                    admin,
-                    ITIP20::mintCall {
-                        to: owner,
-                        amount: U256::from(u128::MAX),
-                    },
-                )
-                .unwrap();
-            token
-                .approve(
-                    owner,
-                    ITIP20::approveCall {
-                        spender,
-                        amount: U256::from(u128::MAX),
-                    },
-                )
+                .approve(owner, spender, U256::from(u128::MAX))
                 .unwrap();
 
             let amount = U256::ONE;
@@ -346,12 +296,12 @@ fn tip20_mutate(c: &mut Criterion) {
             b.iter(|| {
                 let token = black_box(&mut token);
                 let spender = black_box(spender);
-                let call = black_box(ITIP20::transferFromCall {
-                    from: owner,
-                    to: recipient,
-                    amount,
-                });
-                let result = token.transfer_from(spender, call).unwrap();
+                let owner = black_box(owner);
+                let recipient = black_box(recipient);
+                let amount = black_box(amount);
+                let result = token
+                    .transfer_from(spender, owner, recipient, amount)
+                    .unwrap();
                 black_box(result);
             });
         });
@@ -369,22 +319,16 @@ fn tip20_mutate(c: &mut Criterion) {
                 .unwrap();
             let _ = token.grant_role_internal(admin, *ISSUER_ROLE);
             // Pre-mint tokens for transfers
-            token
-                .mint(
-                    admin,
-                    ITIP20::mintCall {
-                        to: from,
-                        amount: U256::from(u128::MAX),
-                    },
-                )
-                .unwrap();
+            token.mint(admin, from, U256::from(u128::MAX)).unwrap();
 
             let amount = U256::ONE;
             b.iter(|| {
                 let token = black_box(&mut token);
                 let from = black_box(from);
-                let call = black_box(ITIP20::transferWithMemoCall { to, amount, memo });
-                token.transfer_with_memo(from, call).unwrap();
+                let to = black_box(to);
+                let amount = black_box(amount);
+                let memo = black_box(memo);
+                token.transfer_with_memo(from, to, amount, memo).unwrap();
             });
         });
     });
@@ -401,8 +345,7 @@ fn tip20_mutate(c: &mut Criterion) {
             b.iter(|| {
                 let token = black_box(&mut token);
                 let admin = black_box(admin);
-                let call = black_box(ITIP20::pauseCall {});
-                token.pause(admin, call).unwrap();
+                token.pause(admin).unwrap();
             });
         });
     });
@@ -419,8 +362,7 @@ fn tip20_mutate(c: &mut Criterion) {
             b.iter(|| {
                 let token = black_box(&mut token);
                 let admin = black_box(admin);
-                let call = black_box(ITIP20::unpauseCall {});
-                token.unpause(admin, call).unwrap();
+                token.unpause(admin).unwrap();
             });
         });
     });
@@ -437,10 +379,8 @@ fn tip20_mutate(c: &mut Criterion) {
             b.iter(|| {
                 let token = black_box(&mut token);
                 let admin = black_box(admin);
-                let call = black_box(ITIP20::setSupplyCapCall {
-                    newSupplyCap: counter,
-                });
-                token.set_supply_cap(admin, call).unwrap();
+                let counter = black_box(counter);
+                token.set_supply_cap(admin, counter).unwrap();
             });
         });
     });
@@ -457,10 +397,8 @@ fn tip20_mutate(c: &mut Criterion) {
             b.iter(|| {
                 let token = black_box(&mut token);
                 let admin = black_box(admin);
-                let call = black_box(ITIP20::changeTransferPolicyIdCall {
-                    newPolicyId: policy_id,
-                });
-                token.change_transfer_policy_id(admin, call).unwrap();
+                let policy_id = black_box(policy_id);
+                token.change_transfer_policy_id(admin, policy_id).unwrap();
             });
         });
     });

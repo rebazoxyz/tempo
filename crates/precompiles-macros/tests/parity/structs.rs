@@ -1,7 +1,9 @@
 //! Struct encoding parity tests between `#[solidity]` and `sol!`.
 
-use alloy::primitives::{Address, B256, Bytes, I256, U256};
-use alloy::sol_types::SolValue;
+use alloy::{
+    primitives::{Address, B256, Bytes, I256, U256},
+    sol_types::SolValue,
+};
 use alloy_sol_macro::sol;
 use tempo_precompiles_macros::solidity;
 

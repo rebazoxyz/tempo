@@ -432,8 +432,10 @@ mod tests {
 /// especially for complex types like structs.
 #[cfg(test)]
 mod macro_tests {
-    use alloy::primitives::{Address, U256};
-    use alloy::sol_types::{SolCall, SolStruct};
+    use alloy::{
+        primitives::{Address, U256},
+        sol_types::{SolCall, SolStruct},
+    };
     use tempo_precompiles_macros::solidity;
 
     use crate::error::Result;

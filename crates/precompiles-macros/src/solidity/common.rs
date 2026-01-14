@@ -5,8 +5,7 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::{GenericArgument, PathArguments, Type, TypePath};
 
-use super::parser::EnumVariantDef;
-use super::registry::TypeRegistry;
+use super::{parser::EnumVariantDef, registry::TypeRegistry};
 
 /// Represents a Solidity type for code generation purposes.
 ///
@@ -225,13 +224,11 @@ pub(super) fn signature_doc(
 
     if let Some(sol) = solidity_decl {
         format!(
-            "{} with signature `{}` and selector `0x{}`.\n```solidity\n{}\n```",
-            kind, signature, hash, sol
+            "{kind} with signature `{signature}` and selector `0x{hash}`.\n```solidity\n{sol}\n```"
         )
     } else {
         format!(
-            "{} with signature `{}` and selector `0x{}`.",
-            kind, signature, hash
+            "{kind} with signature `{signature}` and selector `0x{hash}`."
         )
     }
 }

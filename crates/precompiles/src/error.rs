@@ -10,9 +10,8 @@ use alloy::{
 };
 use revm::precompile::{PrecompileError, PrecompileOutput, PrecompileResult};
 use tempo_contracts::precompiles::{
-    AccountKeychainError, FeeManagerError, NonceError, StablecoinDEXError,
-    TIP20FactoryError, TIP403RegistryError, TIPFeeAMMError, UnknownFunctionSelector,
-    ValidatorConfigError,
+    AccountKeychainError, FeeManagerError, NonceError, StablecoinDEXError, TIP20FactoryError,
+    TIP403RegistryError, TIPFeeAMMError, UnknownFunctionSelector, ValidatorConfigError,
 };
 
 /// Top-level error type for all Tempo precompile operations

@@ -6,8 +6,8 @@ use crate::{
     PATH_USD_ADDRESS, Precompile, Result,
     storage::{ContractStorage, StorageCtx, hashmap::HashMapStorageProvider},
     tip20::{
-        self, TIP20Error, TIP20Token, tip20::Interface as _,
-        rewards::rewards::Interface as IRewards,
+        self, TIP20Error, TIP20Token, rewards::rewards::Interface as IRewards,
+        tip20::Interface as _,
     },
     tip20_factory::{self, TIP20Factory},
 };

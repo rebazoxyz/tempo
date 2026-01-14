@@ -2,9 +2,9 @@ pub mod dispatch;
 pub mod rewards;
 pub mod roles;
 
-pub use roles::{IRolesAuth, RolesAuthError, RolesAuthEvent};
 pub use rewards::IRewards;
 use rewards::rewards::Interface as _;
+pub use roles::{IRolesAuth, RolesAuthError, RolesAuthEvent};
 use tempo_contracts::precompiles::STABLECOIN_DEX_ADDRESS;
 
 use crate::{
@@ -557,9 +557,14 @@ impl tip20::Interface for TIP20Token {
         self._transfer(from, Address::ZERO, amount)?;
 
         let total_supply = self.total_supply()?;
-        let new_supply = total_supply
-            .checked_sub(amount)
-            .ok_or(TIP20Error::insufficient_balance(total_supply, amount, self.address))?;
+        let new_supply =
+            total_supply
+                .checked_sub(amount)
+                .ok_or(TIP20Error::insufficient_balance(
+                    total_supply,
+                    amount,
+                    self.address,
+                ))?;
         self.set_total_supply(new_supply)?;
 
         self.emit_event(TIP20Event::burn_blocked(from, amount))
@@ -639,7 +644,10 @@ impl tip20::Interface for TIP20Token {
 
         self.transfer_policy_id.write(new_policy_id)?;
 
-        self.emit_event(TIP20Event::transfer_policy_update(msg_sender, new_policy_id))
+        self.emit_event(TIP20Event::transfer_policy_update(
+            msg_sender,
+            new_policy_id,
+        ))
     }
 
     fn set_supply_cap(&mut self, msg_sender: Address, new_supply_cap: U256) -> Result<()> {
@@ -671,7 +679,11 @@ impl tip20::Interface for TIP20Token {
         self.emit_event(TIP20Event::pause_state_update(msg_sender, false))
     }
 
-    fn set_next_quote_token(&mut self, msg_sender: Address, new_quote_token: Address) -> Result<()> {
+    fn set_next_quote_token(
+        &mut self,
+        msg_sender: Address,
+        new_quote_token: Address,
+    ) -> Result<()> {
         self.check_role(msg_sender, DEFAULT_ADMIN_ROLE)?;
 
         // Verify the new quote token is a valid TIP20 token that has been deployed
@@ -691,7 +703,10 @@ impl tip20::Interface for TIP20Token {
 
         self.next_quote_token.write(new_quote_token)?;
 
-        self.emit_event(TIP20Event::next_quote_token_set(msg_sender, new_quote_token))
+        self.emit_event(TIP20Event::next_quote_token_set(
+            msg_sender,
+            new_quote_token,
+        ))
     }
 
     fn complete_quote_token_update(&mut self, msg_sender: Address) -> Result<()> {
@@ -922,7 +937,11 @@ impl TIP20Token {
         refund: U256,
         actual_spending: U256,
     ) -> Result<()> {
-        self.emit_event(TIP20Event::transfer(to, TIP_FEE_MANAGER_ADDRESS, actual_spending))?;
+        self.emit_event(TIP20Event::transfer(
+            to,
+            TIP_FEE_MANAGER_ADDRESS,
+            actual_spending,
+        ))?;
 
         // Exit early if there is no refund
         if refund.is_zero() {
@@ -1763,7 +1782,8 @@ pub(crate) mod tests {
                 .apply()?;
 
             // Attempt to burn from FeeManager
-            let result = token.burn_blocked(burner, TIP_FEE_MANAGER_ADDRESS, amount / U256::from(2));
+            let result =
+                token.burn_blocked(burner, TIP_FEE_MANAGER_ADDRESS, amount / U256::from(2));
 
             assert!(matches!(
                 result,

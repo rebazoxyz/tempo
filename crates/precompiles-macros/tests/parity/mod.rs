@@ -7,8 +7,10 @@
 //! - **Anonymous events**: `sol!` supports `event Foo() anonymous;`
 //! - **Overloaded functions**: Rust traits don't support method overloading
 
-use alloy::primitives::keccak256;
-use alloy::sol_types::{SolCall, SolError, SolEvent, SolValue};
+use alloy::{
+    primitives::keccak256,
+    sol_types::{SolCall, SolError, SolEvent, SolValue},
+};
 
 mod enums;
 mod errors;

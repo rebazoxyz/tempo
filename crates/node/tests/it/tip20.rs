@@ -7,7 +7,10 @@ use alloy::{
 use futures::future::try_join_all;
 use tempo_chainspec::spec::TEMPO_BASE_FEE;
 use tempo_contracts::precompiles::{ITIP20, ITIP403Registry, TIP20Error};
-use tempo_precompiles::{TIP403_REGISTRY_ADDRESS, tip20::IRewards, tip20::IRolesAuth};
+use tempo_precompiles::{
+    TIP403_REGISTRY_ADDRESS,
+    tip20::{IRewards, IRolesAuth},
+};
 
 use crate::utils::{TestNodeBuilder, await_receipts, setup_test_token};
 

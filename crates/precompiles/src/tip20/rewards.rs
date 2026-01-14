@@ -44,8 +44,8 @@ pub mod rewards {
     }
 }
 
-pub use rewards::UserRewardInfo;
 use rewards::Interface as _;
+pub use rewards::UserRewardInfo;
 
 #[allow(non_snake_case)]
 pub mod IRewards {
@@ -369,7 +369,7 @@ mod tests {
         error::TempoPrecompileError,
         storage::{StorageCtx, hashmap::HashMapStorageProvider},
         test_util::TIP20Setup,
-        tip20::{ITIP20, PolicyForbids},
+        tip20::{ITIP20Interface, PolicyForbids},
         tip403_registry::{ITIP403Registry, TIP403Registry},
     };
     use alloy::primitives::{Address, U256};
@@ -387,18 +387,14 @@ mod tests {
                 .with_mint(alice, amount)
                 .apply()?;
 
-            token
-                .set_reward_recipient(alice, alice)?;
+            token.set_reward_recipient(alice, alice)?;
 
             let info = token.user_reward_info[alice].read()?;
             assert_eq!(info.reward_recipient, alice);
             assert_eq!(token.opted_in_supply()?, amount.to::<u128>());
             assert_eq!(info.reward_per_token, U256::ZERO);
 
-            token.set_reward_recipient(
-                alice,
-                Address::ZERO,
-            )?;
+            token.set_reward_recipient(alice, Address::ZERO)?;
 
             let info = token.user_reward_info[alice].read()?;
             assert_eq!(info.reward_recipient, Address::ZERO);
@@ -424,8 +420,7 @@ mod tests {
                 .with_mint(admin, reward_amount)
                 .apply()?;
 
-            token
-                .set_reward_recipient(alice, alice)?;
+            token.set_reward_recipient(alice, alice)?;
 
             // Distribute rewards
             token.distribute_reward(admin, reward_amount)?;
@@ -450,15 +445,8 @@ mod tests {
             assert_eq!(token.get_balance(token.address)?, U256::ZERO);
 
             // Distributing zero amount should fail
-            token.mint(
-                admin,
-                ITIP20::mintCall {
-                    to: admin,
-                    amount: U256::from(1),
-                },
-            )?;
-            let result =
-                token.distribute_reward(admin, U256::ZERO);
+            token.mint(admin, admin, U256::from(1))?;
+            let result = token.distribute_reward(admin, U256::ZERO);
             assert!(result.is_err());
 
             Ok(())
@@ -481,8 +469,7 @@ mod tests {
                 .with_mint(admin, reward_amount)
                 .apply()?;
 
-            token
-                .set_reward_recipient(alice, alice)?;
+            token.set_reward_recipient(alice, alice)?;
 
             // Before any rewards, pending should be 0
             let pending_before = token.get_pending_rewards(alice)?;
@@ -523,8 +510,7 @@ mod tests {
                 .with_mint(admin, reward_amount * U256::from(2))
                 .apply()?;
 
-            token
-                .set_reward_recipient(alice, alice)?;
+            token.set_reward_recipient(alice, alice)?;
 
             // Distribute first reward
             token.distribute_reward(admin, reward_amount)?;
@@ -606,8 +592,7 @@ mod tests {
                 .apply()?;
 
             // Only alice opts in
-            token
-                .set_reward_recipient(alice, alice)?;
+            token.set_reward_recipient(alice, alice)?;
 
             // Distribute reward
             token.distribute_reward(admin, reward_amount)?;
@@ -653,12 +638,7 @@ mod tests {
 
             let mut token = TIP20Setup::create("Test", "TST", admin).apply()?;
 
-            token.change_transfer_policy_id(
-                admin,
-                ITIP20::changeTransferPolicyIdCall {
-                    new_policy_id: policy_id,
-                },
-            )?;
+            token.change_transfer_policy_id(admin, policy_id)?;
 
             let err = token.claim_rewards(alice).unwrap_err();
             assert!(

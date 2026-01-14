@@ -3,9 +3,10 @@ use crate::{
     error::TempoPrecompileError,
     input_cost, metadata, mutate, mutate_void,
     tip20::{
-        ITIP20, TIP20Error, TIP20Token, tip20::Interface as _,
+        ITIP20, TIP20Error, TIP20Token,
         rewards::rewards::{self, Interface as IRewards},
         roles::roles_auth::{self, Interface as IRolesAuth},
+        tip20::Interface as _,
     },
     view,
 };
@@ -107,16 +108,18 @@ impl Precompile for TIP20Token {
             TIP20Call::TIP20(ITIP20Calls::transfer(call)) => {
                 mutate(call, msg_sender, |s, c| self.transfer(s, c.to, c.amount))
             }
-            TIP20Call::TIP20(ITIP20Calls::approve(call)) => {
-                mutate(call, msg_sender, |s, c| self.approve(s, c.spender, c.amount))
-            }
+            TIP20Call::TIP20(ITIP20Calls::approve(call)) => mutate(call, msg_sender, |s, c| {
+                self.approve(s, c.spender, c.amount)
+            }),
             TIP20Call::TIP20(ITIP20Calls::changeTransferPolicyId(call)) => {
                 mutate_void(call, msg_sender, |s, c| {
                     self.change_transfer_policy_id(s, c.new_policy_id)
                 })
             }
             TIP20Call::TIP20(ITIP20Calls::setSupplyCap(call)) => {
-                mutate_void(call, msg_sender, |s, c| self.set_supply_cap(s, c.new_supply_cap))
+                mutate_void(call, msg_sender, |s, c| {
+                    self.set_supply_cap(s, c.new_supply_cap)
+                })
             }
             TIP20Call::TIP20(ITIP20Calls::pause(call)) => {
                 mutate_void(call, msg_sender, |s, _| self.pause(s))
@@ -144,10 +147,14 @@ impl Precompile for TIP20Token {
                 mutate_void(call, msg_sender, |s, c| self.burn(s, c.amount))
             }
             TIP20Call::TIP20(ITIP20Calls::burnWithMemo(call)) => {
-                mutate_void(call, msg_sender, |s, c| self.burn_with_memo(s, c.amount, c.memo))
+                mutate_void(call, msg_sender, |s, c| {
+                    self.burn_with_memo(s, c.amount, c.memo)
+                })
             }
             TIP20Call::TIP20(ITIP20Calls::burnBlocked(call)) => {
-                mutate_void(call, msg_sender, |s, c| self.burn_blocked(s, c.from, c.amount))
+                mutate_void(call, msg_sender, |s, c| {
+                    self.burn_blocked(s, c.from, c.amount)
+                })
             }
             TIP20Call::TIP20(ITIP20Calls::transferWithMemo(call)) => {
                 mutate_void(call, msg_sender, |s, c| {
@@ -163,7 +170,9 @@ impl Precompile for TIP20Token {
                 mutate_void(call, msg_sender, |s, c| self.distribute_reward(s, c.amount))
             }
             TIP20Call::Rewards(rewards::Calls::setRewardRecipient(call)) => {
-                mutate_void(call, msg_sender, |s, c| self.set_reward_recipient(s, c.recipient))
+                mutate_void(call, msg_sender, |s, c| {
+                    self.set_reward_recipient(s, c.recipient)
+                })
             }
             TIP20Call::Rewards(rewards::Calls::claimRewards(call)) => {
                 mutate(call, msg_sender, |s, _| self.claim_rewards(s))
@@ -313,14 +322,8 @@ mod tests {
                 .with_mint(sender, initial_sender_balance)
                 .apply()?;
 
-            assert_eq!(
-                token.balance_of(sender)?,
-                initial_sender_balance
-            );
-            assert_eq!(
-                token.balance_of(recipient)?,
-                U256::ZERO
-            );
+            assert_eq!(token.balance_of(sender)?, initial_sender_balance);
+            assert_eq!(token.balance_of(recipient)?, U256::ZERO);
 
             let transfer_call = ITIP20::transferCall {
                 to: recipient,
@@ -333,10 +336,8 @@ mod tests {
             let success = bool::abi_decode(&result.bytes)?;
             assert!(success);
 
-            let final_sender_balance =
-                token.balance_of(sender)?;
-            let final_recipient_balance =
-                token.balance_of(recipient)?;
+            let final_sender_balance = token.balance_of(sender)?;
+            let final_recipient_balance = token.balance_of(recipient)?;
 
             assert_eq!(
                 final_sender_balance,
@@ -393,10 +394,7 @@ mod tests {
                 token.balance_of(owner)?,
                 initial_owner_balance - transfer_amount
             );
-            assert_eq!(
-                token.balance_of(recipient)?,
-                transfer_amount
-            );
+            assert_eq!(token.balance_of(recipient)?, transfer_amount);
 
             // Verify allowance was reduced
             let remaining_allowance = token.allowance(owner, spender)?;
@@ -452,10 +450,7 @@ mod tests {
                 .apply()?;
 
             // Check initial state
-            assert_eq!(
-                token.balance_of(burner)?,
-                initial_balance
-            );
+            assert_eq!(token.balance_of(burner)?, initial_balance);
             assert_eq!(token.total_supply()?, initial_balance);
 
             // Burn tokens
@@ -465,10 +460,7 @@ mod tests {
             let calldata = burn_call.abi_encode();
             let result = token.call(&calldata, burner)?;
             assert_eq!(result.gas_used, 0);
-            assert_eq!(
-                token.balance_of(burner)?,
-                initial_balance - burn_amount
-            );
+            assert_eq!(token.balance_of(burner)?, initial_balance - burn_amount);
             assert_eq!(token.total_supply()?, initial_balance - burn_amount);
 
             Ok(())
@@ -635,14 +627,8 @@ mod tests {
             let calldata = transfer_call.abi_encode();
             let result = token.call(&calldata, sender)?;
             assert_eq!(result.gas_used, 0);
-            assert_eq!(
-                token.balance_of(sender)?,
-                initial_balance - transfer_amount
-            );
-            assert_eq!(
-                token.balance_of(recipient)?,
-                transfer_amount
-            );
+            assert_eq!(token.balance_of(sender)?, initial_balance - transfer_amount);
+            assert_eq!(token.balance_of(recipient)?, transfer_amount);
 
             Ok(())
         })
@@ -669,9 +655,7 @@ mod tests {
                 },
             )?;
 
-            let change_policy_call = ITIP20::changeTransferPolicyIdCall {
-                new_policy_id,
-            };
+            let change_policy_call = ITIP20::changeTransferPolicyIdCall { new_policy_id };
             let calldata = change_policy_call.abi_encode();
             let result = token.call(&calldata, admin)?;
             assert_eq!(result.gas_used, 0);

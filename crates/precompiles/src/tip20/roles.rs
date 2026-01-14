@@ -50,9 +50,9 @@ pub use roles_auth::{
 pub mod IRolesAuth {
     pub use super::roles_auth::{
         Calls, Interface, getRoleAdminCall, getRoleAdminReturn, grantRoleCall, grantRoleReturn,
-        hasRoleCall, hasRoleReturn, new, renounceRoleCall, renounceRoleReturn,
-        roles_authInstance as IRolesAuthInstance, revokeRoleCall, revokeRoleReturn,
-        setRoleAdminCall, setRoleAdminReturn,
+        hasRoleCall, hasRoleReturn, new, renounceRoleCall, renounceRoleReturn, revokeRoleCall,
+        revokeRoleReturn, roles_authInstance as IRolesAuthInstance, setRoleAdminCall,
+        setRoleAdminReturn,
     };
 }
 

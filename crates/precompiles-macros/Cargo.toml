@@ -24,5 +24,6 @@ hex = "0.4"
 
 [dev-dependencies]
 alloy = { workspace = true, features = ["sol-types", "rand"] }
+alloy-contract = { workspace = true }
 alloy-sol-types = { workspace = true }
 alloy-sol-macro = { workspace = true }

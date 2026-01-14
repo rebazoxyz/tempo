@@ -1,7 +1,9 @@
 //! Function call encoding parity tests between `#[solidity]` and `sol!`.
 
-use alloy::primitives::{Address, U256};
-use alloy::sol_types::SolCall;
+use alloy::{
+    primitives::{Address, U256},
+    sol_types::SolCall,
+};
 use alloy_sol_macro::sol;
 use tempo_precompiles_macros::solidity;
 

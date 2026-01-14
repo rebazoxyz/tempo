@@ -1,7 +1,9 @@
 //! Event encoding parity tests between `#[solidity]` and `sol!`.
 
-use alloy::primitives::{Address, FixedBytes, U256};
-use alloy::sol_types::SolEvent;
+use alloy::{
+    primitives::{Address, FixedBytes, U256},
+    sol_types::SolEvent,
+};
 use alloy_sol_macro::sol;
 use tempo_precompiles_macros::solidity;
 
@@ -178,7 +180,7 @@ fn approval_event_parity() {
 
 #[test]
 fn indexed_dynamic_types_parity() {
-    use alloy::primitives::{IntoLogData, B256};
+    use alloy::primitives::{B256, IntoLogData};
 
     assert_event_parity::<IndexedDynamic, rust::IndexedDynamic>();
 
@@ -188,13 +190,13 @@ fn indexed_dynamic_types_parity() {
     let sender = Address::repeat_byte(0x33);
 
     let sol_event = IndexedDynamic {
-        name: FixedBytes::from(name_hash),
-        data: FixedBytes::from(data_hash),
+        name: name_hash,
+        data: data_hash,
         sender,
     };
     let our_event = rust::IndexedDynamic {
-        name: FixedBytes::from(name_hash),
-        data: FixedBytes::from(data_hash),
+        name: name_hash,
+        data: data_hash,
         sender,
     };
 

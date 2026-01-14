@@ -3,8 +3,10 @@
 //! This file contains general macro integration tests. EIP-712 specific tests
 //! are in the `solidity/` test module.
 
-use alloy::primitives::{Address, B256, U256, keccak256};
-use alloy::sol_types::{SolCall, SolError, SolEvent, SolInterface, SolValue};
+use alloy::{
+    primitives::{Address, B256, U256, keccak256},
+    sol_types::{SolCall, SolError, SolEvent, SolInterface, SolValue},
+};
 use std::collections::HashMap;
 use tempo_precompiles_macros::solidity;
 

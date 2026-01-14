@@ -343,11 +343,8 @@ impl TipFeeManager {
         self.pools[pool_id].write(pool)?;
 
         // Transfer tokens to user
-        let _ = TIP20Token::from_address(user_token)?.transfer(
-            self.address,
-            to,
-            amount_user_token,
-        )?;
+        let _ =
+            TIP20Token::from_address(user_token)?.transfer(self.address, to, amount_user_token)?;
 
         let _ = TIP20Token::from_address(validator_token)?.transfer(
             self.address,
@@ -459,12 +456,12 @@ impl TipFeeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tip20::{InvalidCurrency, TIP20Error};
     use crate::{
         error::TempoPrecompileError,
         storage::{ContractStorage, StorageCtx, hashmap::HashMapStorageProvider},
         test_util::TIP20Setup,
         tip_fee_manager::TIPFeeAMMError,
+        tip20::{InvalidCurrency, TIP20Error},
     };
     use alloy::primitives::Address;
 
@@ -605,7 +602,9 @@ mod tests {
             );
             assert!(matches!(
                 result,
-                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(InvalidCurrency)))
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(
+                    InvalidCurrency
+                )))
             ));
 
             let result = amm.mint(
@@ -617,7 +616,9 @@ mod tests {
             );
             assert!(matches!(
                 result,
-                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(InvalidCurrency)))
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(
+                    InvalidCurrency
+                )))
             ));
             Ok(())
         })
@@ -643,7 +644,9 @@ mod tests {
             );
             assert!(matches!(
                 result,
-                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(InvalidCurrency)))
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(
+                    InvalidCurrency
+                )))
             ));
 
             let result = amm.burn(
@@ -655,7 +658,9 @@ mod tests {
             );
             assert!(matches!(
                 result,
-                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(InvalidCurrency)))
+                Err(TempoPrecompileError::TIP20(TIP20Error::InvalidCurrency(
+                    InvalidCurrency
+                )))
             ));
             Ok(())
         })

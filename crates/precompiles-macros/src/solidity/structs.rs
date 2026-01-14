@@ -10,9 +10,11 @@ use quote::quote;
 use super::common::SynSolType;
 use crate::utils::to_camel_case;
 
-use super::common;
-use super::parser::{FieldAccessors, SolStructDef};
-use super::registry::TypeRegistry;
+use super::{
+    common,
+    parser::{FieldAccessors, SolStructDef},
+    registry::TypeRegistry,
+};
 
 /// Generate code for a single struct definition.
 pub(super) fn generate_struct(

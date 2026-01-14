@@ -1,7 +1,9 @@
 //! Error encoding parity tests between `#[solidity]` and `sol!`.
 
-use alloy::primitives::{Address, U256};
-use alloy::sol_types::SolError;
+use alloy::{
+    primitives::{Address, U256},
+    sol_types::SolError,
+};
 use alloy_sol_macro::sol;
 use tempo_precompiles_macros::solidity;
 
