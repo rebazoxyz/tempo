@@ -18,6 +18,7 @@ abstract contract GhostState {
     uint256 public ghost_totalCreatesExecuted;
     uint256 public ghost_totalProtocolNonceTxs;
     uint256 public ghost_total2dNonceTxs;
+    uint256 public ghost_total2dNonceCreates;
 
     // ============ CREATE Tracking ============
 
@@ -33,6 +34,19 @@ abstract contract GhostState {
     uint256 public ghost_createRejectedStructure;  // C1, C2, C3, C4 rejections
     uint256 public ghost_createRejectedSize;       // C8 rejections
     uint256 public ghost_createGasTracked;         // C9 gas tracking count
+    
+    // Unexpected success tracking (for negative test cases)
+    uint256 public ghost_createNotFirstAllowed;    // C1 - CREATE not first unexpectedly allowed
+    uint256 public ghost_createMultipleAllowed;    // C2 - multiple creates unexpectedly allowed
+    uint256 public ghost_createWithAuthAllowed;    // C3 - CREATE with auth list unexpectedly allowed
+    uint256 public ghost_createWithValueAllowed;   // C4 - CREATE with value unexpectedly allowed
+    uint256 public ghost_createOversizedAllowed;   // C8 - oversized initcode unexpectedly allowed
+    uint256 public ghost_replayProtocolAllowed;    // N12 - protocol nonce replay unexpectedly allowed
+    uint256 public ghost_replay2dAllowed;          // N13 - 2D nonce replay unexpectedly allowed
+    uint256 public ghost_nonceTooHighAllowed;      // N14 - nonce too high unexpectedly allowed
+    uint256 public ghost_nonceTooLowAllowed;       // N15 - nonce too low unexpectedly allowed
+    uint256 public ghost_keyWrongSignerAllowed;    // K1 - wrong signer unexpectedly allowed
+    uint256 public ghost_keyWrongChainAllowed;     // K3 - wrong chain unexpectedly allowed
 
     // ============ Fee Collection Tracking (F1-F12) ============
 
