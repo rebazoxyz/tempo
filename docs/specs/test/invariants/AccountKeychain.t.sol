@@ -221,8 +221,9 @@ contract AccountKeychainInvariantTest is InvariantBaseTest {
 
         // Find a revoked key for this account
         address keyId = address(0);
+        uint256 startIdx = keyIdSeed % _potentialKeyIds.length;
         for (uint256 i = 0; i < _potentialKeyIds.length; i++) {
-            address potentialKey = _potentialKeyIds[(keyIdSeed + i) % _potentialKeyIds.length];
+            address potentialKey = _potentialKeyIds[(startIdx + i) % _potentialKeyIds.length];
             if (_ghostKeyRevoked[account][potentialKey]) {
                 keyId = potentialKey;
                 break;
@@ -363,8 +364,9 @@ contract AccountKeychainInvariantTest is InvariantBaseTest {
 
         // Find an existing key for this account
         address keyId = address(0);
+        uint256 startIdx = keyIdSeed % _potentialKeyIds.length;
         for (uint256 i = 0; i < _potentialKeyIds.length; i++) {
-            address potentialKey = _potentialKeyIds[(keyIdSeed + i) % _potentialKeyIds.length];
+            address potentialKey = _potentialKeyIds[(startIdx + i) % _potentialKeyIds.length];
             if (_ghostKeyExists[account][potentialKey] && !_ghostKeyRevoked[account][potentialKey])
             {
                 keyId = potentialKey;

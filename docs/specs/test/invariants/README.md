@@ -173,6 +173,15 @@ TIP20 is the Tempo token standard that extends ERC-20 with transfer policies, me
 - **TEMPO-TIP21**: Decimals constant - `decimals()` always returns 6.
 - **TEMPO-TIP22**: Supply cap enforced - `totalSupply <= supplyCap` always holds.
 
+### Protected Address Invariants
+
+- **TEMPO-TIP24**: Protected address enforcement - `burnBlocked` cannot be called on FeeManager or DEX addresses (reverts with `ProtectedAddress`).
+
+### Access Control Invariants
+
+- **TEMPO-TIP26**: Issuer-only minting - only accounts with `ISSUER_ROLE` can call `mint` (non-issuers revert with `Unauthorized`).
+- **TEMPO-TIP27**: Pause-role enforcement - only accounts with `PAUSE_ROLE` can call `pause`/`unpause` (non-role holders revert with `Unauthorized`).
+
 ## TIP20Factory
 
 The TIP20Factory is the factory contract for creating TIP-20 compliant tokens with deterministic addresses.
@@ -226,6 +235,8 @@ The TIP403Registry manages transfer policies (whitelists and blacklists) that co
 - **TEMPO-REG12**: Always-allow policy - policy ID 1 returns true for all `isAuthorized` checks.
 - **TEMPO-REG13**: Special policy existence - policies 0 and 1 always exist (return true for `policyExists`).
 - **TEMPO-REG14**: Non-existent policies - policy IDs >= `policyIdCounter` return false for `policyExists()`.
+- **TEMPO-REG17**: Special policy immutability - policies 0 and 1 cannot be modified via `modifyPolicyWhitelist` or `modifyPolicyBlacklist`.
+- **TEMPO-REG18**: Special policy admin immutability - the admin of policies 0 and 1 cannot be changed (attempts revert with `Unauthorized` since admin is `address(0)`).
 
 ### Global Invariants
 
