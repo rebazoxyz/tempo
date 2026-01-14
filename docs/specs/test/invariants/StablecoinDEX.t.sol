@@ -213,9 +213,8 @@ contract StablecoinDEXInvariantTest is InvariantBaseTest {
             _cancelAndVerifyRefund(
                 orderId, order.maker, base, order.remaining, order.tick, order.isBid, 0
             );
-        } catch {
-            // order was probably cancelled in a previous cancelOrder call
-            return;
+        } catch (bytes memory reason) {
+            _assertKnownOrderError(reason);
         }
     }
 
@@ -625,8 +624,8 @@ contract StablecoinDEXInvariantTest is InvariantBaseTest {
                         )
                     );
                 }
-            } catch {
-                // Order was already filled or cancelled
+            } catch (bytes memory reason) {
+                _assertKnownOrderError(reason);
             }
         }
         vm.stopPrank();
@@ -690,7 +689,9 @@ contract StablecoinDEXInvariantTest is InvariantBaseTest {
                     exchange.withdraw(base, order.remaining);
                 }
                 vm.stopPrank();
-            } catch { }
+            } catch (bytes memory reason) {
+                _assertKnownOrderError(reason);
+            }
         }
 
         // Withdraw remaining balances for all actors
@@ -1199,6 +1200,18 @@ contract StablecoinDEXInvariantTest is InvariantBaseTest {
             || selector == IStablecoinDEX.IdenticalTokens.selector
             || selector == IStablecoinDEX.InvalidToken.selector || _isKnownTIP20Error(selector);
         assertTrue(isKnownError, "Swap failed with unknown error");
+    }
+
+    /// @notice Verifies an order operation revert is due to a known/expected error
+    /// @dev Fails if the error selector doesn't match any known order error
+    /// @param reason The revert reason bytes from the failed operation
+    function _assertKnownOrderError(bytes memory reason) internal pure {
+        bytes4 selector = bytes4(reason);
+        bool isKnownError = selector == IStablecoinDEX.OrderDoesNotExist.selector
+            || selector == IStablecoinDEX.InsufficientBalance.selector
+            || selector == IStablecoinDEX.PairDoesNotExist.selector
+            || _isKnownTIP20Error(selector);
+        assertTrue(isKnownError, "Order operation failed with unknown error");
     }
 
     /// @dev Returns the number of hops in a trade path (similar to findTradePath in StablecoinDEX)

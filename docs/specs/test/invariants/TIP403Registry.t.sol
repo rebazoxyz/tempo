@@ -449,8 +449,9 @@ contract TIP403RegistryInvariantTest is InvariantBaseTest {
         try registry.setPolicyAdmin(policyId, account) {
             vm.stopPrank();
             revert("TEMPO-REG18: Should not be able to change special policy admin");
-        } catch {
+        } catch (bytes memory reason) {
             vm.stopPrank();
+            _assertKnownError(reason);
         }
 
         _log(

@@ -245,8 +245,9 @@ contract TIP20FactoryInvariantTest is InvariantBaseTest {
             address addr
         ) {
             eurToken = addr;
-        } catch {
+        } catch (bytes memory reason) {
             vm.stopPrank();
+            _assertKnownError(reason);
             return; // Can't proceed if EUR token creation failed
         }
         vm.stopPrank();
@@ -317,9 +318,13 @@ contract TIP20FactoryInvariantTest is InvariantBaseTest {
                         addr1 != otherAddr,
                         "TEMPO-FAC10: Different senders should produce different addresses"
                     );
-                } catch { }
+                } catch (bytes memory reason) {
+                    _assertKnownError(reason);
+                }
             }
-        } catch { }
+        } catch (bytes memory reason) {
+            _assertKnownError(reason);
+        }
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -1061,9 +1061,9 @@ contract TIP20InvariantTest is InvariantBaseTest {
         try token.transfer(recipient, 1) {
             vm.stopPrank();
             revert("Transfer should fail when paused");
-        } catch {
+        } catch (bytes memory reason) {
             vm.stopPrank();
-            // Expected - paused tokens reject transfers
+            _assertKnownError(reason);
         }
 
         _log(
