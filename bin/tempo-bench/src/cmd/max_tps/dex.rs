@@ -173,13 +173,15 @@ where
 
     let token_addr = event.token;
     let token = ITIP20::new(token_addr, provider.clone());
-    let roles = IRolesAuth::new(*token.address(), provider);
-    let grant_role_receipt = roles
-        .grantRole(*ISSUER_ROLE, admin)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
+    let grant_role_receipt = alloy::contract::SolCallBuilder::new_sol(
+        &provider,
+        &token_addr,
+        &grantRoleCall { role: *ISSUER_ROLE, account: admin },
+    )
+    .send()
+    .await?
+    .get_receipt()
+    .await?;
     assert_receipt(grant_role_receipt)
         .await
         .context("Failed to grant issuer role")?;

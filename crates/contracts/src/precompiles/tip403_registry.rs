@@ -1,56 +1,50 @@
-pub use ITIP403Registry::{
-    ITIP403RegistryErrors as TIP403RegistryError, ITIP403RegistryEvents as TIP403RegistryEvent,
-};
+use alloy::primitives::Address;
+use tempo_precompiles_macros::abi;
 
-crate::sol! {
-    #[derive(Debug, PartialEq, Eq)]
-    #[sol(abi)]
-    interface ITIP403Registry {
-        // Enums
-        enum PolicyType {
-            WHITELIST,
-            BLACKLIST
-        }
+use super::Result;
 
-        // View Functions
-        function policyIdCounter() external view returns (uint64);
-        function policyExists(uint64 policyId) external view returns (bool);
-        function policyData(uint64 policyId) external view returns (PolicyType policyType, address admin);
-        function isAuthorized(uint64 policyId, address user) external view returns (bool);
+#[abi]
+#[rustfmt::skip]
+pub mod ITIP403Registry {
+    use super::*;
 
-        // State-Changing Functions
-        function createPolicy(address admin, PolicyType policyType) external returns (uint64);
-        function createPolicyWithAccounts(address admin, PolicyType policyType, address[] calldata accounts) external returns (uint64);
-        function setPolicyAdmin(uint64 policyId, address admin) external;
-        function modifyPolicyWhitelist(uint64 policyId, address account, bool allowed) external;
-        function modifyPolicyBlacklist(uint64 policyId, address account, bool restricted) external;
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum PolicyType {
+        Whitelist = 0,
+        Blacklist = 1,
+    }
 
-        // Events
-        event PolicyAdminUpdated(uint64 indexed policyId, address indexed updater, address indexed admin);
-        event PolicyCreated(uint64 indexed policyId, address indexed updater, PolicyType policyType);
-        event WhitelistUpdated(uint64 indexed policyId, address indexed updater, address indexed account, bool allowed);
-        event BlacklistUpdated(uint64 indexed policyId, address indexed updater, address indexed account, bool restricted);
+    pub trait IRegistry {
+        // View functions
+        fn policy_id_counter(&self) -> Result<u64>;
+        fn policy_exists(&self, policy_id: u64) -> Result<bool>;
+        fn policy_data(&self, policy_id: u64) -> Result<(PolicyType, Address)>;
+        fn is_authorized(&self, policy_id: u64, user: Address) -> Result<bool>;
 
-        // Errors
-        error Unauthorized();
-        error IncompatiblePolicyType();
-        error PolicyNotFound();
+        // State-changing functions (msg_sender is injected by macro)
+        fn create_policy(&mut self, admin: Address, policy_type: PolicyType) -> Result<u64>;
+        fn create_policy_with_accounts(&mut self, admin: Address, policy_type: PolicyType, accounts: Vec<Address>) -> Result<u64>;
+        fn set_policy_admin(&mut self, policy_id: u64, admin: Address) -> Result<()>;
+        fn modify_policy_whitelist(&mut self, policy_id: u64, account: Address, allowed: bool) -> Result<()>;
+        fn modify_policy_blacklist(&mut self, policy_id: u64, account: Address, restricted: bool) -> Result<()>;
+    }
+
+    pub enum Error {
+        Unauthorized,
+        IncompatiblePolicyType,
+        PolicyNotFound,
+    }
+
+    pub enum Event {
+        PolicyAdminUpdated { #[indexed] policy_id: u64, #[indexed] updater: Address, #[indexed] admin: Address },
+        PolicyCreated { #[indexed] policy_id: u64, #[indexed] updater: Address, policy_type: PolicyType },
+        WhitelistUpdated { #[indexed] policy_id: u64, #[indexed] updater: Address, #[indexed] account: Address, allowed: bool },
+        BlacklistUpdated { #[indexed] policy_id: u64, #[indexed] updater: Address, #[indexed] account: Address, restricted: bool },
     }
 }
 
-impl TIP403RegistryError {
-    /// Creates an error for unauthorized calls
-    pub const fn unauthorized() -> Self {
-        Self::Unauthorized(ITIP403Registry::Unauthorized {})
-    }
+pub use ITIP403Registry::*;
 
-    /// Creates an error for incompatible policy types
-    pub const fn incompatible_policy_type() -> Self {
-        Self::IncompatiblePolicyType(ITIP403Registry::IncompatiblePolicyType {})
-    }
-
-    /// Creates an error for non-existent policy
-    pub const fn policy_not_found() -> Self {
-        Self::PolicyNotFound(ITIP403Registry::PolicyNotFound {})
-    }
-}
+// Backward-compatibility type aliases
+pub type TIP403RegistryError = Error;
+pub type TIP403RegistryEvent = Event;

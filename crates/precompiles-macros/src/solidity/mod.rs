@@ -98,7 +98,7 @@ use registry::TypeRegistry;
 ///
 /// - `prelude` - all public types for glob imports
 /// - `traits` - only interface traits for selective imports
-fn generate_prelude(
+fn generate_submodules(
     structs: &[SolStructDef],
     unit_enums: &[UnitEnumDef],
     interfaces: &[InterfaceDef],
@@ -296,8 +296,8 @@ pub(crate) fn expand(item: ItemMod, config: SolidityConfig) -> syn::Result<Token
 
     let other_items: Vec<TokenStream> = module.other_items.iter().map(|i| quote! { #i }).collect();
 
-    // Generate prelude module with re-exports of all public types
-    let prelude = generate_prelude(
+    // Generate prelude and traits submodules
+    let submodules = generate_submodules(
         &module.structs,
         &module.unit_enums,
         &module.interfaces,
@@ -309,9 +309,8 @@ pub(crate) fn expand(item: ItemMod, config: SolidityConfig) -> syn::Result<Token
     let reexports = if config.no_reexport {
         quote! {}
     } else {
-        let alias_name = config
-            .interface_alias
-            .unwrap_or_else(|| format!("I{}", to_pascal_case(&mod_name.to_string())));
+        // Compute the interface alias name (used for sibling reexports)
+        let alias_name = format!("I{}", to_pascal_case(&mod_name.to_string()));
         let alias_ident = format_ident!("{}", alias_name);
 
         quote! {
@@ -354,7 +353,7 @@ pub(crate) fn expand(item: ItemMod, config: SolidityConfig) -> syn::Result<Token
 
             #(#other_items)*
 
-            #prelude
+            #submodules
         }
 
         #reexports

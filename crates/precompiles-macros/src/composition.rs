@@ -21,6 +21,7 @@ use syn::Ident;
 /// - `pub type MyContractEvent = abi::Event;`
 /// - `pub use abi::prelude;` - Re-export prelude submodule
 /// - `pub use abi::traits;` - Re-export traits submodule
+/// - `pub mod rpc { pub use abi::abiInstance as IMyContract; }` - RPC module with interface alias
 /// - `impl abi::IConstants for MyContract {}`
 ///
 /// For `#[contract(abi, dispatch)]`, additionally generates:
@@ -39,6 +40,7 @@ pub(crate) fn generate_abi_aliases(
     let calls_alias = format_ident!("{}Calls", struct_name);
     let error_alias = format_ident!("{}Error", struct_name);
     let event_alias = format_ident!("{}Event", struct_name);
+    let rpc_alias = format_ident!("I{}", struct_name);
 
     let dispatch_impls = if dispatch {
         // For dynamic precompiles (no fixed address), add initialization check.
@@ -100,6 +102,13 @@ pub(crate) fn generate_abi_aliases(
         ///
         /// Usage: `use crate::module::traits::*;`
         pub use abi::traits;
+
+        /// RPC module for provider-bound contract interactions.
+        ///
+        /// Usage: `use crate::module::rpc::I{ContractName};`
+        pub mod rpc {
+            pub use super::abi::abiInstance as #rpc_alias;
+        }
 
         impl abi::IConstants for #struct_name {}
 

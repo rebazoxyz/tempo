@@ -6,7 +6,7 @@ use alloy::{
 };
 use futures::future::try_join_all;
 use tempo_chainspec::spec::TEMPO_BASE_FEE;
-use tempo_contracts::precompiles::{IRolesAuth, ITIP20, ITIP403Registry, TIP20Error};
+use tempo_contracts::precompiles::{ITIP20, ITIP403Registry, TIP20Error, ITIP20::grantRoleCall};
 use tempo_precompiles::TIP403_REGISTRY_ADDRESS;
 
 use crate::utils::{TestNodeBuilder, await_receipts, setup_test_token};
@@ -807,7 +807,6 @@ async fn test_tip20_pause_blocks_fee_collection() -> eyre::Result<()> {
     // Create and setup token
     let token = setup_test_token(admin_provider.clone(), admin).await?;
     let user_token = ITIP20::new(*token.address(), user_provider.clone());
-    let roles = IRolesAuth::new(*token.address(), admin_provider.clone());
 
     let gas = 300_000u64;
     let gas_price = TEMPO_BASE_FEE as u128;
@@ -845,22 +844,28 @@ async fn test_tip20_pause_blocks_fee_collection() -> eyre::Result<()> {
         .await?;
 
     // Grant PAUSE_ROLE to admin and user
-    roles
-        .grantRole(*PAUSE_ROLE, admin)
-        .gas(gas)
-        .gas_price(gas_price)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
-    roles
-        .grantRole(*PAUSE_ROLE, user)
-        .gas(gas)
-        .gas_price(gas_price)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
+    alloy::contract::SolCallBuilder::new_sol(
+        &admin_provider,
+        token.address(),
+        &grantRoleCall { role: *PAUSE_ROLE, account: admin },
+    )
+    .gas(gas)
+    .gas_price(gas_price)
+    .send()
+    .await?
+    .get_receipt()
+    .await?;
+    alloy::contract::SolCallBuilder::new_sol(
+        &admin_provider,
+        token.address(),
+        &grantRoleCall { role: *PAUSE_ROLE, account: user },
+    )
+    .gas(gas)
+    .gas_price(gas_price)
+    .send()
+    .await?
+    .get_receipt()
+    .await?;
 
     // Verify user can transact before pause
     let transfer_result = user_token

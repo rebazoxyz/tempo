@@ -12,6 +12,9 @@ use alloy::{
 use tempo_precompiles_macros::{abi, contract};
 use tracing::trace;
 
+// Re-export abi module as ITIP20Factory for external consumers
+pub use abi as ITIP20Factory;
+
 /// Number of reserved addresses (0 to RESERVED_SIZE-1) that cannot be deployed via factory
 const RESERVED_SIZE: u64 = 1024;
 

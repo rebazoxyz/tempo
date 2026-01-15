@@ -11,7 +11,8 @@ use alloy_network::{Ethereum, TxSignerSync};
 use alloy_primitives::Bytes;
 use alloy_rpc_types_eth::TransactionRequest;
 use tempo_chainspec::spec::TEMPO_BASE_FEE;
-use tempo_contracts::precompiles::{IRolesAuth, ITIP20, ITIP20Factory};
+use alloy::sol_types::SolCall;
+use tempo_contracts::precompiles::{ITIP20, ITIP20Factory};
 use tempo_node::node::TempoNode;
 use tempo_precompiles::{PATH_USD_ADDRESS, TIP20_FACTORY_ADDRESS, tip20::ISSUER_ROLE};
 use tempo_primitives::TempoTxEnvelope;
@@ -78,14 +79,16 @@ where
     let token_addr = event.token;
 
     // Grant issuer role
-    let roles = IRolesAuth::new(token_addr, provider.clone());
-    let grant_tx = roles.grantRole(*ISSUER_ROLE, sender_address);
-    let grant_bytes = sign_and_encode(grant_tx.into_transaction_request(), 1).await?;
+    let token = ITIP20::ITIP20Instance::new(token_addr, provider.clone());
+    let grant_call = ITIP20::grantRoleCall { role: *ISSUER_ROLE, account: sender_address };
+    let grant_tx_req = TransactionRequest::default()
+        .to(token_addr)
+        .input(grant_call.abi_encode().into());
+    let grant_bytes = sign_and_encode(grant_tx_req, 1).await?;
     node.rpc.inject_tx(grant_bytes).await?;
     node.advance_block().await?;
 
     // Mint tokens
-    let token = ITIP20::ITIP20Instance::new(token_addr, provider.clone());
     let mint_tx = token.mint(sender_address, U256::from(1_000_000));
     let mint_bytes = sign_and_encode(mint_tx.into_transaction_request(), 2).await?;
     node.rpc.inject_tx(mint_bytes).await?;

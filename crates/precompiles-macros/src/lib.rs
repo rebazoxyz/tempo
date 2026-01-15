@@ -168,8 +168,6 @@ pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Configuration parsed from `#[abi(...)]` attribute arguments.
 #[derive(Default)]
 pub(crate) struct SolidityConfig {
-    /// Custom name for the interface alias module (defaults to `I{PascalCaseName}`).
-    pub interface_alias: Option<String>,
     /// Disable auto re-export of module contents.
     pub no_reexport: bool,
     /// Generate Dispatch trait and precompile_call helper (requires revm).
@@ -183,11 +181,6 @@ impl Parse for SolidityConfig {
         while !input.is_empty() {
             let ident: Ident = input.parse()?;
             match ident.to_string().as_str() {
-                "interface_alias" => {
-                    input.parse::<Token![=]>()?;
-                    let lit: syn::LitStr = input.parse()?;
-                    config.interface_alias = Some(lit.value());
-                }
                 "no_reexport" => {
                     config.no_reexport = true;
                 }
@@ -197,9 +190,7 @@ impl Parse for SolidityConfig {
                 other => {
                     return Err(syn::Error::new(
                         ident.span(),
-                        format!(
-                            "unknown attribute `{other}`, expected `interface_alias`, `no_reexport`, or `dispatch`"
-                        ),
+                        format!("unknown attribute `{other}`, expected `no_reexport` or `dispatch`"),
                     ));
                 }
             }
@@ -224,7 +215,6 @@ impl Parse for SolidityConfig {
 ///
 /// - `#[abi]` - Default behavior with auto re-exports
 /// - `#[abi(dispatch)]` - Generate `Dispatch` trait and `precompile_call` helper (requires `revm`)
-/// - `#[abi(interface_alias = "CustomName")]` - Custom interface alias module name
 /// - `#[abi(no_reexport)]` - Disable auto re-export behavior
 ///
 /// # Auto Re-exports
@@ -243,8 +233,7 @@ impl Parse for SolidityConfig {
 ///
 /// The interface alias uses PascalCase naming: `tip20` → `ITip20`, `roles_auth` → `IRolesAuth`.
 ///
-/// Use `#[abi(no_reexport)]` to disable this behavior, or
-/// `#[abi(interface_alias = "CustomName")]` to customize the alias name.
+/// Use `#[abi(no_reexport)]` to disable this behavior.
 ///
 /// # Naming Conventions
 ///

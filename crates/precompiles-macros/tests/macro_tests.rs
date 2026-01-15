@@ -475,22 +475,6 @@ fn test_no_reexport_requires_qualified_access() {
     // Note: NoReexportStruct and INoReexportTest would NOT be in scope
 }
 
-#[abi(interface_alias = "CustomAlias")]
-pub mod custom_alias_test {
-    use super::*;
-
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct AliasedStruct {
-        pub value: U256,
-    }
-}
-
-#[test]
-fn test_custom_interface_alias() {
-    // Custom alias should work
-    let _ = CustomAlias::AliasedStruct { value: U256::ZERO };
-}
-
 // Test constants support
 use std::sync::LazyLock;
 

@@ -18,6 +18,9 @@ use tempo_precompiles_macros::{Storable, abi, contract};
 pub use roles::*;
 pub use token::*;
 
+// Re-export abi module as ITIP20 for external consumers
+pub use abi as ITIP20;
+
 #[contract(abi, dispatch)]
 pub struct TIP20Token {
     // RolesAuth

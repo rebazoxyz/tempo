@@ -25,8 +25,7 @@ use reth_rpc_builder::RpcModuleSelection;
 use std::{sync::Arc, time::Duration};
 use tempo_chainspec::spec::TempoChainSpec;
 use tempo_contracts::precompiles::{
-    IRolesAuth,
-    ITIP20::{self, ITIP20Instance},
+    ITIP20::{self, ITIP20Instance, grantRoleCall},
     ITIP20Factory,
 };
 use tempo_node::node::TempoNode;
@@ -60,14 +59,16 @@ where
 
     let token_addr = event.token;
     let token = ITIP20::new(token_addr, provider.clone());
-    let roles = IRolesAuth::new(*token.address(), provider);
 
-    roles
-        .grantRole(*ISSUER_ROLE, caller)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
+    alloy::contract::SolCallBuilder::new_sol(
+        &provider,
+        &token_addr,
+        &grantRoleCall { role: *ISSUER_ROLE, account: caller },
+    )
+    .send()
+    .await?
+    .get_receipt()
+    .await?;
 
     Ok(token)
 }

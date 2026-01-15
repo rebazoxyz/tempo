@@ -55,9 +55,8 @@ use std::{
 };
 use tempo_contracts::precompiles::{
     IFeeManager::IFeeManagerInstance,
-    IRolesAuth,
     IStablecoinDEX::IStablecoinDEXInstance,
-    ITIP20::{self, ITIP20Instance},
+    ITIP20::{self, ITIP20Instance, grantRoleCall},
     ITIP20Factory, STABLECOIN_DEX_ADDRESS, TIP20_FACTORY_ADDRESS,
 };
 use tempo_precompiles::{
