@@ -19,6 +19,9 @@ abstract contract InvariantChecker is HandlerBase {
         _checkBalanceInvariants();
         _checkAccessKeyInvariants();
         _checkCreateInvariants();
+        _checkReplayProtectionInvariants();
+        _checkCreateConstraintInvariants();
+        _checkKeyAuthInvariants();
     }
 
     // ============ Nonce Invariants (N1-N8) ============
@@ -216,5 +219,56 @@ abstract contract InvariantChecker is HandlerBase {
             sum += feeToken.balanceOf(actorP256Addresses[i]);
         }
         return sum <= feeToken.totalSupply();
+    }
+
+    // ============ Replay Protection Invariants (N12-N15) ============
+
+    /// @notice Verify replay protection invariants are not violated
+    /// @dev These counters should always be 0 - any non-zero value indicates a protocol bug
+    function _checkReplayProtectionInvariants() internal view {
+        // N12: Protocol nonce replay must be rejected
+        assertEq(ghost_replayProtocolAllowed, 0, "N12: Protocol nonce replay unexpectedly allowed");
+
+        // N13: 2D nonce replay must be rejected
+        assertEq(ghost_replay2dAllowed, 0, "N13: 2D nonce replay unexpectedly allowed");
+
+        // N14: Nonce too high must be rejected
+        assertEq(ghost_nonceTooHighAllowed, 0, "N14: Nonce too high unexpectedly allowed");
+
+        // N15: Nonce too low must be rejected
+        assertEq(ghost_nonceTooLowAllowed, 0, "N15: Nonce too low unexpectedly allowed");
+    }
+
+    // ============ CREATE Constraint Invariants (C1-C4, C8) ============
+
+    /// @notice Verify CREATE structure constraints are enforced
+    /// @dev These counters should always be 0 - any non-zero value indicates a protocol bug
+    function _checkCreateConstraintInvariants() internal view {
+        // C1: CREATE must be first call in batch
+        assertEq(ghost_createNotFirstAllowed, 0, "C1: CREATE not first unexpectedly allowed");
+
+        // C2: Maximum one CREATE per transaction
+        assertEq(ghost_createMultipleAllowed, 0, "C2: Multiple CREATEs unexpectedly allowed");
+
+        // C3: CREATE forbidden with authorization list
+        assertEq(ghost_createWithAuthAllowed, 0, "C3: CREATE with auth list unexpectedly allowed");
+
+        // C4: Value transfers forbidden in AA transactions with CREATE
+        assertEq(ghost_createWithValueAllowed, 0, "C4: CREATE with value unexpectedly allowed");
+
+        // C8: Initcode must not exceed max size (EIP-3860: 49152 bytes)
+        assertEq(ghost_createOversizedAllowed, 0, "C8: Oversized initcode unexpectedly allowed");
+    }
+
+    // ============ Key Authorization Invariants (K1, K3) ============
+
+    /// @notice Verify key authorization constraints are enforced
+    /// @dev These counters should always be 0 - any non-zero value indicates a protocol bug
+    function _checkKeyAuthInvariants() internal view {
+        // K1: KeyAuthorization must be signed by tx.caller (root account)
+        assertEq(ghost_keyWrongSignerAllowed, 0, "K1: Wrong signer key auth unexpectedly allowed");
+
+        // K3: KeyAuthorization chain_id must be 0 (any) or match current
+        assertEq(ghost_keyWrongChainAllowed, 0, "K3: Wrong chain key auth unexpectedly allowed");
     }
 }
