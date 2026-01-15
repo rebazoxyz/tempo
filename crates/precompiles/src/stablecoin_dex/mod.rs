@@ -639,10 +639,10 @@ impl StablecoinDEX {
             fill_amount
         };
 
-        // Check if remaining amount falls below minimum order size
-        // If so, cancel the order to prevent DoS via tiny orders
+        // Check if remaining amount falls below minimum order size (dust)
+        // If so, treat as early completion: refund dust to maker and mark as executed
         if new_remaining > 0 && new_remaining < MIN_ORDER_AMOUNT {
-            // Refund remaining tokens to maker
+            // Refund dust to maker's internal balance
             if order.is_bid() {
                 // Bid orders escrowed quote tokens using RoundingDirection::Up
                 let refund_quote =
@@ -737,13 +737,9 @@ impl StablecoinDEX {
                 // If total_filled < MIN_ORDER_AMOUNT, no flip (filled amount too small)
             }
 
-            // Emit partial fill event, then cancellation event
-            self.emit_order_filled(order.order_id(), order.maker(), taker, fill_amount, true)?;
-            self.emit_event(StablecoinDEXEvents::OrderCancelled(
-                IStablecoinDEX::OrderCancelled {
-                    orderId: order.order_id(),
-                },
-            ))?;
+            // Emit as complete fill (partialFill = false) since order is now fully executed
+            // The dust was refunded to maker, not traded, but the order is complete
+            self.emit_order_filled(order.order_id(), order.maker(), taker, fill_amount, false)?;
         } else {
             // Normal partial fill - order remains active
             self.orders[order.order_id()]
@@ -4189,11 +4185,11 @@ mod tests {
         })
     }
 
-    /// Test that orders are automatically cancelled when partial fill leaves remaining
-    /// amount below MIN_ORDER_AMOUNT. This prevents DoS attacks where users create
-    /// tiny orders by self-matching.
+    /// Test that orders are early-completed when partial fill leaves remaining
+    /// amount below MIN_ORDER_AMOUNT (dust). This prevents DoS attacks where users
+    /// create tiny orders by self-matching.
     #[test]
-    fn test_partial_fill_auto_cancels_below_minimum() -> eyre::Result<()> {
+    fn test_partial_fill_early_completes_below_minimum() -> eyre::Result<()> {
         let mut storage = HashMapStorageProvider::new(1);
         StorageCtx::enter(&mut storage, || {
             let admin = Address::from([2u8; 20]);
@@ -4230,12 +4226,12 @@ mod tests {
             let swap_amount = 60_000_000u128;
             exchange.swap_exact_amount_in(bob, quote_token, base_token, swap_amount, 0)?;
 
-            // The order should be cancelled because remaining ($90) < MIN_ORDER_AMOUNT ($100)
+            // The order should be early-completed because remaining ($90) < MIN_ORDER_AMOUNT ($100)
             // Verify order is deleted (maker should be zero address)
             let order_after = exchange.orders[order_id].read()?;
             assert!(
                 order_after.maker().is_zero(),
-                "Order should be deleted after partial fill leaves remaining below minimum"
+                "Order should be deleted after early completion"
             );
 
             // Check that the orderbook has no remaining liquidity at this tick
@@ -4245,15 +4241,15 @@ mod tests {
                 .read()?;
             assert_eq!(
                 level.total_liquidity, 0,
-                "Tick level should have zero liquidity after auto-cancel"
+                "Tick level should have zero liquidity after early completion"
             );
 
-            // Verify alice got the remaining tokens refunded to her internal balance
+            // Verify alice got the dust refunded to her internal balance
             // She should have 90_000_000 base tokens refunded
             let alice_base_balance = exchange.balance_of(alice, base_token)?;
             assert_eq!(
                 alice_base_balance, 90_000_000,
-                "Alice should have remaining tokens refunded"
+                "Alice should have dust refunded"
             );
 
             Ok(())

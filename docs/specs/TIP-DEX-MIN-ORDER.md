@@ -13,12 +13,13 @@ This document specifies a protocol change to prevent DoS attacks on the Stableco
 
 ## Abstract
 
-When a partial fill on the Stablecoin DEX leaves an order with remaining amount below `MIN_ORDER_AMOUNT` ($100), the order is automatically completed:
+When a partial fill on the Stablecoin DEX leaves an order with remaining amount below `MIN_ORDER_AMOUNT` ($100), the order is treated as **early completed**:
 
-- **Non-flip orders**: Cancelled with remaining tokens refunded to maker
-- **Flip orders**: Force-completed with a proportional flip (flip amount = filled amount)
+- Dust (remaining tokens) is refunded to maker's internal balance
+- Order is marked as fully executed (not cancelled)
+- For flip orders, the flip is created in a "partially filled" state
 
-This prevents DoS attacks where malicious users create arbitrarily small orders by self-matching, while preserving flip order functionality.
+This prevents DoS attacks where malicious users create arbitrarily small orders by self-matching, while preserving flip order functionality and providing a cleaner UX (no cancellation events).
 
 ## Motivation
 
@@ -38,10 +39,12 @@ By stacking many tiny orders on the orderbook, an attacker can:
 
 ### Solution
 
-Extend the minimum order size enforcement to partial fills:
+Extend the minimum order size enforcement to partial fills via **early completion**:
 
-1. **Non-flip orders**: Auto-cancel when `remaining < MIN_ORDER_AMOUNT`, refunding remaining tokens to maker
-2. **Flip orders**: Force-complete with proportional flip - the flip order amount equals the filled amount (not the original amount), preserving the flip functionality while preventing tiny orders
+1. When `remaining < MIN_ORDER_AMOUNT` after a fill, treat the order as completed
+2. Refund dust to maker's internal balance
+3. Emit `OrderFilled` with `partialFill = false` (order is complete, not cancelled)
+4. For flip orders, create the flip in a "partially filled" state preserving chain semantics
 
 ---
 
@@ -84,27 +87,21 @@ This ensures:
 After computing `new_remaining = order.remaining - fill_amount`:
 
 1. If `new_remaining >= MIN_ORDER_AMOUNT` OR `new_remaining == 0`:
-   - Continue with normal partial fill logic (no change)
+   - Continue with normal partial/full fill logic (no change)
 
-2. If `0 < new_remaining < MIN_ORDER_AMOUNT` AND **order is NOT a flip order**:
+2. If `0 < new_remaining < MIN_ORDER_AMOUNT` (dust remaining):
    - Credit the filled amount to maker (normal settlement)
-   - Refund remaining tokens to maker's internal balance
+   - Refund dust to maker's internal balance
    - Remove order from orderbook, delete from storage
-   - Emit `OrderFilled` + `OrderCancelled`
-
-3. If `0 < new_remaining < MIN_ORDER_AMOUNT` AND **order IS a flip order**:
-   - Credit the filled amount to maker (normal settlement)
-   - Refund remaining tokens to maker's internal balance
-   - Calculate `total_filled = order.amount - new_remaining`
-   - Remove order from orderbook, delete from storage
-   - If `total_filled >= MIN_ORDER_AMOUNT`:
+   - For flip orders with `total_filled >= MIN_ORDER_AMOUNT`:
      - Create flip order in "partially filled" state:
        - `remaining = total_filled` (tradeable liquidity)
        - `amount = original amount` (preserves flip chain)
      - Flip order placed at `flip_tick`, with `is_flip = true`
-   - If `total_filled < MIN_ORDER_AMOUNT`:
+   - For flip orders with `total_filled < MIN_ORDER_AMOUNT`:
      - No flip order created (filled amount too small)
-   - Emit `OrderFilled` + `OrderCancelled` (+ `OrderPlaced` if flip created)
+   - Emit `OrderFilled` with `partialFill = false` (order is complete)
+   - Emit `OrderPlaced` if flip was created
 
 ## Interface Changes
 
@@ -116,10 +113,8 @@ event OrderFilled(
     address indexed maker,
     address indexed taker,
     uint128 fillAmount,
-    bool partialFill
+    bool partialFill  // false when order is early-completed due to dust
 );
-
-event OrderCancelled(uint128 indexed orderId);
 
 event OrderPlaced(
     uint128 indexed orderId,
@@ -131,6 +126,8 @@ event OrderPlaced(
     bool isFlip
 );
 ```
+
+Note: `OrderCancelled` is NOT emitted for early completion. The order is considered fully executed.
 
 ## Affected Functions
 
@@ -183,8 +180,8 @@ fn partial_fill_order(&mut self, order: &mut Order, level: &mut TickLevel, fill_
             // If total_filled < MIN_ORDER_AMOUNT, no flip (too small)
         }
         
-        emit_order_filled(order, fill_amount, partial_fill: true);
-        emit_order_cancelled(order);
+        // Emit as complete fill (not partial, not cancelled)
+        emit_order_filled(order, fill_amount, partial_fill: false);
     } else {
         // Normal partial fill
         order.remaining = new_remaining;
@@ -213,21 +210,21 @@ fn partial_fill_order(&mut self, order: &mut Order, level: &mut TickLevel, fill_
 
 4. **Accounting consistency**: Total liquidity at tick level equals sum of remaining amounts of all orders at that tick
 
-5. **Event ordering**: `OrderFilled` → `OrderCancelled` → `OrderPlaced` (if flip created)
+5. **Event ordering**: `OrderFilled` (with `partialFill = false`) → `OrderPlaced` (if flip created)
 
 ## Test Cases
 
 ### Non-Flip Orders
-1. **Auto-cancel triggers**: Place $150 order, swap $60 → order cancelled, $90 refunded
+1. **Early completion triggers**: Place $150 order, swap $60 → order completed, $90 refunded as dust
 2. **Boundary - at minimum**: Place $200 order, swap $100 → order remains with $100
-3. **Boundary - just below**: Place $199 order, swap $100 → order cancelled, $99 refunded
+3. **Boundary - just below**: Place $199 order, swap $100 → order completed, $99 refunded as dust
 4. **Full fill unaffected**: Place $100 order, swap $100 → normal full fill
 
 ### Flip Orders
-5. **Flip with sufficient filled**: Place $200 flip order, swap $110 → cancelled, $90 refunded, flip created (remaining=$110, amount=$200)
-6. **Flip with insufficient filled**: Place $150 flip order, swap $60 → cancelled, $90 refunded, NO flip (filled < $100)
-7. **Flip at exact minimum filled**: Place $190 flip order, swap $100 → cancelled, $90 refunded, flip created (remaining=$100, amount=$190)
-8. **Flip chain healing**: Flip order force-completed → flip with reduced remaining → fully filled → next flip restores original amount
+5. **Flip with sufficient filled**: Place $200 flip order, swap $110 → completed, $90 refunded, flip created (remaining=$110, amount=$200)
+6. **Flip with insufficient filled**: Place $150 flip order, swap $60 → completed, $90 refunded, NO flip (filled < $100)
+7. **Flip at exact minimum filled**: Place $190 flip order, swap $100 → completed, $90 refunded, flip created (remaining=$100, amount=$190)
+8. **Flip chain healing**: Flip order early-completed → flip with reduced remaining → fully filled → next flip restores original amount
 
 ### Edge Cases
 9. **Bid order refund**: Verify quote tokens refunded with correct rounding
@@ -239,31 +236,31 @@ fn partial_fill_order(&mut self, order: &mut Order, level: &mut TickLevel, fill_
 
 # Examples
 
-## Example 1: Non-Flip Order Auto-Cancel
+## Example 1: Non-Flip Order Early Completion
 
 ```
 1. Alice places $150 ask order at tick 0
 2. Bob swaps $60 quote for base (fills $60 of Alice's order)
-3. Remaining = $90 < $100 minimum
-4. Order auto-cancelled:
-   - Alice receives $60 base settlement (from fill)
-   - Alice receives $90 base refund (remaining)
-   - OrderFilled + OrderCancelled emitted
+3. Remaining = $90 < $100 minimum (dust)
+4. Order early-completed:
+   - Alice receives $60 quote settlement (from fill)
+   - Alice receives $90 base refund (dust)
+   - OrderFilled emitted with partialFill = false
 ```
 
-## Example 2: Flip Order in Partially-Filled State
+## Example 2: Flip Order Early Completion
 
 ```
 1. Alice places $200 flip bid at tick 0, flip_tick 100
 2. Bob swaps $110 base for quote (fills $110 of Alice's bid)
-3. Remaining = $90 < $100 minimum
-4. Order force-completed:
+3. Remaining = $90 < $100 minimum (dust)
+4. Order early-completed:
    - Alice receives $110 base settlement
-   - Alice receives $90 quote refund
+   - Alice receives $90 quote refund (dust)
    - Flip order created: ask at tick 100 with:
      - remaining = $110 (tradeable liquidity)
      - amount = $200 (original, for future flip chain)
-   - OrderFilled + OrderCancelled + OrderPlaced emitted
+   - OrderFilled (partialFill=false) + OrderPlaced emitted
 5. Later: Flip order fully filled ($110)
    - Next flip created with amount = $200 (chain healed to original size)
 ```
@@ -273,12 +270,12 @@ fn partial_fill_order(&mut self, order: &mut Order, level: &mut TickLevel, fill_
 ```
 1. Alice places $150 flip bid at tick 0, flip_tick 100
 2. Bob swaps $60 base for quote (fills $60)
-3. Remaining = $90 < $100 minimum
-4. Order force-completed:
+3. Remaining = $90 < $100 minimum (dust)
+4. Order early-completed:
    - Alice receives $60 base settlement
-   - Alice receives $90 quote refund
+   - Alice receives $90 quote refund (dust)
    - NO flip order created ($60 < $100 minimum)
-   - OrderFilled + OrderCancelled emitted
+   - OrderFilled emitted with partialFill = false
 ```
 
 ---
@@ -287,8 +284,8 @@ fn partial_fill_order(&mut self, order: &mut Order, level: &mut TickLevel, fill_
 
 This change requires a **hard fork** as it modifies consensus-critical behavior:
 
-- Existing orders below minimum (if any exist from edge cases) will be force-completed on next interaction
+- Existing orders below minimum (if any exist from edge cases) will be early-completed on next interaction
 - No state migration needed - change is forward-only
 - Clients should handle:
-  - Receiving `OrderCancelled` events for orders they didn't explicitly cancel
-  - Flip orders completing with proportional (not original) amounts
+  - Orders completing with dust refunded (no `OrderCancelled` event)
+  - Flip orders in "partially filled" state (remaining < amount)
