@@ -521,9 +521,12 @@ Cancellation requires threshold confirmations, similar to execution:
 4. Revert with `TransactionAlreadyExecuted` if already executed
 5. Revert with `TransactionCancelled` if cancelled
 6. Revert with `TransactionExpired` if `block.timestamp > expiresAt`
-7. **Count valid confirmations** (lazy invalidation check):
-   - For each confirmer, check: `removedAt[confirmer] == 0` OR `removedAt[confirmer] > txId`
-   - Only count confirmations from owners who weren't removed before this tx was created
+7. **Count valid confirmations** (lazy invalidation/transfer check):
+   - For each confirmer:
+     - If `replacedBy[confirmer] != 0` AND `replacedAt[confirmer] > txId`: attribute to `replacedBy[confirmer]`
+     - If `removedAt[confirmer] != 0` AND `removedAt[confirmer] <= txId`: invalid (removed before tx)
+     - Otherwise: valid confirmation from original confirmer
+   - Deduplicate: if both old and new owner confirmed, count only once
 8. Revert with `InsufficientConfirmations` if `validConfirmations < threshold`
 9. Set reentrancy guard
 10. Mark as executed
@@ -596,10 +599,10 @@ When executed, the multisig calls itself, triggering the management function wit
 3. Revert with `ZeroAddressOwner` if `newOwner` is `address(0)`
 4. Revert with `AlreadyOwner` if `newOwner` is already an owner
 5. Replace `oldOwner` with `newOwner` in owners array (maintain sorted order)
-6. **Transfer all confirmations from `oldOwner` to `newOwner`** on pending transactions
+6. Record `replacedBy[oldOwner] = newOwner` and `replacedAt[oldOwner] = transactionCount` (for lazy transfer)
 7. Emit `OwnerReplaced`
 
-> **Note**: `replaceOwner` is atomic and transfers confirmations, enabling seamless key rotation without losing confirmation state.
+> **Note**: `replaceOwner` uses lazy confirmation transfer. At execution time, when validating confirmations, if `replacedBy[confirmer] != 0` AND `replacedAt[confirmer] > txId`, the confirmation is attributed to `replacedBy[confirmer]` instead. This enables seamless key rotation without O(n) iteration.
 
 #### `changeThreshold`
 
@@ -662,6 +665,12 @@ Cancellation count (at keccak256("cancellationCount", txId)):
 
 Owner removal tracking (at keccak256("removedAt", owner)):
   uint256 transactionCountAtRemoval  // 0 if not removed, else txCount when removed
+
+Owner replacement tracking (at keccak256("replacedBy", owner)):
+  address newOwner  // 0 if not replaced, else the replacement address
+
+Owner replacement timing (at keccak256("replacedAt", owner)):
+  uint256 transactionCountAtReplacement  // 0 if not replaced, else txCount when replaced
 ```
 
 ---
@@ -722,8 +731,9 @@ multisig.submitTransaction(
 13. `threshold` must always be >= 1 and <= `ownerCount`
 14. Owner management functions can only be called by the multisig itself (self-call)
 15. Removed owners' confirmations are lazily invalidated via `removedAt` tracking
-16. A confirmation is valid iff `removedAt[confirmer] == 0` OR `removedAt[confirmer] > txId`
-17. When an owner is replaced, their confirmations transfer to the new owner
+16. Replaced owners' confirmations are lazily transferred via `replacedBy`/`replacedAt` tracking
+17. A confirmation is valid iff confirmer is current owner OR was replaced/removed AFTER tx creation
+18. Confirmation counting handles deduplication when both old and new owner confirmed
 
 ## Security Invariants
 
@@ -835,8 +845,10 @@ multisig.submitTransaction(
 - Reject replacing non-existent owner
 - Reject replacing with zero address
 - Reject replacing with existing owner
-- **Confirmations transfer from old owner to new owner**
 - Verify owner list remains sorted after replace
+- **Lazy transfer**: `replacedBy[old]` and `replacedAt[old]` are set correctly
+- Old owner's confirmations on pre-replacement txs are attributed to new owner
+- Deduplication: if both old and new owner confirmed same tx, counts as 1
 
 ### Change Threshold
 - Change threshold via self-call with current threshold confirmations
