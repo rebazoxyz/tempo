@@ -363,6 +363,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         try vmExec.executeTransaction(signedTx) {
             _recordProtocolNonceTxSuccess(ctx.sender);
         } catch {
+            _syncNonceAfterFailure(ctx.sender);
             ghost_totalTxReverted++;
         }
     }
@@ -389,6 +390,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             try vmExec.executeTransaction(signedTx) {
                 _recordProtocolNonceTxSuccess(ctx.sender);
             } catch {
+                _syncNonceAfterFailure(ctx.sender);
                 ghost_totalTxReverted++;
                 break;
             }
@@ -434,6 +436,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_createAddresses[key] = expectedAddress;
             ghost_createCount[actualSender]++;
         } catch {
+            _syncNonceAfterFailure(actualSender);
             ghost_totalTxReverted++;
         }
     }
@@ -541,6 +544,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         try vmExec.executeTransaction(signedTx) {
             _record2dNonceTxSuccess(actor, uint64(nonceKey), currentNonce);
         } catch {
+            _sync2dNonceAfterFailure(actor, uint64(nonceKey));
             ghost_totalTxReverted++;
         }
     }
@@ -576,6 +580,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         try vmExec.executeTransaction(signedTx1) {
             _record2dNonceTxSuccess(actor, uint64(key1), nonce1);
         } catch {
+            _sync2dNonceAfterFailure(actor, uint64(key1));
             ghost_totalTxReverted++;
             return;
         }
@@ -589,6 +594,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         try vmExec.executeTransaction(signedTx2) {
             _record2dNonceTxSuccess(actor, uint64(key2), nonce2);
         } catch {
+            _sync2dNonceAfterFailure(actor, uint64(key2));
             ghost_totalTxReverted++;
         }
     }
@@ -612,6 +618,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         try vmExec.executeTransaction(signedTx) {
             _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey, ctx.currentNonce);
         } catch {
+            _sync2dNonceAfterFailure(ctx.sender, ctx.nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -632,6 +639,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         try vmExec.executeTransaction(signedTx) {
             _recordProtocolNonceTxSuccess(sender);
         } catch {
+            _syncNonceAfterFailure(sender);
             ghost_totalTxReverted++;
         }
     }
@@ -667,6 +675,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 _recordKeySpending(ctx.owner, ctx.keyId, address(feeToken), amount);
             }
         } catch {
+            _sync2dNonceAfterFailure(ctx.owner, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -702,6 +711,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 _recordKeySpending(ctx.owner, ctx.keyId, address(feeToken), amount);
             }
         } catch {
+            _sync2dNonceAfterFailure(ctx.owner, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -866,6 +876,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 _recordKeySpending(ctx.owner, ctx.keyId, address(feeToken), amount);
             }
         } catch {
+            _syncNonceAfterFailure(ctx.owner);
             ghost_totalTxReverted++;
         }
     }
@@ -958,6 +969,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
         try vmExec.executeTransaction(signedTx) {
             _record2dNonceCreateSuccess(ctx.sender, ctx.nonceKey, ctx.protocolNonce, expectedAddress);
         } catch {
+            _sync2dNonceAfterFailure(ctx.sender, ctx.nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -1692,6 +1704,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 }
             }
         } catch {
+            _sync2dNonceAfterFailure(owner, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -1996,6 +2009,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             uint256 recipientBalanceAfter = feeToken.balanceOf(ctx.recipient);
             assertEq(recipientBalanceAfter, recipientBalanceBefore + totalAmount, "M4: Multicall transfers not applied");
         } catch {
+            _sync2dNonceAfterFailure(ctx.sender, ctx.nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -2069,6 +2083,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             assertEq(senderBalanceAfter, senderBalanceBefore, "M8/M9: State visibility - sender balance should be unchanged after round-trip");
             assertEq(recipientBalanceAfter, recipientBalanceBefore, "M8/M9: State visibility - recipient balance should be unchanged after round-trip");
         } catch {
+            _sync2dNonceAfterFailure(ctx.sender, ctx.nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -2158,6 +2173,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 ghost_feeTrackingTransactions++;
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -2233,6 +2249,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 ghost_total2dNonceTxs++;
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -2284,6 +2301,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 ghost_total2dNonceTxs++;
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             uint256 balanceAfter = feeToken.balanceOf(sender);
             if (balanceAfter < balanceBefore) {
                 _recordFeeNoRefundOnFailure();
@@ -2330,6 +2348,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 ghost_total2dNonceTxs++;
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             uint256 balanceAfter = feeToken.balanceOf(sender);
             if (balanceAfter < balanceBefore) {
                 _recordFeePaidOnRevert();
@@ -2395,6 +2414,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 ghost_total2dNonceTxs++;
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             _recordInvalidFeeTokenRejected();
             ghost_totalTxReverted++;
         }
@@ -2458,6 +2478,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 _recordExplicitFeeTokenUsed();
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -2519,6 +2540,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 _recordFeeTokenFallbackUsed();
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -2583,6 +2605,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 ghost_total2dNonceTxs++;
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             _recordInsufficientLiquidityRejected();
             ghost_totalTxReverted++;
         }
@@ -2707,6 +2730,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey, ctx.currentNonce);
             ghost_timeBoundTxsExecuted++;
         } catch {
+            _sync2dNonceAfterFailure(ctx.sender, ctx.nonceKey);
             ghost_timeBoundTxsRejected++;
         }
     }
@@ -2726,6 +2750,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             _record2dNonceTxSuccess(ctx.sender, ctx.nonceKey, ctx.currentNonce);
             ghost_openWindowTxsExecuted++;
         } catch {
+            _sync2dNonceAfterFailure(ctx.sender, ctx.nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -2785,6 +2810,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_totalProtocolNonceTxs++;
             ghost_totalEip1559Txs++;
         } catch {
+            _syncNonceAfterFailure(sender);
             ghost_totalTxReverted++;
         }
     }
@@ -2835,6 +2861,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_totalProtocolNonceTxs++;
             ghost_totalEip1559Txs++;
         } catch {
+            _syncNonceAfterFailure(sender);
             ghost_totalTxReverted++;
             ghost_totalEip1559BaseFeeRejected++;
         }
@@ -2927,6 +2954,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 }
             }
         } catch {
+            _syncNonceAfterFailure(sender);
             ghost_totalTxReverted++;
         }
     }
@@ -3092,6 +3120,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
                 assertTrue(feePayerBalanceAfter < feePayerBalanceBefore, "TX10: Fee payer should pay fees");
             }
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -3185,6 +3214,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_totalProtocolNonceTxs++;
             _recordGasTrackingBasic();
         } catch {
+            _syncNonceAfterFailure(sender);
             ghost_totalTxReverted++;
         }
     }
@@ -3236,6 +3266,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_total2dNonceTxs++;
             _recordGasTrackingMulticall();
         } catch {
+            _sync2dNonceAfterFailure(sender, nonceKey);
             ghost_totalTxReverted++;
         }
     }
@@ -3287,6 +3318,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_createCount[sender]++;
             _recordGasTrackingCreate();
         } catch {
+            _syncNonceAfterFailure(sender);
             ghost_totalTxReverted++;
         }
     }
@@ -3348,6 +3380,7 @@ contract TempoTransactionInvariantTest is InvariantChecker {
             ghost_totalProtocolNonceTxs++;
             _recordGasTrackingSignature();
         } catch {
+            _syncNonceAfterFailure(sender);
             ghost_totalTxReverted++;
         }
     }

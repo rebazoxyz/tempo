@@ -312,6 +312,29 @@ abstract contract HandlerBase is InvariantBase {
         }
     }
 
+    // ============ Nonce Sync Helpers for Catch Blocks ============
+
+    /// @notice Sync ghost protocol nonce with actual VM nonce after tx failure
+    /// @dev Call this in catch blocks for protocol nonce transactions (legacy tx, tempo tx with nonceKey=0)
+    function _syncNonceAfterFailure(address account) internal {
+        uint256 actualNonce = vm.getNonce(account);
+        if (actualNonce > ghost_protocolNonce[account]) {
+            ghost_protocolNonce[account] = actualNonce;
+            ghost_totalProtocolNonceTxs++;
+        }
+    }
+
+    /// @notice Sync ghost 2D nonce with actual VM nonce after tx failure
+    /// @dev Call this in catch blocks for 2D nonce transactions (tempo tx with nonceKey > 0)
+    function _sync2dNonceAfterFailure(address account, uint64 nonceKey) internal {
+        uint64 actualNonce = nonce.getNonce(account, nonceKey);
+        if (actualNonce > ghost_2dNonce[account][nonceKey]) {
+            ghost_2dNonce[account][nonceKey] = actualNonce;
+            ghost_2dNonceUsed[account][nonceKey] = true;
+            ghost_total2dNonceTxs++;
+        }
+    }
+
     // ============ CREATE Context Helpers ============
 
     /// @dev Context for CREATE operations

@@ -156,3 +156,4 @@ The invariant `ghost_createOversizedAllowed == 0` should hold.
 | 2026-01-15 | Root cause identified: tempo-foundry config disabled initcode limit |
 | 2026-01-15 | Fix implemented in tempo-foundry `crates/cheatcodes/src/evm.rs` |
 | 2026-01-15 | Fix verified with test cases |
+| 2026-01-15 | C8 invariant re-enabled in TempoTransactionInvariant.t.sol |
