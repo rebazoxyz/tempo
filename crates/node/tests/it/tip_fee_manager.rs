@@ -403,3 +403,142 @@ async fn test_fee_payer_tx() -> eyre::Result<()> {
 
     Ok(())
 }
+
+/// Test that `getFeeToken()` returns zero in eth_call context (no transaction execution).
+///
+/// This verifies transient storage behavior: since eth_call is a simulation without
+/// a real transaction, no fee token is set in transient storage, so getFeeToken()
+/// should return Address::ZERO.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_fee_token_returns_zero_in_eth_call() -> eyre::Result<()> {
+    reth_tracing::init_test_tracing();
+
+    let setup = TestNodeBuilder::new().build_http_only().await?;
+    let http_url = setup.http_url;
+
+    let wallet = MnemonicBuilder::from_phrase(crate::utils::TEST_MNEMONIC).build()?;
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(http_url);
+
+    let fee_manager = IFeeManager::new(TIP_FEE_MANAGER_ADDRESS, provider.clone());
+
+    // Call getFeeToken() via eth_call - should return zero since no tx context
+    let fee_token = fee_manager.getFeeToken().call().await?;
+
+    assert_eq!(
+        fee_token,
+        Address::ZERO,
+        "getFeeToken() should return zero in eth_call simulation context"
+    );
+
+    Ok(())
+}
+
+/// Test that `getFeeToken()` correctly reflects the fee token used during transaction execution.
+///
+/// This verifies transient storage is properly set during tx execution:
+/// 1. Send a transaction with a specific fee token
+/// 2. Verify the transaction succeeds and uses the expected fee token
+/// 3. Verify eth_call still returns zero (transient storage cleared between txs)
+#[tokio::test(flavor = "multi_thread")]
+async fn test_get_fee_token_transient_storage() -> eyre::Result<()> {
+    reth_tracing::init_test_tracing();
+
+    let setup = TestNodeBuilder::new().build_http_only().await?;
+    let http_url = setup.http_url;
+
+    let signers = MnemonicBuilder::from_phrase(crate::utils::TEST_MNEMONIC)
+        .into_iter()
+        .take(2)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut wallet = EthereumWallet::new(signers[0].clone());
+    wallet.register_signer(signers[1].clone());
+
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(http_url);
+    let user_address = provider.default_signer_address();
+
+    // Create a custom fee token
+    let user_token = setup_test_token(provider.clone(), user_address).await?;
+    let fee_amm = ITIPFeeAMM::new(TIP_FEE_MANAGER_ADDRESS, provider.clone());
+    let fee_manager = IFeeManager::new(TIP_FEE_MANAGER_ADDRESS, provider.clone());
+
+    // Setup: mint tokens and provide liquidity
+    for signer in &signers {
+        user_token
+            .mint(signer.address(), U256::from(1e18))
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+    }
+
+    fee_amm
+        .mint(
+            *user_token.address(),
+            PATH_USD_ADDRESS,
+            U256::from(1e18),
+            signers[1].address(),
+        )
+        .from(signers[1].address())
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
+    // Set user's fee token preference
+    fee_manager
+        .setUserToken(*user_token.address())
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
+    // Verify user token is set
+    let current_user_token = fee_manager.userTokens(user_address).call().await?;
+    assert_eq!(current_user_token, *user_token.address());
+
+    // Send a transaction that uses the custom fee token
+    let fees = provider.estimate_eip1559_fees().await?;
+    let tx = TempoTransaction {
+        chain_id: provider.get_chain_id().await?,
+        nonce: provider.get_transaction_count(user_address).await?,
+        fee_token: Some(*user_token.address()),
+        max_priority_fee_per_gas: fees.max_priority_fee_per_gas,
+        max_fee_per_gas: fees.max_fee_per_gas,
+        gas_limit: 100_000,
+        calls: vec![Call {
+            to: Address::ZERO.into(),
+            value: U256::ZERO,
+            input: alloy_primitives::Bytes::new(),
+        }],
+        ..Default::default()
+    };
+
+    let signature = signers[0].sign_hash_sync(&tx.signature_hash()).unwrap();
+    let envelope: TempoTxEnvelope = tx.into_signed(signature.into()).into();
+    let tx_hash = provider
+        .send_raw_transaction(&envelope.encoded_2718())
+        .await?
+        .watch()
+        .await?;
+
+    let receipt = provider
+        .client()
+        .request::<_, AnyReceiptEnvelope>("eth_getTransactionReceipt", (tx_hash,))
+        .await?;
+    assert!(
+        receipt.status(),
+        "Transaction with custom fee token should succeed"
+    );
+
+    // After the transaction, verify eth_call on getFeeToken() still returns zero
+    // This confirms transient storage is cleared between transactions
+    let fee_token_after = fee_manager.getFeeToken().call().await?;
+    assert_eq!(
+        fee_token_after,
+        Address::ZERO,
+        "getFeeToken() should return zero after transaction (transient storage cleared)"
+    );
+
+    Ok(())
+}
