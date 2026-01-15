@@ -65,7 +65,7 @@ fn signing_share_roundtrip() {
 }
 
 #[test]
-fn zeroize_feature_is_actived() {
+fn zeroize_feature_is_activated() {
     fn implements_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
     implements_zeroize_on_drop::<super::ChaCha20Poly1305>();
 }

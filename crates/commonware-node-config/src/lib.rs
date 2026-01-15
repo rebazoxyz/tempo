@@ -76,7 +76,7 @@ impl EncryptionKey {
         Self::from_bytes(&bytes)
     }
 
-    /// Converst the encryption to a hex-encoded byte slice.
+    /// Converts the encryption to a hex-encoded byte slice.
     pub fn to_hex(&self) -> String {
         const_hex::encode(self.key.as_slice())
     }
