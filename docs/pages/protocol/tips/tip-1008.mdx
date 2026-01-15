@@ -1,0 +1,776 @@
+# TIP-1008: Multi-Currency Fee AMM with Price Oracle
+
+- **TIP ID**: TIP-1008
+- **Authors/Owners**: Tempo Protocol Team
+- **Status**: Draft
+- **Related Specs/TIPs**: TIP-20, TIP Fee Manager
+- **Protocol Version**: TBD
+
+---
+
+## Abstract
+
+This TIP extends the existing feeAMM system to support fee payment in tokens denominated in currencies other than USD by introducing an off-chain price oracle service that pushes USD exchange rates on-chain. Users will be able to pay gas fees in tokens denominated in currencies such as EUR, GBP, JPY, etc., while validators continue to receive USD-denominated tokens. The system maintains the existing 30bps fee structure and includes a staleness check that disables non-USD swaps when price data is not sufficiently fresh. Staleness thresholds are calibrated based on the historical volatility of each currency pair.
+
+---
+
+## Motivation
+
+### Problem Statement
+
+The current feeAMM implementation only supports USD-denominated tokens. This creates several limitations:
+
+1. **Limited User Choice**: Users holding tokens denominated in other currencies (EUR, GBP, JPY, etc.) cannot use them to pay gas fees without first converting to USD tokens off-chain
+2. **International Accessibility**: Global adoption is hindered when users must hold USD-denominated assets to interact with the Tempo network
+3. **Currency Diversity**: As TIP-20 tokens expand to support multiple currency denominations, the fee system should support this diversity
+
+### Proposed Solution
+
+Extend the feeAMM to accept tokens of any currency denomination by:
+
+1. **Off-Chain Price Oracle**: Deploy a push-based oracle service (potentially operated by Tempo) that publishes USD exchange rates for supported currencies on-chain
+2. **USD-Centric Architecture**: All non-USD currencies are converted to USD for validator payment, simplifying the system by eliminating cross-currency complexity
+3. **Dynamic Rate Swaps**: Use oracle-provided rates to calculate swap amounts for non-USD currency pairs, maintaining the 30bps fee structure
+4. **Volatility-Based Staleness Protection**: Implement currency-specific maximum age thresholds based on historical volatility, automatically disabling non-USD swaps when prices become stale
+5. **Backward Compatibility**: Preserve existing USD-only functionality as a fallback when oracle data is unavailable
+
+### Alternatives Considered
+
+1. **On-Chain TWAP Oracle**: Could use on-chain time-weighted average prices from DEX pools, but this adds complexity, potential manipulation risk, and requires sufficient liquidity for all currency pairs
+2. **Chainlink Integration**: Could integrate existing Chainlink price feeds, but this adds external dependencies and may not support all desired currency pairs
+3. **User-Provided Rates**: Could allow users to specify their own rates (with bounds), but this creates MEV opportunities and complexity
+4. **Cross-Currency Support**: Could support direct EUR→GBP swaps, but this adds significant complexity with minimal benefit since validators predominantly prefer USD
+
+---
+
+## Specification
+
+### 1. Price Oracle Architecture
+
+#### 1.1 Oracle Service
+
+An off-chain service will push USD exchange rate updates to the blockchain:
+
+- **Operator**: Initially operated by Tempo Protocol, potentially decentralized in future versions
+- **Update Frequency**: Target update frequency of 1-5 minutes under normal conditions
+- **Rate Format**: Exchange rates expressed as `currency/USD` with scaling factor (e.g., EUR/USD = 1.0850)
+- **Supported Currencies**: Initially support major currencies (EUR, GBP, JPY, CNY, CHF, CAD, AUD, etc.)
+- **Quote Currency**: All rates are quoted against USD (the base currency for validators)
+
+#### 1.2 On-Chain Price Storage
+
+Extend the TIP Fee Manager precompile to store and manage price data:
+
+```solidity
+/// @notice Exchange rate data for a currency to USD
+struct ExchangeRate {
+    /// @dev Exchange rate scaled by RATE_SCALE (e.g., 1.0850 EUR/USD = 10850)
+    uint64 rate;
+
+    /// @dev Block timestamp when this rate was published
+    uint64 timestamp;
+
+    /// @dev Maximum staleness in seconds for this currency pair
+    uint64 maxStaleness;
+}
+
+/// @notice Oracle configuration parameters
+struct OracleConfig {
+    /// @dev Address authorized to push price updates
+    address oracleAddress;
+
+    /// @dev Whether the oracle is enabled
+    bool enabled;
+
+    /// @dev Default maximum staleness in seconds for unspecified currencies
+    uint64 defaultMaxStaleness;
+}
+
+/// @dev Scaling factor for exchange rates (10000 = 4 decimal places)
+uint64 constant RATE_SCALE = 10000;
+
+/// @dev Default maximum staleness: 300 seconds (5 minutes)
+uint64 constant DEFAULT_MAX_STALENESS = 300;
+```
+
+#### 1.3 Price Update Interface
+
+```solidity
+/// @notice Update exchange rate for a currency to USD
+/// @dev Only callable by the authorized oracle address
+/// @param currency The currency string (e.g., "EUR", "GBP", "JPY")
+/// @param rate The exchange rate to USD scaled by RATE_SCALE
+/// @param maxStaleness Maximum age in seconds before this rate is considered stale
+/// @dev Example: EUR/USD = 1.0850 -> rate = 10850
+/// @dev Emits ExchangeRateUpdated event
+function updateExchangeRate(
+    string calldata currency,
+    uint64 rate,
+    uint64 maxStaleness
+) external;
+
+/// @notice Batch update multiple exchange rates
+/// @dev Only callable by the authorized oracle address
+/// @param currencies Array of currency strings
+/// @param rates Array of exchange rates to USD scaled by RATE_SCALE
+/// @param maxStalenesses Array of maximum staleness values in seconds
+/// @dev Arrays must be same length; emits ExchangeRateUpdated for each pair
+function updateExchangeRatesBatch(
+    string[] calldata currencies,
+    uint64[] calldata rates,
+    uint64[] calldata maxStalenesses
+) external;
+
+/// @notice Get the current exchange rate for a currency to USD
+/// @param currency The currency string (e.g., "EUR", "GBP")
+/// @return rate The exchange rate to USD scaled by RATE_SCALE
+/// @return timestamp Block timestamp of the rate
+/// @return maxStaleness Maximum staleness for this currency
+/// @return isStale Whether the rate exceeds its maxStaleness threshold
+function getExchangeRate(
+    string calldata currency
+) external view returns (
+    uint64 rate,
+    uint64 timestamp,
+    uint64 maxStaleness,
+    bool isStale
+);
+
+/// @notice Set oracle configuration parameters
+/// @dev Only callable by contract owner/admin
+/// @param oracleAddress Address authorized to push updates
+/// @param enabled Whether the oracle system is enabled
+/// @param defaultMaxStaleness Default staleness for new currencies
+function setOracleConfig(
+    address oracleAddress,
+    bool enabled,
+    uint64 defaultMaxStaleness
+) external;
+
+/// @notice Get current oracle configuration
+/// @return config The current OracleConfig struct
+function getOracleConfig() external view returns (OracleConfig memory config);
+```
+
+#### 1.4 Events
+
+```solidity
+/// @notice Emitted when an exchange rate is updated
+/// @param currency The currency string
+/// @param rate The new exchange rate to USD scaled by RATE_SCALE
+/// @param timestamp Block timestamp of the update
+/// @param maxStaleness Maximum staleness for this currency
+event ExchangeRateUpdated(
+    string indexed currency,
+    uint64 rate,
+    uint64 timestamp,
+    uint64 maxStaleness
+);
+
+/// @notice Emitted when oracle configuration is updated
+/// @param oracleAddress New oracle address
+/// @param enabled New enabled status
+/// @param defaultMaxStaleness New default staleness threshold
+event OracleConfigUpdated(
+    address oracleAddress,
+    bool enabled,
+    uint64 defaultMaxStaleness
+);
+
+/// @notice Emitted when a swap is disabled due to stale price
+/// @param currency The currency with stale price
+/// @param lastUpdate Timestamp of last price update
+/// @param currentTime Current block timestamp
+/// @param age Age of the price in seconds
+event SwapDisabledStalePrice(
+    string currency,
+    uint64 lastUpdate,
+    uint64 currentTime,
+    uint64 age
+);
+```
+
+### 2. Multi-Currency Swap Mechanics
+
+#### 2.1 Fee Swap Rate Calculation
+
+When a user pays fees in a non-USD token, the swap amount is calculated using the oracle rate:
+
+1. **Check Price Freshness**: Verify that the exchange rate for the user's token currency is not stale
+2. **Apply AMM Fee**: Maintain the existing 30bps fee structure (0.9970 multiplier)
+3. **Apply Exchange Rate**: Convert to USD using the oracle-provided rate
+4. **Calculate Output**: Determine the USD token amount for the validator
+
+**Formula**:
+```
+Given:
+- userAmount: Amount of user token being swapped (e.g., 100 EUR)
+- userCurrency: Currency of user token (e.g., "EUR")
+- exchangeRate: Currency/USD rate from oracle (e.g., EUR/USD = 1.0850, scaled to 10850)
+- M: Fee swap multiplier (9970, representing 0.9970)
+
+Calculate:
+usdAmount = (userAmount × M × exchangeRate) / (SCALE × RATE_SCALE)
+
+Where:
+- SCALE = 10000 (existing AMM scaling)
+- RATE_SCALE = 10000 (oracle rate scaling)
+
+Example: 100 EUR at 1.0850 EUR/USD
+usdAmount = (100,000,000 × 9970 × 10850) / (10000 × 10000)
+         = 108,174,500 units
+         = 108.17 USD
+```
+
+#### 2.2 Staleness Check Logic
+
+Before executing any non-USD swap:
+
+```rust
+fn is_price_fresh(
+    currency: &str,
+    last_update_timestamp: u64,
+    current_timestamp: u64,
+    max_staleness: u64
+) -> bool {
+    // USD is always "fresh" - no oracle needed
+    if currency == "USD" {
+        return true;
+    }
+
+    // Check if time elapsed exceeds threshold
+    let age = current_timestamp.saturating_sub(last_update_timestamp);
+    age <= max_staleness
+}
+```
+
+**Behavior when price is stale**:
+- Non-USD swaps are **disabled** - the transaction will fail with error `StaleExchangeRate`
+- USD-only swaps continue to work normally (backward compatible)
+- An event `SwapDisabledStalePrice` is emitted for monitoring
+- User must either wait for fresh oracle update or use a USD-denominated token
+
+#### 2.3 Currency Pair Resolution (USD-Centric)
+
+For any swap between `userToken` and `validatorToken`:
+
+1. **Extract Currencies**: Get currency strings from each token's TIP20 metadata
+2. **Validator Must Be USD**: Verify that validator token currency is "USD" (revert if not)
+3. **Handle USD User Token**: If user currency is also "USD", use existing fixed-rate logic (no oracle needed)
+4. **Handle Non-USD User Token**:
+   - Query `currency/USD` rate from oracle
+   - Verify rate is fresh (age ≤ maxStaleness)
+   - Calculate USD output amount using rate and 0.9970 multiplier
+
+**Architecture Assumption**: This design assumes validators will always prefer USD-denominated tokens. This simplification:
+- Eliminates the need for cross-currency rate calculations (e.g., EUR→GBP)
+- Reduces oracle complexity (only N rates for N currencies, not N×N pairs)
+- Aligns with stablecoin market reality where USD is the dominant denomination
+- Simplifies staleness monitoring (only one rate per non-USD currency)
+
+#### 2.4 Modified Swap Interface
+
+The existing `execute_fee_swap()` function is extended internally:
+
+```rust
+// Internal function signature (not exposed in Solidity interface)
+fn execute_fee_swap_with_oracle(
+    user_token: Address,
+    validator_token: Address,
+    user_amount: U256,
+    user_currency: String,
+    validator_currency: String,
+    oracle_state: &OracleState,
+) -> Result<U256, Error> {
+    // 1. Enforce USD-centric architecture
+    if validator_currency != "USD" {
+        return Err(Error::ValidatorMustBeUSD);
+    }
+
+    // 2. Check if user currency is USD (existing logic)
+    if user_currency == "USD" {
+        return execute_existing_fixed_rate_swap(user_amount);
+    }
+
+    // 3. Query oracle for user_currency/USD rate
+    let rate = get_exchange_rate(&user_currency, oracle_state)?;
+
+    // 4. Check price freshness
+    if !is_price_fresh(&user_currency, rate.timestamp, current_time(), rate.max_staleness) {
+        emit_event(SwapDisabledStalePrice {
+            currency: user_currency.clone(),
+            last_update: rate.timestamp,
+            current_time: current_time(),
+            age: current_time() - rate.timestamp,
+        });
+        return Err(Error::StaleExchangeRate(user_currency, age));
+    }
+
+    // 5. Calculate USD output with AMM fee (0.9970 multiplier)
+    let usd_amount = calculate_usd_amount(user_amount, rate.rate)?;
+
+    // 6. Execute swap
+    execute_swap(user_token, validator_token, user_amount, usd_amount)
+}
+```
+
+### 3. Rebalancing Swaps
+
+Rebalancing swaps (liquidity provider arbitrage) also support multi-currency with USD-centric architecture:
+
+- **Direction**: Only USD→Currency rebalancing is supported (not Currency→USD or Currency→Currency)
+- **Rebalancing Rate**: Maintain existing 0.9985 multiplier (N = 9985)
+- **Oracle Rate**: Apply current exchange rate from oracle
+- **Staleness Check**: Enforce same staleness requirements as fee swaps
+- **Formula**:
+  ```
+  Given: inputAmount USD, target currency, USD/currency inverse rate
+  outputAmount = (inputAmount × N × RATE_SCALE) / (SCALE × exchangeRate)
+  ```
+- **Rationale**: Since validators accumulate USD and liquidity providers rebalance pools, only USD→Currency direction is needed
+
+### 4. Volatility-Based Staleness Configuration
+
+#### 4.1 Motivation
+
+Different currency pairs exhibit different levels of volatility. A one-size-fits-all staleness threshold is suboptimal:
+
+- **Low Volatility Pairs** (e.g., EUR/USD, CHF/USD): Prices change slowly, can tolerate longer staleness (e.g., 10 minutes)
+- **High Volatility Pairs** (e.g., emerging market currencies): Prices change rapidly, require shorter staleness (e.g., 2 minutes)
+
+Using historical volatility to calibrate staleness thresholds ensures:
+- **Safety**: High volatility pairs have tight staleness bounds to prevent exploitation
+- **Availability**: Low volatility pairs remain available longer during oracle delays
+- **Risk Management**: Maximum price movement during staleness period is bounded
+
+#### 4.2 Methodology
+
+The staleness threshold for a currency pair is derived from its historical volatility:
+
+**Formula**:
+```
+maxStaleness = baseInterval × (referenceVolatility / observedVolatility)
+
+Where:
+- baseInterval: Reference time window (e.g., 300 seconds = 5 minutes)
+- referenceVolatility: Baseline volatility for a "typical" currency (e.g., EUR/USD ~0.5% daily)
+- observedVolatility: Measured historical volatility for the currency pair
+```
+
+**Volatility Measurement**:
+- Use standard deviation of log returns over a rolling window (e.g., 30 days)
+- Annualize to daily volatility: `σ_daily = σ_intraday × sqrt(periods_per_day)`
+- Example: EUR/USD might show 0.4-0.6% daily volatility, while exotic pairs might show 2-4%
+
+**Example Calculation**:
+
+Assume:
+- Base interval: 300 seconds (5 minutes)
+- Reference volatility: 0.5% daily (EUR/USD baseline)
+
+For EUR/USD with observed 0.5% daily volatility:
+```
+maxStaleness = 300 × (0.5 / 0.5) = 300 seconds (5 minutes)
+```
+
+For TRY/USD (Turkish Lira) with observed 2.0% daily volatility:
+```
+maxStaleness = 300 × (0.5 / 2.0) = 75 seconds (1.25 minutes)
+```
+
+For JPY/USD with observed 0.3% daily volatility:
+```
+maxStaleness = 300 × (0.5 / 0.3) = 500 seconds (8.33 minutes)
+```
+
+#### 4.3 Risk Bounds
+
+The staleness threshold ensures that price movement during the stale period is bounded:
+
+**Maximum Price Movement**:
+```
+Given:
+- σ: daily volatility (e.g., 0.5% for EUR/USD)
+- t: staleness period in seconds
+- T: seconds per day = 86400
+
+Expected maximum movement (3 standard deviations, 99.7% confidence):
+maxMovement ≈ 3 × σ × sqrt(t / T)
+
+Example for EUR/USD (0.5% daily volatility) at 300 second staleness:
+maxMovement ≈ 3 × 0.005 × sqrt(300 / 86400)
+           ≈ 3 × 0.005 × 0.059
+           ≈ 0.088%
+
+This means a stale EUR/USD price (5 minutes old) is unlikely to deviate >0.088% from current market price.
+```
+
+The 30bps (0.3%) AMM fee provides a buffer against this price risk, making arbitrage unprofitable unless price movement significantly exceeds the expected maximum.
+
+#### 4.4 Implementation Strategy
+
+**Initial Configuration** (mainnet launch):
+- Set conservative fixed staleness values for initial currencies:
+  - EUR, GBP, CHF, CAD, AUD: 300 seconds (5 minutes)
+  - JPY, CNY: 240 seconds (4 minutes)
+  - Emerging market currencies: 120 seconds (2 minutes)
+
+**Ongoing Calibration**:
+- Oracle service monitors rolling 30-day volatility for each currency pair
+- Automatically updates `maxStaleness` when volatility changes significantly (e.g., >20% change)
+- Admin can override with manual values if needed
+
+**Monitoring**:
+- Track rate of staleness-related transaction failures per currency
+- Alert when failure rate exceeds threshold (indicates oracle latency or volatility increase)
+- Dashboard showing current volatility and staleness for each currency
+
+#### 4.5 Storage and Configuration
+
+The `ExchangeRate` struct stores `maxStaleness` per currency, allowing dynamic per-currency configuration:
+
+```solidity
+struct ExchangeRate {
+    uint64 rate;           // Current exchange rate
+    uint64 timestamp;      // Last update time
+    uint64 maxStaleness;   // Currency-specific staleness threshold
+}
+```
+
+Oracle updates include the staleness parameter:
+```solidity
+function updateExchangeRate(
+    string calldata currency,
+    uint64 rate,
+    uint64 maxStaleness  // <-- Volatility-derived value
+) external;
+```
+
+This allows the oracle to adjust staleness thresholds as market conditions change without requiring contract upgrades.
+
+### 5. Access Control
+
+```solidity
+/// @notice Error thrown when caller is not authorized oracle
+error UnauthorizedOracle();
+
+/// @notice Error thrown when oracle is disabled
+error OracleDisabled();
+
+/// @notice Error thrown when exchange rate is too stale
+error StaleExchangeRate(string currency, uint64 age);
+
+/// @notice Error thrown when exchange rate is not available
+error ExchangeRateNotFound(string currency);
+
+/// @notice Error thrown when validator token is not USD
+error ValidatorMustBeUSD(string validatorCurrency);
+
+/// @notice Error thrown when array lengths don't match in batch update
+error ArrayLengthMismatch();
+```
+
+**Oracle Update Access Control**:
+- Only the address specified in `OracleConfig.oracleAddress` can call `updateExchangeRate()` and `updateExchangeRatesBatch()`
+- Revert with `UnauthorizedOracle` if called by any other address
+
+**Configuration Access Control**:
+- Only contract owner/admin (determined by existing access control) can call `setOracleConfig()`
+- Follow existing TIP Fee Manager access control patterns
+
+### 6. Storage Layout
+
+```rust
+// Storage keys (using existing TIP Fee Manager slot pattern)
+
+/// Storage slot for oracle configuration
+/// Key: keccak256("tempo.fee_manager.oracle.config")
+const ORACLE_CONFIG_SLOT: H256 = ...;
+
+/// Storage slot for exchange rates (USD-centric)
+/// Key: keccak256(concat("tempo.fee_manager.oracle.rate.", currency))
+/// Returns: (rate: u64, timestamp: u64, maxStaleness: u64)
+fn get_rate_storage_key(currency: &str) -> H256 {
+    let key_string = format!("tempo.fee_manager.oracle.rate.{}", currency);
+    keccak256(key_string.as_bytes())
+}
+```
+
+### 7. Backward Compatibility
+
+The system maintains full backward compatibility:
+
+1. **USD-Only Swaps**: Continue to use existing fixed-rate logic without oracle queries
+2. **Fallback Behavior**: When `OracleConfig.enabled = false`, only USD swaps are allowed (revert for non-USD)
+3. **Existing Functions**: All existing feeAMM functions remain unchanged in their external interfaces
+4. **No Migration Required**: Existing pools, positions, and token preferences continue to work
+
+### 8. Example Scenarios
+
+#### Scenario 1: EUR User, USD Validator (Fresh Price)
+
+```
+User token: EURV (currency="EUR", decimals=6)
+Validator token: PATH_USD (currency="USD", decimals=6)
+User gas amount: 100.00 EURV (100,000,000 units)
+EUR/USD rate: 1.0850 (oracle rate = 10850)
+EUR/USD maxStaleness: 300 seconds
+Current time: T
+Last update: T - 120 seconds (2 minutes ago)
+
+Steps:
+1. Check: Is validator USD? ✓ Yes
+2. Check: Is user USD? ✗ No (EUR)
+3. Query: EUR/USD rate = 10850, updated 120s ago, maxStaleness = 300s
+4. Check: Is EUR/USD fresh? (120 < 300) ✓ Yes
+5. Calculate: usdAmount = (100,000,000 × 9970 × 10850) / (10000 × 10000)
+   = 10,817,450,000 / 100,000,000
+   = 108,174,500 units = 108.17 USD
+6. Execute swap: Transfer 100 EURV from user, 108.17 USD to validator
+7. Result: Validator receives 108.17 USD (net of 30bps AMM fee)
+```
+
+#### Scenario 2: GBP User, USD Validator (Stale Price)
+
+```
+User token: GBPV (currency="GBP", decimals=6)
+Validator token: PATH_USD (currency="USD", decimals=6)
+User gas amount: 100.00 GBPV
+GBP/USD rate: 1.2750 (oracle rate = 12750)
+GBP/USD maxStaleness: 300 seconds (5 minutes)
+Current time: T
+Last update: T - 400 seconds (6.67 minutes ago)
+
+Steps:
+1. Check: Is validator USD? ✓ Yes
+2. Check: Is user USD? ✗ No (GBP)
+3. Query: GBP/USD rate = 12750, updated 400s ago, maxStaleness = 300s
+4. Check: Is GBP/USD fresh? (400 > 300) ✗ No
+5. Emit: SwapDisabledStalePrice(currency="GBP", lastUpdate=T-400, currentTime=T, age=400)
+6. Revert: Error::StaleExchangeRate("GBP", 400)
+7. Result: Transaction fails - user must wait for fresh price update or use USD token
+```
+
+#### Scenario 3: USD User, USD Validator (No Oracle Needed)
+
+```
+User token: USDV (currency="USD", decimals=6)
+Validator token: PATH_USD (currency="USD", decimals=6)
+User gas amount: 100.00 USDV (100,000,000 units)
+
+Steps:
+1. Check: Is validator USD? ✓ Yes
+2. Check: Is user USD? ✓ Yes
+3. Skip oracle check (backward compatible path)
+4. Calculate: usdAmount = 100,000,000 × 9970 / 10000 = 99,700,000 = 99.70 USD
+5. Execute swap: Transfer 100 USDV from user, 99.70 USD to validator
+6. Result: Validator receives 99.70 USD (30bps fee implicit in 0.9970 rate)
+```
+
+#### Scenario 4: EUR User, EUR Validator (Not Supported)
+
+```
+User token: EURV (currency="EUR", decimals=6)
+Validator token: EURV2 (currency="EUR", decimals=6)
+User gas amount: 100.00 EURV
+
+Steps:
+1. Check: Is validator USD? ✗ No (EUR)
+2. Revert: Error::ValidatorMustBeUSD("EUR")
+3. Result: Transaction fails - validator must prefer a USD-denominated token
+```
+
+This scenario is rejected by design to maintain the USD-centric architecture.
+
+---
+
+## Invariants
+
+The following invariants must hold for the multi-currency feeAMM system:
+
+### Invariant 1: Staleness Protection
+**Statement**: No swap involving a non-USD currency shall execute if the required exchange rate is older than its `maxStaleness` threshold.
+
+**Test Cases**:
+- Given EUR user token where EUR/USD rate is exactly `maxStaleness` seconds old, the swap succeeds
+- Given EUR user token where EUR/USD rate is `maxStaleness + 1` seconds old, the swap reverts with `StaleExchangeRate`
+- Given USD user token, no staleness check is performed regardless of oracle state
+
+### Invariant 2: Oracle Authorization
+**Statement**: Only the address specified in `OracleConfig.oracleAddress` can successfully call price update functions.
+
+**Test Cases**:
+- Given `oracleAddress = 0xABC...`, when `0xABC...` calls `updateExchangeRate()`, the call succeeds
+- Given `oracleAddress = 0xABC...`, when `0xDEF...` calls `updateExchangeRate()`, the call reverts with `UnauthorizedOracle`
+- Given admin privileges, when admin calls `setOracleConfig()` to change `oracleAddress`, the update succeeds
+
+### Invariant 3: USD-Centric Architecture
+**Statement**: All fee swaps must have a USD-denominated validator token. Non-USD validator tokens are rejected.
+
+**Test Cases**:
+- Given validator token with currency="USD", any user token currency is accepted (subject to other checks)
+- Given validator token with currency="EUR", the swap reverts with `ValidatorMustBeUSD("EUR")`
+- Given validator token with currency="GBP", the swap reverts with `ValidatorMustBeUSD("GBP")`
+
+### Invariant 4: Fee Preservation
+**Statement**: The effective fee rate for swaps shall remain 30bps regardless of currency or exchange rate.
+
+**Test Cases**:
+- Given a EUR user token at rate R, user deposits `amountIn` EUR, receives `amountOut` USD
+- Verify: `amountOut / amountIn / R ≈ 0.9970` (within rounding tolerance)
+- Test fee preservation across multiple currencies and exchange rate levels
+
+### Invariant 5: Backward Compatibility
+**Statement**: USD-only swaps shall function identically to the pre-oracle implementation.
+
+**Test Cases**:
+- Given two USD tokens and `OracleConfig.enabled = true`, verify swap behavior matches legacy implementation
+- Given two USD tokens and `OracleConfig.enabled = false`, verify swap behavior matches legacy implementation
+- Verify no oracle storage reads occur during USD-only swaps
+
+### Invariant 6: Monotonic Rate Updates
+**Statement**: Each successful rate update shall have a timestamp greater than or equal to the previous update timestamp for that currency.
+
+**Test Cases**:
+- Given existing rate for EUR/USD at timestamp T1, when oracle updates with timestamp T2 where T2 < T1, the update is rejected
+- Given existing rate for EUR/USD at timestamp T1, when oracle updates with timestamp T2 where T2 ≥ T1, the update succeeds
+
+### Invariant 7: Rate Atomicity
+**Statement**: Batch rate updates shall be atomic - either all rates update successfully or none update.
+
+**Test Cases**:
+- Given a batch update with 5 rates where the 3rd rate is invalid, verify none of the 5 rates are updated
+- Given a batch update with 5 valid rates, verify all 5 rates are updated successfully
+- Verify batch updates emit events for all successful rates
+
+### Invariant 8: Staleness Reflects Volatility
+**Statement**: Higher volatility currencies shall have shorter `maxStaleness` thresholds than lower volatility currencies.
+
+**Test Cases**:
+- Given two currencies A and B where volatility(A) > volatility(B), verify maxStaleness(A) < maxStaleness(B)
+- Given a currency with updated volatility measurement, verify oracle can update its `maxStaleness` accordingly
+- Verify staleness thresholds keep maximum price risk bounded below the 30bps fee buffer
+
+---
+
+## Security Considerations
+
+### Oracle Trust Model
+
+- **Centralization Risk**: Initial implementation relies on a single oracle operator (Tempo)
+- **Mitigation**:
+  - Transparent oracle source code and operation
+  - Monitoring and alerting on price deviations from external sources
+  - Future path: decentralize oracle with multiple signers or integrate existing oracle networks
+
+### Price Manipulation
+
+- **Risk**: Stale prices could be exploited for arbitrage if price moves significantly
+- **Mitigation**:
+  - Volatility-based staleness ensures price risk is bounded below 30bps fee
+  - 30bps fee creates minimum profitability threshold for arbitrage
+  - Fixed fee structure (not dynamic AMM) limits manipulation surface
+  - Monitoring alerts when staleness-based failures spike
+
+### Front-Running
+
+- **Risk**: Oracle price updates visible in mempool before execution could be front-run
+- **Mitigation**:
+  - Price updates should be bundled/private when possible (e.g., Flashbots)
+  - 30bps fee makes front-running less profitable
+  - Frequent updates reduce price jump magnitude
+  - Users can choose to wait for favorable rates
+
+### Denial of Service
+
+- **Risk**: Oracle stops updating prices, disabling multi-currency swaps
+- **Mitigation**:
+  - USD-only swaps remain fully functional (fallback mechanism)
+  - Multiple oracle operators in future versions
+  - On-chain monitoring and alerts for staleness
+  - Emergency admin controls to disable oracle and revert to USD-only mode
+
+### Volatility Regime Changes
+
+- **Risk**: Sudden volatility increases could make staleness thresholds unsafe
+- **Mitigation**:
+  - Oracle continuously monitors volatility and updates `maxStaleness` dynamically
+  - Circuit breaker: suspend currency if volatility spikes beyond safety threshold
+  - Admin override capability for manual staleness adjustment
+  - Conservative baseline staleness values provide margin of safety
+
+---
+
+## Implementation Notes
+
+### Phase 1: Core Oracle Infrastructure
+- Implement on-chain price storage and update functions
+- Deploy off-chain oracle service with basic monitoring
+- Support initial currencies: EUR, GBP, JPY, CNY with fixed staleness values
+- Implement volatility monitoring for future calibration
+
+### Phase 2: Swap Integration
+- Extend `execute_fee_swap()` with oracle rate logic
+- Implement staleness checks and fallback behavior
+- Add USD-centric validation (reject non-USD validators)
+- Update rebalancing swaps to support USD→Currency direction only
+
+### Phase 3: Testing & Deployment
+- Comprehensive test suite covering all invariants
+- Testnet deployment with synthetic price feeds
+- Monitoring dashboard for oracle health and staleness events
+- Simulate volatility scenarios and verify staleness behavior
+
+### Phase 4: Volatility-Based Calibration
+- Implement automated volatility measurement (30-day rolling windows)
+- Deploy dynamic staleness adjustment based on volatility
+- Set up alerts for volatility regime changes
+- Refine staleness formulas based on mainnet data
+
+### Phase 5: Production & Expansion
+- Mainnet deployment with production oracle
+- Add support for additional currency pairs based on demand
+- Explore decentralization options (multi-sig oracle, Chainlink, etc.)
+- Optimize oracle update frequency based on observed usage patterns
+
+---
+
+## Open Questions
+
+1. **Initial Staleness Values**: Should we start with conservative fixed values or attempt volatility-based calibration from day one?
+   - Conservative fixed values reduce risk but may cause unnecessary failures
+   - Volatility-based calibration is optimal but adds complexity
+
+2. **Oracle Decentralization Timeline**: What is the timeline for decentralizing the oracle?
+   - Multi-signature oracle with multiple operators?
+   - Integration with existing oracle networks (Chainlink, Pyth)?
+
+3. **Rate Precision**: Is 4 decimal places (RATE_SCALE = 10000) sufficient for all currency pairs?
+   - Most major forex rates need 4-5 decimal places
+   - Some exotic pairs or very small denominations may need more precision
+
+4. **Supported Currencies**: Which currencies should be prioritized initially?
+   - Major currencies (EUR, GBP, JPY, CNY, CHF, CAD, AUD)?
+   - Emerging market currencies based on user demand?
+   - Regional currencies for specific markets?
+
+5. **Rebalancing Economics**: Will liquidity providers be willing to rebalance USD→Currency given exchange rate risk?
+   - May need higher rebalancing fees (>0.15%) for high-volatility currencies
+   - Consider separate rebalancing rates per currency based on volatility
+
+6. **Emergency Controls**: What emergency mechanisms should exist?
+   - Circuit breaker to pause oracle for specific currencies during extreme volatility?
+   - Admin override for staleness thresholds?
+   - Ability to temporarily disable non-USD swaps entirely?
+
+7. **Non-USD Validator Support**: Should we ever support non-USD validator preferences in the future?
+   - Current architecture explicitly rejects this for simplicity
+   - If demand exists, would require significant redesign
+
+---
+
+## References
+
+- [TIP-20 Token Standard](../tip20/spec.mdx)
+- [TIP Fee Manager Specification](../fees/spec-fee-amm.mdx)
+- [Tempo Protocol Documentation](https://docs.tempo.xyz)
