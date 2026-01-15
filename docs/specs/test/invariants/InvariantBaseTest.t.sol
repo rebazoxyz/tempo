@@ -114,7 +114,16 @@ abstract contract InvariantBaseTest is BaseTest {
             actorsAddress[i] = actor;
 
             // Initial actor balance for all tokens
-            _ensureFundsAll(actor, 1_000_000_000_000);
+            vm.startPrank(admin);
+            if (pathUSD.balanceOf(actor) < amount) {
+                pathUSD.mint(actor, amount + 100_000_000);
+            }
+            for (uint256 i = 0; i < _tokens.length; i++) {
+                if (_tokens[i].balanceOf(actor) < amount) {
+                    _tokens[i].mint(actor, amount + 100_000_000);
+                }
+            }
+            vm.stopPrank();
         }
 
         return actorsAddress;
@@ -194,22 +203,6 @@ abstract contract InvariantBaseTest is BaseTest {
             token.mint(actor, amount + 100_000_000);
             vm.stopPrank();
         }
-    }
-
-    /// @notice Ensures an actor has sufficient balances for all tokens
-    /// @param actor The actor address to fund
-    /// @param amount The minimum balance required
-    function _ensureFundsAll(address actor, uint256 amount) internal {
-        vm.startPrank(admin);
-        if (pathUSD.balanceOf(actor) < amount) {
-            pathUSD.mint(actor, amount + 100_000_000);
-        }
-        for (uint256 i = 0; i < _tokens.length; i++) {
-            if (_tokens[i].balanceOf(actor) < amount) {
-                _tokens[i].mint(actor, amount + 100_000_000);
-            }
-        }
-        vm.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////
