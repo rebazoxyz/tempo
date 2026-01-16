@@ -422,8 +422,8 @@ contract FeeAMMInvariantTest is InvariantBaseTest {
         // Bound amountOut to available reserves
         ctx.amountOut = bound(amountOutRaw, 1, poolBefore.reserveUserToken);
 
-        // Calculate expected amountIn: amountIn = (amountOut * N / SCALE) + 1
-        ctx.expectedAmountIn = (ctx.amountOut * N) / SCALE + 1;
+        // Calculate expected amountIn using proper ceiling: ceil(amountOut * N / SCALE)
+        ctx.expectedAmountIn = (ctx.amountOut * N + SCALE - 1) / SCALE;
         ctx.reserveUserBefore = poolBefore.reserveUserToken;
         ctx.reserveValidatorBefore = poolBefore.reserveValidatorToken;
 
