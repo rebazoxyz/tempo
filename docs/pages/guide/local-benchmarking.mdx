@@ -1,0 +1,63 @@
+---
+title: Local Benchmarking
+description: Run local Tempo networks and benchmarks with tempo.nu to test TPS, gas metrics, and transaction presets.
+---
+
+# Local Benchmarking
+
+The `tempo.nu` script provides a streamlined way to run local networks and benchmarks. Requires [Nushell](https://www.nushell.sh/).
+
+## Quick Start
+
+```bash
+# Dev node (single node, no consensus)
+./tempo.nu bench --reset --accounts 10 --mode dev --tps 9000 --duration 30 --preset tip20
+
+# Consensus mode (3 nodes)
+./tempo.nu bench --reset --accounts 10 --mode consensus --tps 9000 --duration 30 --preset tip20
+```
+
+This starts a local network, spams it with transactions at the target TPS, and opens a Grafana dashboard at http://localhost:3000 with TPS and gas/s metrics.
+
+## Presets
+
+| Preset | Description |
+|--------|-------------|
+| `tip20` | TIP-20 transfers only |
+| `erc20` | ERC-20 transfers only |
+| `swap` | Swaps only |
+| `order` | Order placements only |
+| `tempo-mix` | 80% TIP-20, 19% swap, 1% order |
+
+## Common Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--mode` | `dev` (single node) or `consensus` (multi-node) | `consensus` |
+| `--tps` | Target transactions per second | `10000` |
+| `--duration` | Benchmark duration in seconds | `30` |
+| `--accounts` | Number of accounts to generate | `1000` |
+| `--nodes` | Number of consensus validators | `3` |
+| `--reset` | Wipe and regenerate localnet data | - |
+| `--samply` | Enable profiling with samply | - |
+
+## Other Commands
+
+```bash
+# Start/stop the observability stack separately
+./tempo.nu infra up
+./tempo.nu infra down
+
+# Run just the localnet (no benchmark)
+./tempo.nu localnet --mode dev --accounts 50000 --reset
+
+# Kill running tempo processes
+./tempo.nu kill
+```
+
+## Port Assignments (Consensus Mode)
+
+Per node N (0, 1, 2...):
+- Consensus: `8000 + N*100`
+- HTTP RPC: `8545 + N`
+- Metrics: `9001 + N`
