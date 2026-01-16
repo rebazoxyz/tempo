@@ -1,5 +1,5 @@
 [workspace.package]
-version = "1.0.0-rc.3"
+version = "1.0.0-rc.6"
 edition = "2024"
 rust-version = "1.91.0"
 license = "MIT OR Apache-2.0"
@@ -122,6 +122,7 @@ reth-basic-payload-builder = { git = "https://github.com/paradigmxyz/reth", rev 
 reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "d134b8925c" }
 reth-cli = { git = "https://github.com/paradigmxyz/reth", rev = "d134b8925c" }
 reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", rev = "d134b8925c" }
+reth-cli-runner = { git = "https://github.com/paradigmxyz/reth", rev = "d134b8925c" }
 reth-cli-util = { git = "https://github.com/paradigmxyz/reth", rev = "d134b8925c" }
 reth-codecs = { git = "https://github.com/paradigmxyz/reth", rev = "d134b8925c" }
 reth-consensus = { git = "https://github.com/paradigmxyz/reth", rev = "d134b8925c" }
@@ -165,7 +166,7 @@ reth-revm = { git = "https://github.com/paradigmxyz/reth", rev = "d134b8925c", f
   "std",
   "optional-checks",
 ] }
-revm = { version = "33.1.0", features = ["optional_fee_charge"] }
+revm = { version = "34.0.0", features = ["optional_fee_charge"] }
 
 alloy = { version = "1.3.0", default-features = false }
 alloy-consensus = { version = "1.3.0", default-features = false }
@@ -186,17 +187,18 @@ alloy-signer-local = "1.3.0"
 alloy-sol-types = "1.5.0"
 alloy-transport = "1.3.0"
 
-commonware-broadcast = "0.0.64"
-commonware-codec = "0.0.64"
-commonware-consensus = "0.0.64"
-commonware-cryptography = "0.0.64"
-commonware-macros = "0.0.64"
-commonware-math = "0.0.64"
-commonware-p2p = "0.0.64"
-commonware-parallel = "0.0.64"
-commonware-runtime = "0.0.64"
-commonware-storage = "0.0.64"
-commonware-utils = "0.0.64"
+commonware-broadcast = "0.0.65"
+commonware-codec = "0.0.65"
+commonware-consensus = "0.0.65"
+commonware-cryptography = "0.0.65"
+commonware-macros = "0.0.65"
+commonware-math = "0.0.65"
+commonware-p2p = "0.0.65"
+commonware-parallel = "0.0.65"
+commonware-runtime = "0.0.65"
+commonware-storage = "0.0.65"
+commonware-utils = "0.0.65"
+
 arbitrary = { version = "1.3", features = ["derive"] }
 async-lock = "3.4.1"
 async-trait = "0.1"

@@ -91,7 +91,7 @@ impl<'a> PrecompileStorageProvider for EvmPrecompileStorageProvider<'a> {
         address: Address,
         f: &mut dyn FnMut(&AccountInfo),
     ) -> Result<(), TempoPrecompileError> {
-        let additional_cost = self.gas_params.cold_storage_additional_cost();
+        let additional_cost = self.gas_params.cold_account_additional_cost();
         // let skip_cold_load = 0 < additional_cost;
         let skip_cold_load = false;
 
