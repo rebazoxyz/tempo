@@ -47,7 +47,6 @@ use crate::{
     common::TempoStateAccess,
     error::{FeePaymentError, TempoHaltReason},
     evm::TempoContext,
-    gas_params::TempoGasParams,
 };
 
 /// Additional gas for P256 signature verification
@@ -1085,21 +1084,13 @@ where
                     })
                     .unwrap_or_default();
             };
-            let mut init_gas = gas_params.initial_tx_gas(
+            gas_params.initial_tx_gas(
                 tx.input(),
                 tx.kind().is_create(),
                 acc as u64,
                 storage as u64,
                 tx.authorization_list_len() as u64,
-            );
-            // TIP-1000: Storage pricing updates for launch
-            // EIP-7702 authorisation list entries with `auth_list.nonce == 0` require an additional 250,000 gas.
-            for auth in tx.authorization_list() {
-                if auth.nonce == 0 {
-                    init_gas.initial_gas += gas_params.tx_tip1000_auth_account_creation_cost();
-                }
-            }
-            init_gas
+            )
         };
 
         // TIP-1000: Storage pricing updates for launch
@@ -1213,11 +1204,6 @@ pub fn calculate_aa_batch_intrinsic_gas<'a>(
     // Add signature verification costs for each authorization
     for auth in authorization_list {
         gas.initial_gas += tempo_signature_verification_gas(auth.signature());
-        // TIP-1000: Storage pricing updates for launch
-        // EIP-7702 authorisation list entries with `auth_list.nonce == 0` require an additional 250,000 gas.
-        if auth.nonce == 0 {
-            gas.initial_gas += gas_params.tx_tip1000_auth_account_creation_cost();
-        }
     }
 
     // 5. Key authorization costs (if present)
