@@ -12,8 +12,6 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-tempo-precompiles-macros.workspace = true
-alloy = { workspace = true, features = ["sol-types"] }
 alloy-contract = { workspace = true, optional = true }
 alloy-primitives.workspace = true
 alloy-sol-types = { workspace = true, features = ["json"] }
@@ -25,5 +23,3 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 [features]
 default = ["rpc"]
 rpc = ["dep:alloy-contract"]
-# Enable precompile runtime support (generates interface traits in `#[abi]` modules).
-precompile = []

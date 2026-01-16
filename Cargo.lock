@@ -11657,6 +11657,7 @@ dependencies = [
  "serde",
  "tempo-contracts",
  "tempo-evm",
+ "tempo-precompiles",
  "tempo-primitives",
  "tempo-revm",
  "test-case",
@@ -11792,12 +11793,10 @@ dependencies = [
 name = "tempo-contracts"
 version = "1.0.0-rc.6"
 dependencies = [
- "alloy",
  "alloy-contract",
  "alloy-primitives 1.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "alloy-provider",
  "alloy-sol-types",
- "tempo-precompiles-macros",
  "tokio",
 ]
 

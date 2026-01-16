@@ -12,19 +12,21 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-tempo-contracts = { workspace = true, features = ["precompile"] }
-tempo-chainspec.workspace = true
+# Always required (lightweight)
 tempo-precompiles-macros.workspace = true
 alloy = { workspace = true, features = ["sol-types", "consensus"] }
-alloy-contract.workspace = true
-alloy-evm.workspace = true
 alloy-sol-types.workspace = true
-revm.workspace = true
 
-tracing.workspace = true
-thiserror.workspace = true
-derive_more.workspace = true
-scoped-tls = "1.0"
+# Optional: only needed for precompile runtime
+tempo-contracts = { workspace = true, optional = true }
+tempo-chainspec = { workspace = true, optional = true }
+alloy-contract = { workspace = true, optional = true }
+alloy-evm = { workspace = true, optional = true }
+revm = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+derive_more = { workspace = true, optional = true }
+scoped-tls = { version = "1.0", optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
@@ -40,10 +42,22 @@ tempo-evm.workspace = true
 
 [features]
 default = ["rpc", "precompile"]
-test-utils = ["alloy/getrandom"]
-rpc = ["tempo-contracts/rpc"]
-# Enable precompile runtime support (generates interface traits in #[abi] modules)
-precompile = []
+# Bindings-only: generates Alloy ABI types (Calls, Error, Event) without runtime deps
+bindings = []
+test-utils = ["alloy/getrandom", "precompile"]
+rpc = ["precompile", "tempo-contracts/rpc"]
+# Enable precompile runtime support (generates interface traits, Dispatch, storage, etc.)
+precompile = [
+    "dep:tempo-contracts",
+    "dep:tempo-chainspec",
+    "dep:alloy-contract",
+    "dep:alloy-evm",
+    "dep:revm",
+    "dep:tracing",
+    "dep:thiserror",
+    "dep:derive_more",
+    "dep:scoped-tls",
+]
 
 [[test]]
 name = "storage"

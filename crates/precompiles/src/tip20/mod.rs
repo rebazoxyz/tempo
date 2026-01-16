@@ -5,22 +5,32 @@
 //! - `roles_auth`: Role-based access control interface
 //! - `rewards`: Reward distribution and claiming interface
 
+#[cfg(feature = "precompile")]
 pub mod dispatch;
+#[cfg(feature = "precompile")]
 pub mod rewards;
+#[cfg(feature = "precompile")]
 pub mod roles;
+#[cfg(feature = "precompile")]
 pub mod token;
 
-use crate::{error::Result, storage::Mapping};
-use alloy::primitives::{Address, B256, U256, keccak256};
-use std::sync::LazyLock;
-use tempo_precompiles_macros::{Storable, abi, contract};
+#[cfg(feature = "precompile")]
+use crate::storage::Mapping;
+#[cfg(feature = "precompile")]
+use alloy::primitives::{Address, B256, U256};
+use tempo_precompiles_macros::abi;
+#[cfg(feature = "precompile")]
+use tempo_precompiles_macros::contract;
 
+#[cfg(feature = "precompile")]
 pub use roles::*;
+#[cfg(feature = "precompile")]
 pub use token::*;
 
 // Re-export abi module as ITIP20 for external consumers
 pub use abi as ITIP20;
 
+#[cfg(feature = "precompile")]
 #[contract(abi, dispatch)]
 pub struct TIP20Token {
     // RolesAuth
@@ -54,7 +64,10 @@ pub struct TIP20Token {
 #[abi(dispatch)]
 #[rustfmt::skip]
 pub mod abi {
-    use super::*;
+    use alloy::primitives::{Address, B256, U256, keccak256};
+    use std::sync::LazyLock;
+    #[cfg(feature = "precompile")]
+    use crate::error::Result;
 
     pub static PAUSE_ROLE: LazyLock<B256> = LazyLock::new(|| keccak256(b"PAUSE_ROLE"));
     pub static UNPAUSE_ROLE: LazyLock<B256> = LazyLock::new(|| keccak256(b"UNPAUSE_ROLE"));
@@ -104,7 +117,8 @@ pub mod abi {
         fn set_role_admin(&mut self, role: B256, admin_role: B256) -> Result<()>;
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Storable)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "precompile", derive(tempo_precompiles_macros::Storable))]
     pub struct UserRewardInfo {
         pub reward_recipient: Address,
         pub reward_per_token: U256,
@@ -172,5 +186,7 @@ pub mod abi {
 // Backward-compatibility type aliases
 pub type TIP20Error = abi::Error;
 pub type TIP20Event = abi::Event;
+#[cfg(feature = "precompile")]
 pub type RolesAuthError = abi::Error;
+#[cfg(feature = "precompile")]
 pub type RolesAuthEvent = abi::Event;

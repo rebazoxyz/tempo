@@ -1,34 +1,52 @@
-use alloy::primitives::{Address, B256};
-use tempo_precompiles_macros::abi;
+pub use ITIP20Factory::{
+    ITIP20FactoryErrors as TIP20FactoryError, ITIP20FactoryEvents as TIP20FactoryEvent,
+};
+use alloy_primitives::Address;
 
-#[cfg(feature = "precompile")]
-use super::Result;
+crate::sol! {
+  #[derive(Debug, PartialEq, Eq)]
+    #[sol(abi)]
+    interface ITIP20Factory {
+        error AddressReserved();
+        error AddressNotReserved();
+        error InvalidQuoteToken();
+        error TokenAlreadyExists(address token);
 
-#[abi]
-#[rustfmt::skip]
-pub mod ITIP20Factory {
-    use super::*;
+        event TokenCreated(address indexed token, string name, string symbol, string currency, address quoteToken, address admin, bytes32 salt);
 
-    pub trait IFactory {
-        fn is_tip20(&self, token: Address) -> Result<bool>;
-        fn get_token_address(&self, sender: Address, salt: B256) -> Result<Address>;
-        fn create_token(&mut self, name: String, symbol: String, currency: String, quote_token: Address, admin: Address, salt: B256) -> Result<Address>;
-    }
+        function createToken(
+            string memory name,
+            string memory symbol,
+            string memory currency,
+            address quoteToken,
+            address admin,
+            bytes32 salt
+        ) external returns (address);
 
-    pub enum Error {
-        AddressReserved,
-        AddressNotReserved,
-        InvalidQuoteToken,
-        TokenAlreadyExists { token: Address },
-    }
+        function isTIP20(address token) public view returns (bool);
 
-    pub enum Event {
-        TokenCreated { #[indexed] token: Address, name: String, symbol: String, currency: String, quote_token: Address, admin: Address, salt: B256 },
+        function getTokenAddress(address sender, bytes32 salt) public view returns (address);
     }
 }
 
-pub use ITIP20Factory::*;
+impl TIP20FactoryError {
+    /// Creates an error when attempting to use a reserved address.
+    pub const fn address_reserved() -> Self {
+        Self::AddressReserved(ITIP20Factory::AddressReserved {})
+    }
 
-// Backward-compatibility type aliases
-pub type TIP20FactoryError = Error;
-pub type TIP20FactoryEvent = Event;
+    /// Creates an error when address is not in the reserved range.
+    pub const fn address_not_reserved() -> Self {
+        Self::AddressNotReserved(ITIP20Factory::AddressNotReserved {})
+    }
+
+    /// Creates an error for invalid quote token.
+    pub const fn invalid_quote_token() -> Self {
+        Self::InvalidQuoteToken(ITIP20Factory::InvalidQuoteToken {})
+    }
+
+    /// Creates an error when token already exists at the given address.
+    pub const fn token_already_exists(token: Address) -> Self {
+        Self::TokenAlreadyExists(ITIP20Factory::TokenAlreadyExists { token })
+    }
+}

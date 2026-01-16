@@ -18,3 +18,7 @@ pub use tempo_primitives as primitives;
 
 #[doc(inline)]
 pub use tempo_contracts as contracts;
+
+/// Precompile bindings (ABI types only, no runtime dependencies).
+#[doc(inline)]
+pub use tempo_precompiles as precompiles;
