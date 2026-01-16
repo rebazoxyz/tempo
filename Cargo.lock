@@ -121,6 +121,7 @@ dependencies = [
  "alloy-core",
  "alloy-eips",
  "alloy-genesis",
+ "alloy-json-rpc",
  "alloy-network",
  "alloy-provider",
  "alloy-pubsub",
@@ -11739,6 +11740,24 @@ dependencies = [
  "tempo-precompiles",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "tempo-bridge-relayer"
+version = "1.0.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "alloy-sol-types",
+ "clap",
+ "eyre",
+ "hex",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
 ]
 
 [[package]]
