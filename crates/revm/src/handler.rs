@@ -22,11 +22,9 @@ use revm::{
     interpreter::{
         CallOutcome, CreateOutcome, Gas, InitialAndFloorGas, InstructionResult, InterpreterResult,
         gas::{
-            ACCESS_LIST_ADDRESS, ACCESS_LIST_STORAGE_KEY, CALLVALUE, COLD_ACCOUNT_ACCESS_COST,
-            COLD_SLOAD_COST, CREATE, INITCODE_WORD_COST, SSTORE_SET, STANDARD_TOKEN_COST,
-            TOTAL_COST_FLOOR_PER_TOKEN, WARM_SSTORE_RESET, get_tokens_in_calldata_istanbul,
+            COLD_SLOAD_COST, SSTORE_SET, STANDARD_TOKEN_COST, WARM_SSTORE_RESET,
+            get_tokens_in_calldata_istanbul,
         },
-        instructions::COLD_SLOAD_COST as _,
         interpreter::EthInterpreter,
     },
 };
@@ -37,7 +35,7 @@ use tempo_precompiles::{
     account_keychain::{AccountKeychain, TokenLimit, authorizeKeyCall},
     error::TempoPrecompileError,
     nonce::{INonce::getNonceCall, NonceManager},
-    storage::{StorageCtx, evm::EvmPrecompileStorageProvider},
+    storage::{PrecompileStorageProvider, StorageCtx, evm::EvmPrecompileStorageProvider},
     tip_fee_manager::TipFeeManager,
     tip20::{ITIP20::InsufficientBalance, TIP20Error, TIP20Token, is_tip20_prefix},
 };
@@ -142,8 +140,6 @@ pub struct TempoEvmHandler<DB, I> {
     fee_token: Address,
     /// Fee payer for the transaction.
     fee_payer: Address,
-    /// Initial tx gas cost.
-    initial_tx_gas: u64,
     /// Phantom data to avoid type inference issues.
     _phantom: core::marker::PhantomData<(DB, I)>,
 }
@@ -154,7 +150,6 @@ impl<DB, I> TempoEvmHandler<DB, I> {
         Self {
             fee_token: Address::default(),
             fee_payer: Address::default(),
-            initial_tx_gas: 0,
             _phantom: core::marker::PhantomData,
         }
     }
@@ -480,14 +475,27 @@ where
             init_and_floor_gas.floor_gas,
         );
 
+        if evm.ctx().tx().gas_limit() < adjusted_gas.initial_gas {
+            let kind = *evm
+                .ctx()
+                .tx()
+                .first_call()
+                .expect("we already checked that there is at least one call in aa tx")
+                .0;
+            // return 0 as this is case where we can't cover the initial gas.
+            // TODO(rakita) need a test for this!
+            // check both execution and inspect_execution
+            return Ok(oog_frame_result(kind, 0));
+        }
+
         // Check if this is an AA transaction by checking for tempo_tx_env
         if let Some(tempo_tx_env) = evm.ctx().tx().tempo_tx_env.as_ref() {
             // AA transaction - use batch execution with calls field
             let calls = tempo_tx_env.aa_calls.clone();
-            self.execute_multi_call(evm, init_and_floor_gas, calls)
+            self.execute_multi_call(evm, &adjusted_gas, calls)
         } else {
             // Standard transaction - use single-call execution
-            self.execute_single_call(evm, init_and_floor_gas)
+            self.execute_single_call(evm, &adjusted_gas)
         }
     }
 
@@ -562,7 +570,11 @@ where
         &self,
         evm: &mut Self::Evm,
     ) -> Result<(), Self::Error> {
-        let (block, tx, cfg, journal, _, _) = evm.ctx().all_mut();
+        let initial_gas = evm.initial_gas;
+        let block = &evm.inner.ctx.block;
+        let tx = &evm.inner.ctx.tx;
+        let cfg = &evm.inner.ctx.cfg;
+        let journal = &mut evm.inner.ctx.journaled_state;
 
         // Set tx.origin in the keychain's transient storage for spending limit checks.
         // This must be done for ALL transactions so precompiles can access it.
@@ -712,75 +724,88 @@ where
                 .into());
             }
 
-            // Now authorize the key in the precompile
-            StorageCtx::enter_precompile(
-                journal,
-                block,
+            let internals = EvmInternals::new(journal, block, cfg, tx);
+            let mut provider = EvmPrecompileStorageProvider::new_with_gas_limit(
+                internals,
                 cfg,
-                tx,
-                |mut keychain: AccountKeychain| {
-                    let access_key_addr = key_auth.key_id;
+                tx.gas_limit() - initial_gas,
+            );
 
-                    // Convert signature type to precompile SignatureType enum
-                    // Use the key_type field which specifies the type of key being authorized
-                    let signature_type = match key_auth.key_type {
-                        SignatureType::Secp256k1 => PrecompileSignatureType::Secp256k1,
-                        SignatureType::P256 => PrecompileSignatureType::P256,
-                        SignatureType::WebAuthn => PrecompileSignatureType::WebAuthn,
-                    };
+            // The core logic of setting up thread-local storage is here.
+            let out_of_gas = StorageCtx::enter(&mut provider, || {
+                let mut keychain = AccountKeychain::default();
+                let access_key_addr = key_auth.key_id;
 
-                    // Handle expiry: None means never expires (store as u64::MAX)
-                    let expiry = key_auth.expiry.unwrap_or(u64::MAX);
+                // Convert signature type to precompile SignatureType enum
+                // Use the key_type field which specifies the type of key being authorized
+                let signature_type = match key_auth.key_type {
+                    SignatureType::Secp256k1 => PrecompileSignatureType::Secp256k1,
+                    SignatureType::P256 => PrecompileSignatureType::P256,
+                    SignatureType::WebAuthn => PrecompileSignatureType::WebAuthn,
+                };
 
-                    // Validate expiry is not in the past
-                    let current_timestamp = block.timestamp().saturating_to::<u64>();
-                    if expiry <= current_timestamp {
-                        return Err(TempoInvalidTransaction::AccessKeyExpiryInPast {
-                            expiry,
-                            current_timestamp,
-                        }
-                        .into());
-                    }
+                // Handle expiry: None means never expires (store as u64::MAX)
+                let expiry = key_auth.expiry.unwrap_or(u64::MAX);
 
-                    // Handle limits: None means unlimited spending (enforce_limits=false)
-                    // Some([]) means no spending allowed (enforce_limits=true)
-                    // Some([...]) means specific limits (enforce_limits=true)
-                    let enforce_limits = key_auth.limits.is_some();
-                    let precompile_limits: Vec<TokenLimit> = key_auth
-                        .limits
-                        .as_ref()
-                        .map(|limits| {
-                            limits
-                                .iter()
-                                .map(|limit| TokenLimit {
-                                    token: limit.token,
-                                    amount: limit.limit,
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    // Create the authorize key call
-                    let authorize_call = authorizeKeyCall {
-                        keyId: access_key_addr,
-                        signatureType: signature_type,
+                // Validate expiry is not in the past
+                let current_timestamp = block.timestamp().saturating_to::<u64>();
+                if expiry <= current_timestamp {
+                    return Err(TempoInvalidTransaction::AccessKeyExpiryInPast {
                         expiry,
-                        enforceLimits: enforce_limits,
-                        limits: precompile_limits,
-                    };
+                        current_timestamp,
+                    }
+                    .into());
+                }
 
-                    // Call precompile to authorize the key (same phase as nonce increment)
-                    keychain
-                        .authorize_key(*root_account, authorize_call)
-                        .map_err(|err| match err {
-                            TempoPrecompileError::Fatal(err) => EVMError::Custom(err),
-                            err => TempoInvalidTransaction::KeychainPrecompileError {
-                                reason: err.to_string(),
-                            }
-                            .into(),
-                        })
-                },
-            )?;
+                // Handle limits: None means unlimited spending (enforce_limits=false)
+                // Some([]) means no spending allowed (enforce_limits=true)
+                // Some([...]) means specific limits (enforce_limits=true)
+                let enforce_limits = key_auth.limits.is_some();
+                let precompile_limits: Vec<TokenLimit> = key_auth
+                    .limits
+                    .as_ref()
+                    .map(|limits| {
+                        limits
+                            .iter()
+                            .map(|limit| TokenLimit {
+                                token: limit.token,
+                                amount: limit.limit,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Create the authorize key call
+                let authorize_call = authorizeKeyCall {
+                    keyId: access_key_addr,
+                    signatureType: signature_type,
+                    expiry,
+                    enforceLimits: enforce_limits,
+                    limits: precompile_limits,
+                };
+
+                // Call precompile to authorize the key (same phase as nonce increment)
+                match keychain.authorize_key(*root_account, authorize_call) {
+                    // all is good, we can do execution.
+                    Ok(_) => Ok(true),
+                    // on out of gas we are skipping execution but not invalidating the transaction.
+                    Err(TempoPrecompileError::OutOfGas) => Ok(true),
+                    Err(TempoPrecompileError::Fatal(err)) => Err(EVMError::Custom(err)),
+                    Err(err) => Err(TempoInvalidTransaction::KeychainPrecompileError {
+                        reason: err.to_string(),
+                    }
+                    .into()),
+                }
+            })?;
+
+            // get how much gas was spent by the precompile
+            evm.additional_initial_gas = if out_of_gas {
+                u64::MAX
+            } else {
+                provider.gas_used()
+            };
+
+            drop(provider);
         }
 
         // For Keychain signatures, validate that the keychain is authorized in the precompile
@@ -1071,11 +1096,13 @@ where
             );
             // TIP-1000: Storage pricing updates for launch
             // EIP-7702 authorisation list entries with `auth_list.nonce == 0` require an additional 250,000 gas.
+            // no need for v1 fork check as gas_params would be zero
             for auth in tx.authorization_list() {
                 if auth.nonce == 0 {
                     init_gas.initial_gas += gas_params.tx_tip1000_auth_account_creation_cost();
                 }
             }
+
             init_gas
         };
 
@@ -1109,7 +1136,8 @@ where
             .into());
         }
 
-        //self.initial_tx_gas = init_gas.initial_gas;
+        // used to calculate key_authorization gas spending limit.
+        evm.initial_gas = init_gas.initial_gas;
 
         Ok(init_gas)
     }
@@ -1189,7 +1217,9 @@ pub fn calculate_aa_batch_intrinsic_gas<'a>(
     // 4. Authorization list costs (EIP-7702)
     gas.initial_gas +=
         authorization_list.len() as u64 * gas_params.tx_eip7702_per_empty_account_cost();
+
     // Add signature verification costs for each authorization
+    // No need for v1 fork check as gas_params would be zero
     for auth in authorization_list {
         gas.initial_gas += tempo_signature_verification_gas(auth.signature());
         // TIP-1000: Storage pricing updates for launch
@@ -1343,17 +1373,17 @@ where
             init_and_floor_gas.floor_gas,
         );
 
-        if evm.pre_execution_oog {
+        if evm.ctx().tx().gas_limit() < adjusted_gas.initial_gas {
             let kind = *evm
                 .ctx()
                 .tx()
                 .first_call()
                 .expect("we already checked that there is at least one call in aa tx")
                 .0;
-            return Ok(oog_frame_result(
-                kind,
-                evm.ctx().tx().gas_limit() - adjusted_gas.initial_gas,
-            ));
+            // return 0 as this is case where we can't cover the initial gas.
+            // TODO(rakita) need a test for this!
+            // check both execution and inspect_execution
+            return Ok(oog_frame_result(kind, 0));
         }
 
         // Check if this is an AA transaction by checking for tempo_tx_env

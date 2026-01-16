@@ -37,8 +37,8 @@ pub struct TempoEvm<DB: Database, I> {
     pub(crate) collected_fee: U256,
     /// Additional initial gas cost is needed for authorization_key setting in pre execution.
     pub(crate) additional_initial_gas: u64,
-    /// If true skip execution and treat the transaction as oog.
-    pub(crate) pre_execution_oog: bool,
+    /// Initial gas cost function. Used for key_authorization validation in collectFeePreTx.
+    pub(crate) initial_gas: u64,
 }
 
 impl<DB: Database, I> TempoEvm<DB, I> {
@@ -73,7 +73,7 @@ impl<DB: Database, I> TempoEvm<DB, I> {
             logs: Vec::new(),
             collected_fee: U256::ZERO,
             additional_initial_gas: 0,
-            pre_execution_oog: false,
+            initial_gas: 0,
         }
     }
 }

@@ -14,8 +14,10 @@ use reth_transaction_pool::{
     EthTransactionValidator, PoolTransaction, TransactionOrigin, TransactionValidationOutcome,
     TransactionValidator, error::InvalidPoolTransactionError,
 };
-use revm::context_interface::cfg::GasParams;
-use tempo_chainspec::{TempoChainSpec, hardfork::TempoHardforks};
+use tempo_chainspec::{
+    TempoChainSpec,
+    hardfork::{TempoHardfork, TempoHardforks},
+};
 use tempo_precompiles::{
     ACCOUNT_KEYCHAIN_ADDRESS, NONCE_PRECOMPILE_ADDRESS,
     account_keychain::{AccountKeychain, AuthorizedKey},
@@ -26,7 +28,7 @@ use tempo_primitives::{
 };
 use tempo_revm::{
     EXISTING_NONCE_KEY_GAS, NEW_NONCE_KEY_GAS, TempoBatchCallEnv, TempoStateAccess,
-    calculate_aa_batch_intrinsic_gas,
+    calculate_aa_batch_intrinsic_gas, gas_params::tempo_gas_params,
 };
 
 // Reject AA txs where `valid_before` is too close to current time (or already expired) to prevent block invalidation.
@@ -264,13 +266,13 @@ where
         };
 
         // Calculate the intrinsic gas for the AA transaction
-        // TODO(rakita) We should use tempo_gas_params function when we introduce new protocol version (fork).
-        let mut init_and_floor_gas = calculate_aa_batch_intrinsic_gas(
-            &aa_env,
-            &GasParams::default(),
-            Some(tx.access_list.iter()),
-        )
-        .map_err(|_| TempoPoolTransactionError::NonZeroValue)?;
+
+        // TODO hardforked check.
+        let gas_params = tempo_gas_params(TempoHardfork::T1);
+
+        let mut init_and_floor_gas =
+            calculate_aa_batch_intrinsic_gas(&aa_env, &gas_params, Some(tx.access_list.iter()))
+                .map_err(|_| TempoPoolTransactionError::NonZeroValue)?;
 
         // Add 2D nonce gas if nonce_key is non-zero
         // If tx nonce is 0, it's a new key (0 -> 1 transition), otherwise existing key

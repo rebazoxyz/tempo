@@ -26,7 +26,6 @@ pub fn tempo_gas_params(spec: TempoHardfork) -> GasParams {
     if spec.t1_active() {
         overrides.extend([
             // storage set with SSTORE opcode.
-            // TODO this increases refund number, split it into two in revm.
             (GasId::sstore_set_without_load_cost(), 250_000),
             // Base cost of Create kind transaction.
             (GasId::tx_create_cost(), 250_000),
