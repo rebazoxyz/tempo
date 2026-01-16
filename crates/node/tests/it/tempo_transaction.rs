@@ -5943,7 +5943,7 @@ async fn test_aa_expiring_nonce_basic_flow() -> eyre::Result<()> {
             input: Bytes::new(),
         }],
         nonce_key: TEMPO_EXPIRING_NONCE_KEY, // Use expiring nonce key (uint256.max)
-        nonce: 0,                             // Must be 0 for expiring nonce
+        nonce: 0,                            // Must be 0 for expiring nonce
         fee_token: Some(DEFAULT_FEE_TOKEN),
         valid_before: Some(valid_before),
         ..Default::default()
@@ -6373,7 +6373,10 @@ async fn test_aa_expiring_nonce_independent_from_protocol_nonce() -> eyre::Resul
 
     // Verify protocol nonce is still 0
     let protocol_nonce = provider.get_transaction_count(alice_addr).await?;
-    assert_eq!(protocol_nonce, 0, "Protocol nonce should be 0 after expiring nonce tx");
+    assert_eq!(
+        protocol_nonce, 0,
+        "Protocol nonce should be 0 after expiring nonce tx"
+    );
     println!("✓ Protocol nonce still 0 after expiring nonce tx");
 
     // Step 2: Now submit a protocol nonce transaction (nonce_key = 0)
@@ -6420,7 +6423,10 @@ async fn test_aa_expiring_nonce_independent_from_protocol_nonce() -> eyre::Resul
 
     // Verify protocol nonce incremented
     let protocol_nonce = provider.get_transaction_count(alice_addr).await?;
-    assert_eq!(protocol_nonce, 1, "Protocol nonce should be 1 after protocol tx");
+    assert_eq!(
+        protocol_nonce, 1,
+        "Protocol nonce should be 1 after protocol tx"
+    );
     println!("✓ Protocol nonce now 1 after protocol tx");
 
     println!("\n✓ Expiring nonces are independent from protocol nonces");

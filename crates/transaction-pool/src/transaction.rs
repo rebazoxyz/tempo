@@ -98,12 +98,21 @@ impl TempoPooledTransaction {
     }
 
     /// Returns true if this transaction belongs into the 2D nonce pool:
-    /// - AA transaction with a `nonce key != 0`
+    /// - AA transaction with a `nonce key != 0` (includes expiring nonce txs)
     pub(crate) fn is_aa_2d(&self) -> bool {
         self.inner
             .transaction
             .as_aa()
             .map(|tx| !tx.tx().nonce_key.is_zero())
+            .unwrap_or(false)
+    }
+
+    /// Returns true if this is an expiring nonce transaction.
+    pub(crate) fn is_expiring_nonce(&self) -> bool {
+        self.inner
+            .transaction
+            .as_aa()
+            .map(|tx| tx.tx().is_expiring_nonce_tx())
             .unwrap_or(false)
     }
 

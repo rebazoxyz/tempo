@@ -49,6 +49,9 @@ pub struct AA2dPool {
     by_id: BTreeMap<AA2dTransactionId, AA2dInternalTransaction>,
     /// _All_ transactions by hash.
     by_hash: HashMap<TxHash, Arc<ValidPoolTransaction<TempoPooledTransaction>>>,
+    /// Expiring nonce transactions, keyed by tx hash (always pending/independent).
+    /// These use tx hash for replay protection instead of sequential nonces.
+    expiring_nonce_txs: HashMap<TxHash, PendingTransaction<Ordering>>,
     /// Reverse index for the storage slot of an account's nonce
     ///
     /// ```solidity
@@ -79,6 +82,7 @@ impl AA2dPool {
             independent_transactions: Default::default(),
             by_id: Default::default(),
             by_hash: Default::default(),
+            expiring_nonce_txs: Default::default(),
             slot_to_seq_id: Default::default(),
             seq_id_to_slot: Default::default(),
             config,
@@ -112,6 +116,11 @@ impl AA2dPool {
                 *transaction.hash(),
                 PoolErrorKind::AlreadyImported,
             ));
+        }
+
+        // Handle expiring nonce transactions separately - they use tx hash as unique ID
+        if transaction.transaction.is_expiring_nonce() {
+            return self.add_expiring_nonce_transaction(transaction);
         }
 
         let tx_id = transaction
@@ -247,49 +256,115 @@ impl AA2dPool {
         })
     }
 
+    /// Adds an expiring nonce transaction to the pool.
+    ///
+    /// Expiring nonce transactions use the tx hash as their unique identifier instead of
+    /// (sender, nonce_key, nonce). They are always immediately pending since they don't
+    /// have sequential nonce dependencies.
+    fn add_expiring_nonce_transaction(
+        &mut self,
+        transaction: Arc<ValidPoolTransaction<TempoPooledTransaction>>,
+    ) -> PoolResult<AddedTransaction<TempoPooledTransaction>> {
+        let tx_hash = *transaction.hash();
+
+        // Check if already exists (by hash)
+        if self.expiring_nonce_txs.contains_key(&tx_hash) {
+            return Err(PoolError::new(tx_hash, PoolErrorKind::AlreadyImported));
+        }
+
+        // Create pending transaction
+        let pending_tx = PendingTransaction {
+            submission_id: self.next_id(),
+            priority: CoinbaseTipOrdering::default()
+                .priority(&transaction.transaction, TEMPO_BASE_FEE),
+            transaction: transaction.clone(),
+        };
+
+        // Insert into expiring nonce map and by_hash
+        self.expiring_nonce_txs.insert(tx_hash, pending_tx);
+        self.by_hash.insert(tx_hash, transaction.clone());
+
+        trace!(target: "txpool", hash = %tx_hash, "Added expiring nonce transaction");
+
+        self.update_metrics();
+
+        // Expiring nonce transactions are always immediately pending
+        Ok(AddedTransaction::Pending(AddedPendingTransaction {
+            transaction,
+            replaced: None,
+            promoted: vec![],
+            discarded: vec![],
+        }))
+    }
+
     /// Returns how many pending and queued transactions are in the pool.
     pub(crate) fn pending_and_queued_txn_count(&self) -> (usize, usize) {
-        self.by_id.values().fold((0, 0), |mut acc, tx| {
+        let (pending_2d, queued_2d) = self.by_id.values().fold((0, 0), |mut acc, tx| {
             if tx.is_pending {
                 acc.0 += 1;
             } else {
                 acc.1 += 1;
             }
             acc
-        })
+        });
+        // Expiring nonce txs are always pending
+        let expiring_pending = self.expiring_nonce_txs.len();
+        (pending_2d + expiring_pending, queued_2d)
     }
 
     /// Returns all transactions that where submitted with the given [`TransactionOrigin`]
     pub(crate) fn get_transactions_by_origin_iter(
         &self,
         origin: TransactionOrigin,
-    ) -> impl Iterator<Item = Arc<ValidPoolTransaction<TempoPooledTransaction>>> {
-        self.by_id
+    ) -> impl Iterator<Item = Arc<ValidPoolTransaction<TempoPooledTransaction>>> + '_ {
+        let regular = self
+            .by_id
             .values()
             .filter(move |tx| tx.inner.transaction.origin == origin)
-            .map(|tx| tx.inner.transaction.clone())
+            .map(|tx| tx.inner.transaction.clone());
+        let expiring = self
+            .expiring_nonce_txs
+            .values()
+            .filter(move |tx| tx.transaction.origin == origin)
+            .map(|tx| tx.transaction.clone());
+        regular.chain(expiring)
     }
 
     /// Returns all transactions that where submitted with the given [`TransactionOrigin`]
     pub(crate) fn get_pending_transactions_by_origin_iter(
         &self,
         origin: TransactionOrigin,
-    ) -> impl Iterator<Item = Arc<ValidPoolTransaction<TempoPooledTransaction>>> {
-        self.by_id
+    ) -> impl Iterator<Item = Arc<ValidPoolTransaction<TempoPooledTransaction>>> + '_ {
+        let regular = self
+            .by_id
             .values()
             .filter(move |tx| tx.is_pending && tx.inner.transaction.origin == origin)
-            .map(|tx| tx.inner.transaction.clone())
+            .map(|tx| tx.inner.transaction.clone());
+        // Expiring nonce txs are always pending
+        let expiring = self
+            .expiring_nonce_txs
+            .values()
+            .filter(move |tx| tx.transaction.origin == origin)
+            .map(|tx| tx.transaction.clone());
+        regular.chain(expiring)
     }
 
     /// Returns all transactions of the address
     pub(crate) fn get_transactions_by_sender_iter(
         &self,
         sender: Address,
-    ) -> impl Iterator<Item = Arc<ValidPoolTransaction<TempoPooledTransaction>>> {
-        self.by_id
+    ) -> impl Iterator<Item = Arc<ValidPoolTransaction<TempoPooledTransaction>>> + '_ {
+        let regular = self
+            .by_id
             .values()
             .filter(move |tx| tx.inner.transaction.sender() == sender)
-            .map(|tx| tx.inner.transaction.clone())
+            .map(|tx| tx.inner.transaction.clone());
+        let expiring = self
+            .expiring_nonce_txs
+            .values()
+            .filter(move |tx| tx.transaction.sender() == sender)
+            .map(|tx| tx.transaction.clone());
+        regular.chain(expiring)
     }
 
     /// Returns an iterator over all transaction hashes in this pool
@@ -310,17 +385,30 @@ impl AA2dPool {
     /// Returns all transactions that are pending.
     pub(crate) fn pending_transactions(
         &self,
-    ) -> impl Iterator<Item = Arc<ValidPoolTransaction<TempoPooledTransaction>>> {
-        self.by_id
+    ) -> impl Iterator<Item = Arc<ValidPoolTransaction<TempoPooledTransaction>>> + '_ {
+        // Include both regular pending 2D nonce txs and expiring nonce txs
+        let regular_pending = self
+            .by_id
             .values()
             .filter(|tx| tx.is_pending)
-            .map(|tx| tx.inner.transaction.clone())
+            .map(|tx| tx.inner.transaction.clone());
+        let expiring_pending = self
+            .expiring_nonce_txs
+            .values()
+            .map(|tx| tx.transaction.clone());
+        regular_pending.chain(expiring_pending)
     }
 
     /// Returns the best, executable transactions for this sub-pool
     pub(crate) fn best_transactions(&self) -> BestAA2dTransactions {
+        // Collect independent transactions from both 2D nonce pool and expiring nonce pool
+        let mut independent: BTreeSet<_> =
+            self.independent_transactions.values().cloned().collect();
+        // Expiring nonce txs are always independent (no nonce dependencies)
+        independent.extend(self.expiring_nonce_txs.values().cloned());
+
         BestAA2dTransactions {
-            independent: self.independent_transactions.values().cloned().collect(),
+            independent,
             by_id: self
                 .by_id
                 .iter()
@@ -484,6 +572,14 @@ impl AA2dPool {
         tx_hash: &B256,
     ) -> Option<Arc<ValidPoolTransaction<TempoPooledTransaction>>> {
         let tx = self.by_hash.remove(tx_hash)?;
+
+        // Check if this is an expiring nonce transaction
+        if tx.transaction.is_expiring_nonce() {
+            self.expiring_nonce_txs.remove(tx_hash);
+            return Some(tx);
+        }
+
+        // Regular 2D nonce transaction
         let id = tx
             .transaction
             .aa_transaction_id()
