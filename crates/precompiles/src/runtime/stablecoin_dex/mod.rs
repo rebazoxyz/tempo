@@ -3688,7 +3688,7 @@ mod tests {
 
             // Create a blacklist policy
             let mut registry = TIP403Registry::new();
-            let policy_id = registry.create_policy(admin, admin, PolicyType::Blacklist)?;
+            let policy_id = registry.create_policy(admin, admin, PolicyType::BLACKLIST)?;
 
             // Setup quote token (pathUSD) with the blacklist policy
             let mut quote = TIP20Setup::path_usd(admin).with_issuer(admin).apply()?;
@@ -3747,7 +3747,7 @@ mod tests {
             let admin = Address::random();
 
             let mut registry = TIP403Registry::new();
-            let policy_id = registry.create_policy(admin, admin, PolicyType::Blacklist)?;
+            let policy_id = registry.create_policy(admin, admin, PolicyType::BLACKLIST)?;
 
             let mut base = TIP20Setup::create("USDC", "USDC", admin)
                 .with_issuer(admin)
@@ -3783,7 +3783,7 @@ mod tests {
             let admin = Address::random();
 
             let mut registry = TIP403Registry::new();
-            let policy_id = registry.create_policy(admin, admin, PolicyType::Blacklist)?;
+            let policy_id = registry.create_policy(admin, admin, PolicyType::BLACKLIST)?;
 
             let mut base = TIP20Setup::create("USDC", "USDC", admin)
                 .with_issuer(admin)
@@ -3818,7 +3818,7 @@ mod tests {
 
             // Setup TIP403 registry and create blacklist policy
             let mut registry = TIP403Registry::new();
-            let policy_id = registry.create_policy(admin, admin, PolicyType::Blacklist)?;
+            let policy_id = registry.create_policy(admin, admin, PolicyType::BLACKLIST)?;
 
             // Set up base and quote tokens
             let (base_addr, _quote_addr) =
@@ -3866,7 +3866,7 @@ mod tests {
 
             // Setup TIP403 registry and create blacklist policy
             let mut registry = TIP403Registry::new();
-            let policy_id = registry.create_policy(admin, admin, PolicyType::Blacklist)?;
+            let policy_id = registry.create_policy(admin, admin, PolicyType::BLACKLIST)?;
 
             // Set up base and quote tokens
             let (base_addr, quote_addr) =

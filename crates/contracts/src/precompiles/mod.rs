@@ -2,7 +2,6 @@ pub mod account_keychain;
 pub mod common_errors;
 pub mod nonce;
 pub mod stablecoin_dex;
-pub mod tip403_registry;
 pub mod tip_fee_manager;
 pub mod validator_config;
 
@@ -12,7 +11,6 @@ pub use common_errors::*;
 pub use nonce::*;
 pub use stablecoin_dex::*;
 pub use tip_fee_manager::*;
-pub use tip403_registry::*;
 pub use validator_config::*;
 
 pub const TIP_FEE_MANAGER_ADDRESS: Address = address!("0xfeec000000000000000000000000000000000000");

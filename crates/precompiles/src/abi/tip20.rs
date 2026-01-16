@@ -59,8 +59,7 @@ pub mod abi {
         fn set_role_admin(&mut self, role: B256, admin_role: B256) -> Result<()>;
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "precompile", derive(tempo_precompiles_macros::Storable))]
+    #[derive(Debug, Clone, PartialEq, Eq, Storable)]
     pub struct UserRewardInfo {
         pub reward_recipient: Address,
         pub reward_per_token: U256,

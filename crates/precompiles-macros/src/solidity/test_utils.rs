@@ -29,6 +29,7 @@ pub(super) fn make_struct(name: &str, fields: Vec<FieldDef>) -> SolStructDef {
         vis: Visibility::Public(syn::token::Pub {
             span: Span::call_site(),
         }),
+        has_storable: false,
     }
 }
 
@@ -40,6 +41,7 @@ pub(super) fn make_unit_enum(name: &str, variants: Vec<&str>) -> UnitEnumDef {
         vis: Visibility::Public(syn::token::Pub {
             span: Span::call_site(),
         }),
+        has_storable: false,
     }
 }
 

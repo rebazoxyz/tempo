@@ -62,7 +62,7 @@ pub(crate) fn to_snake_case(s: &str) -> String {
 }
 
 /// Converts a string from snake_case to camelCase.
-/// Preserves SCREAMING_SNAKE_CASE, as those are assumed to be constant/immutable names.
+/// Preserves SCREAMING_SNAKE_CASE and all-uppercase words (e.g., WHITELIST stays WHITELIST).
 pub(crate) fn to_camel_case(s: &str) -> String {
     // Preserve SCREAMING_SNAKE_CASE constants (all uppercase with underscores)
     // These are Solidity constants that must keep their exact names for correct selectors
@@ -82,10 +82,20 @@ pub(crate) fn to_camel_case(s: &str) -> String {
             continue;
         }
 
+        // Check if word is all uppercase (preserve as-is, e.g., WHITELIST, ID, URL)
+        let is_upper = word.chars().filter(|c| c.is_alphabetic()).count() > 1
+            && word
+                .chars()
+                .filter(|c| c.is_alphabetic())
+                .all(|c| c.is_uppercase());
+
         // Handle "tip" prefix - always uppercase to "TIP"
         if word.to_lowercase().starts_with("tip") {
             result.push_str("TIP");
             result.push_str(&word[3..]);
+        } else if is_upper {
+            // Preserve consecutive uppercase letters (e.g., WHITELIST, URL, ID)
+            result.push_str(word);
         } else if first_word {
             result.push_str(word);
         } else {
@@ -338,6 +348,13 @@ mod tests {
         assert_eq!(to_camel_case("PAUSE_ROLE"), "PAUSE_ROLE");
         assert_eq!(to_camel_case("ISSUER_ROLE"), "ISSUER_ROLE");
         assert_eq!(to_camel_case("BURN_BLOCKED_ROLE"), "BURN_BLOCKED_ROLE");
+
+        // All-uppercase words preserved (consecutive uppercase letters)
+        assert_eq!(to_camel_case("WHITELIST"), "WHITELIST");
+        assert_eq!(to_camel_case("BLACKLIST"), "BLACKLIST");
+        assert_eq!(to_camel_case("get_WHITELIST"), "getWHITELIST");
+        assert_eq!(to_camel_case("set_URL"), "setURL");
+        assert_eq!(to_camel_case("get_API_key"), "getAPIKey");
 
         // Mixed case still converts
         assert_eq!(to_camel_case("get_Balance"), "getBalance");

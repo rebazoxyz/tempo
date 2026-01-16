@@ -15,9 +15,9 @@ use crate::utils::to_camel_case;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 use syn::{
-    Attribute, Expr, Fields, FnArg, GenericArgument, Item, ItemConst, ItemEnum, ItemMod,
-    ItemStatic, ItemStruct, ItemTrait, ItemUse, Pat, PathArguments, ReturnType, Signature,
-    TraitItem, Type, Visibility,
+    punctuated::Punctuated, Attribute, Expr, Fields, FnArg, GenericArgument, Item, ItemConst,
+    ItemEnum, ItemMod, ItemStatic, ItemStruct, ItemTrait, ItemUse, Meta, MetaList, Pat, Path,
+    PathArguments, ReturnType, Signature, Token, TraitItem, Type, Visibility,
 };
 
 /// Trait for types that expose a list of (name, type) pairs.
@@ -184,12 +184,14 @@ pub(super) struct SolStructDef {
     pub name: Ident,
     /// Fields with their types
     pub fields: Vec<FieldDef>,
-    /// Original derive attributes to preserve
+    /// Original derive attributes to preserve (with `Storable` filtered out)
     pub derives: Vec<Attribute>,
     /// Other attributes to preserve
     pub attrs: Vec<Attribute>,
     /// Visibility
     pub vis: Visibility,
+    /// Whether the struct had `#[derive(Storable)]` (to emit cfg_attr gated derive)
+    pub has_storable: bool,
 }
 
 impl SolStructDef {
@@ -220,7 +222,7 @@ impl SolStructDef {
             })
             .collect::<syn::Result<Vec<_>>>()?;
 
-        let (derives, other_attrs) = extract_derive_attrs(&item.attrs);
+        let (derives, other_attrs, has_storable) = extract_derive_attrs(&item.attrs);
 
         Ok(Self {
             name: item.ident.clone(),
@@ -228,6 +230,7 @@ impl SolStructDef {
             derives,
             attrs: other_attrs,
             vis: item.vis.clone(),
+            has_storable,
         })
     }
 }
@@ -385,7 +388,7 @@ impl UnitEnumDef {
             ));
         }
 
-        let (_, other_attrs) = extract_derive_attrs(&item.attrs);
+        let (_, other_attrs, _) = extract_derive_attrs(&item.attrs);
 
         Ok(Self {
             name: item.ident.clone(),
@@ -439,7 +442,7 @@ impl SolEnumDef {
             ));
         }
 
-        let (_, other_attrs) = extract_derive_attrs(&item.attrs);
+        let (_, other_attrs, _) = extract_derive_attrs(&item.attrs);
 
         Ok(Self {
             name: item.ident.to_owned(),
@@ -584,7 +587,7 @@ impl InterfaceDef {
             ));
         }
 
-        let (_, other_attrs) = extract_derive_attrs(&item.attrs);
+        let (_, other_attrs, _) = extract_derive_attrs(&item.attrs);
 
         Ok(Self {
             name: item.ident.clone(),
@@ -674,19 +677,80 @@ impl FieldAccessors for MethodDef {
 }
 
 /// Extract #[derive(...)] attributes from other attributes.
-fn extract_derive_attrs(attrs: &[Attribute]) -> (Vec<Attribute>, Vec<Attribute>) {
+///
+/// Also filters out `Storable` from derive attributes, returning whether it was present.
+/// This allows the code generator to emit `#[cfg_attr(feature = "precompile", derive(...))]`
+/// for `Storable` instead of unconditionally deriving it.
+fn extract_derive_attrs(attrs: &[Attribute]) -> (Vec<Attribute>, Vec<Attribute>, bool) {
     let mut derives = Vec::new();
     let mut others = Vec::new();
+    let mut has_storable = false;
 
     for attr in attrs {
         if attr.path().is_ident("derive") {
-            derives.push(attr.clone());
+            match filter_storable_from_derive(attr) {
+                Some((filtered_attr, found_storable)) => {
+                    if found_storable {
+                        has_storable = true;
+                    }
+                    if let Some(attr) = filtered_attr {
+                        derives.push(attr);
+                    }
+                }
+                None => derives.push(attr.clone()),
+            }
         } else {
             others.push(attr.clone());
         }
     }
 
-    (derives, others)
+    (derives, others, has_storable)
+}
+
+/// Filters `Storable` from a derive attribute.
+///
+/// Returns `Some((filtered_attr, had_storable))` where:
+/// - `filtered_attr` is `None` if the derive becomes empty after removing `Storable`
+/// - `had_storable` indicates whether `Storable` was found and removed
+///
+/// Returns `None` if the attribute couldn't be parsed (caller should keep original).
+fn filter_storable_from_derive(attr: &Attribute) -> Option<(Option<Attribute>, bool)> {
+    let Meta::List(list) = &attr.meta else {
+        return None;
+    };
+
+    // Parse the tokens inside derive(...)
+    let parser = Punctuated::<Path, Token![,]>::parse_terminated;
+    let punctuated = syn::parse::Parser::parse2(parser, list.tokens.clone()).ok()?;
+
+    let mut has_storable = false;
+    let mut remaining: Vec<&Path> = Vec::new();
+
+    for path in &punctuated {
+        if path.is_ident("Storable") {
+            has_storable = true;
+        } else {
+            remaining.push(path);
+        }
+    }
+
+    if remaining.is_empty() {
+        Some((None, has_storable))
+    } else {
+        // Reconstruct the derive attribute
+        let new_tokens = quote! { #(#remaining),* };
+        let new_attr = Attribute {
+            pound_token: attr.pound_token,
+            style: attr.style,
+            bracket_token: attr.bracket_token,
+            meta: Meta::List(MetaList {
+                path: list.path.clone(),
+                delimiter: list.delimiter.clone(),
+                tokens: new_tokens,
+            }),
+        };
+        Some((Some(new_attr), has_storable))
+    }
 }
 
 /// Reject generics on solidity-annotated items.
@@ -965,6 +1029,55 @@ mod tests {
 
         assert_eq!(module.constants.len(), 1);
         assert_eq!(module.interfaces.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_storable_derive_extraction() -> syn::Result<()> {
+        // Struct with only Storable derive - should have empty derives, has_storable = true
+        let module = parse_module(quote! {
+            pub mod test {
+                #[derive(Storable)]
+                pub struct OnlyStorable { pub value: U256 }
+            }
+        })?;
+        assert_eq!(module.structs.len(), 1);
+        assert!(module.structs[0].derives.is_empty());
+        assert!(module.structs[0].has_storable);
+
+        // Struct with Storable mixed with other derives
+        let module = parse_module(quote! {
+            pub mod test {
+                #[derive(Debug, Clone, Storable, PartialEq)]
+                pub struct MixedDerives { pub value: U256 }
+            }
+        })?;
+        assert_eq!(module.structs.len(), 1);
+        assert!(module.structs[0].has_storable);
+        // Should have 3 derives remaining (Debug, Clone, PartialEq)
+        assert_eq!(module.structs[0].derives.len(), 1); // One #[derive(...)] attr with 3 items
+
+        // Struct without Storable
+        let module = parse_module(quote! {
+            pub mod test {
+                #[derive(Debug, Clone)]
+                pub struct NoStorable { pub value: U256 }
+            }
+        })?;
+        assert_eq!(module.structs.len(), 1);
+        assert!(!module.structs[0].has_storable);
+        assert_eq!(module.structs[0].derives.len(), 1);
+
+        // Struct with no derives at all
+        let module = parse_module(quote! {
+            pub mod test {
+                pub struct NoDerives { pub value: U256 }
+            }
+        })?;
+        assert_eq!(module.structs.len(), 1);
+        assert!(!module.structs[0].has_storable);
+        assert!(module.structs[0].derives.is_empty());
+
         Ok(())
     }
 }

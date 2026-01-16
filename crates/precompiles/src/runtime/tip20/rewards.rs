@@ -569,7 +569,7 @@ mod tests {
             let mut registry = TIP403Registry::new();
             registry.initialize()?;
 
-            let policy_id = registry.create_policy(admin, admin, PolicyType::Blacklist)?;
+            let policy_id = registry.create_policy(admin, admin, PolicyType::BLACKLIST)?;
 
             registry.modify_policy_blacklist(admin, policy_id, alice, true)?;
 

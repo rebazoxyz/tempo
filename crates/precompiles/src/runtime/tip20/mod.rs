@@ -1601,9 +1601,9 @@ pub(crate) mod tests {
                     admin,
                     admin,
                     if i % 2 == 0 {
-                        PolicyType::Whitelist
+                        PolicyType::WHITELIST
                     } else {
-                        PolicyType::Blacklist
+                        PolicyType::BLACKLIST
                     },
                 )?;
                 valid_policy_ids.push(policy_id);

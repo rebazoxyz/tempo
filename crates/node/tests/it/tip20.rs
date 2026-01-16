@@ -6,8 +6,8 @@ use alloy::{
 };
 use futures::future::try_join_all;
 use tempo_chainspec::spec::TEMPO_BASE_FEE;
-use tempo_contracts::precompiles::{ITIP20, ITIP403Registry};
-use tempo_precompiles::TIP403_REGISTRY_ADDRESS;
+use tempo_contracts::precompiles::ITIP20;
+use tempo_precompiles::{TIP403_REGISTRY_ADDRESS, abi::ITIP403Registry};
 
 use crate::utils::{TestNodeBuilder, await_receipts, setup_test_token};
 

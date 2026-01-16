@@ -6,6 +6,7 @@ pub use thread_local::StorageCtx;
 
 mod types;
 pub use types::*;
+pub(crate) use types::sealed;
 
 pub mod packing;
 pub use packing::FieldLocation;

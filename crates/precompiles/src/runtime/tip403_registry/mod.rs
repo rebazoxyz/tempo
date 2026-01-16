@@ -6,12 +6,13 @@ use crate::{
     storage::{Handler, Mapping},
 };
 use alloy::primitives::{Address, U256};
-use tempo_precompiles_macros::{Storable, abi, contract};
+use tempo_precompiles_macros::{Storable, contract};
+
+pub use crate::abi::{ITIP403Registry::PolicyType, tip403_registry::abi};
 
 #[derive(Debug, Clone, Storable)]
 pub struct PolicyData {
-    // NOTE: enums are defined as u8, and leverage the `#[abi]` macro's `TryInto<u8>` impl
-    pub policy_type: u8,
+    pub policy_type: PolicyType,
     pub admin: Address,
 }
 
@@ -20,46 +21,6 @@ pub struct TIP403Registry {
     policy_id_counter: u64,
     policy_data: Mapping<u64, PolicyData>,
     policy_set: Mapping<u64, Mapping<Address, bool>>,
-}
-
-#[abi(dispatch)]
-#[rustfmt::skip]
-pub mod abi {
-    use super::*;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum PolicyType {
-        Whitelist = 0,
-        Blacklist = 1,
-    }
-
-    pub trait IRegistry {
-        // View functions
-        fn policy_id_counter(&self) -> Result<u64>;
-        fn policy_exists(&self, policy_id: u64) -> Result<bool>;
-        fn policy_data(&self, policy_id: u64) -> Result<(PolicyType, Address)>;
-        fn is_authorized(&self, policy_id: u64, user: Address) -> Result<bool>;
-
-        // State-changing functions (msg_sender is injected by macro)
-        fn create_policy(&mut self, admin: Address, policy_type: PolicyType) -> Result<u64>;
-        fn create_policy_with_accounts(&mut self, admin: Address, policy_type: PolicyType, accounts: Vec<Address>) -> Result<u64>;
-        fn set_policy_admin(&mut self, policy_id: u64, admin: Address) -> Result<()>;
-        fn modify_policy_whitelist(&mut self, policy_id: u64, account: Address, allowed: bool) -> Result<()>;
-        fn modify_policy_blacklist(&mut self, policy_id: u64, account: Address, restricted: bool) -> Result<()>;
-    }
-
-    pub enum Error {
-        Unauthorized,
-        IncompatiblePolicyType,
-        PolicyNotFound,
-    }
-
-    pub enum Event {
-        PolicyAdminUpdated { #[indexed] policy_id: u64, #[indexed] updater: Address, #[indexed] admin: Address },
-        PolicyCreated { #[indexed] policy_id: u64, #[indexed] updater: Address, policy_type: PolicyType },
-        WhitelistUpdated { #[indexed] policy_id: u64, #[indexed] updater: Address, #[indexed] account: Address, allowed: bool },
-        BlacklistUpdated { #[indexed] policy_id: u64, #[indexed] updater: Address, #[indexed] account: Address, restricted: bool },
-    }
 }
 
 // NOTE(rusowsky): can be removed once revm uses precompiles rather than directly
@@ -118,14 +79,9 @@ impl TIP403Registry {
         let data = self.get_policy_data(policy_id)?;
         let is_in_set = self.policy_set[policy_id][user].read()?;
 
-        let policy_type: PolicyType = data
-            .policy_type
-            .try_into()
-            .map_err(|_| TempoPrecompileError::under_overflow())?;
-
-        let auth = match policy_type {
-            PolicyType::Whitelist => is_in_set,
-            PolicyType::Blacklist => !is_in_set,
+        let auth = match data.policy_type {
+            PolicyType::WHITELIST => is_in_set,
+            PolicyType::BLACKLIST => !is_in_set,
         };
 
         Ok(auth)
@@ -159,11 +115,7 @@ impl abi::IRegistry for TIP403Registry {
         }
 
         let data = self.get_policy_data(policy_id)?;
-        let policy_type: PolicyType = data
-            .policy_type
-            .try_into()
-            .map_err(|_| TempoPrecompileError::under_overflow())?;
-        Ok((policy_type, data.admin))
+        Ok((data.policy_type, data.admin))
     }
 
     fn is_authorized(&self, policy_id: u64, user: Address) -> Result<bool> {
@@ -184,10 +136,7 @@ impl abi::IRegistry for TIP403Registry {
                 .ok_or(TempoPrecompileError::under_overflow())?,
         )?;
 
-        self.policy_data[new_policy_id].write(PolicyData {
-            policy_type: policy_type as u8,
-            admin,
-        })?;
+        self.policy_data[new_policy_id].write(PolicyData { policy_type, admin })?;
 
         self.emit_event(TIP403RegistryEvent::policy_created(
             new_policy_id,
@@ -219,19 +168,13 @@ impl abi::IRegistry for TIP403Registry {
                 .ok_or(TempoPrecompileError::under_overflow())?,
         )?;
 
-        self.set_policy_data(
-            new_policy_id,
-            PolicyData {
-                policy_type: policy_type as u8,
-                admin,
-            },
-        )?;
+        self.set_policy_data(new_policy_id, PolicyData { policy_type, admin })?;
 
         for account in accounts.iter() {
             self.set_policy_set(new_policy_id, *account, true)?;
 
             match policy_type {
-                PolicyType::Whitelist => {
+                PolicyType::WHITELIST => {
                     self.emit_event(TIP403RegistryEvent::whitelist_updated(
                         new_policy_id,
                         msg_sender,
@@ -239,7 +182,7 @@ impl abi::IRegistry for TIP403Registry {
                         true,
                     ))?;
                 }
-                PolicyType::Blacklist => {
+                PolicyType::BLACKLIST => {
                     self.emit_event(TIP403RegistryEvent::blacklist_updated(
                         new_policy_id,
                         msg_sender,
@@ -297,7 +240,7 @@ impl abi::IRegistry for TIP403Registry {
             return Err(TIP403RegistryError::unauthorized().into());
         }
 
-        if data.policy_type != PolicyType::Whitelist as u8 {
+        if data.policy_type != PolicyType::WHITELIST {
             return Err(TIP403RegistryError::incompatible_policy_type().into());
         }
 
@@ -321,7 +264,7 @@ impl abi::IRegistry for TIP403Registry {
             return Err(TIP403RegistryError::unauthorized().into());
         }
 
-        if data.policy_type != PolicyType::Blacklist as u8 {
+        if data.policy_type != PolicyType::BLACKLIST {
             return Err(TIP403RegistryError::incompatible_policy_type().into());
         }
 
@@ -350,14 +293,14 @@ mod tests {
             assert_eq!(abi::IRegistry::policy_id_counter(&registry)?, 2);
 
             let result =
-                abi::IRegistry::create_policy(&mut registry, admin, admin, PolicyType::Whitelist);
+                abi::IRegistry::create_policy(&mut registry, admin, admin, PolicyType::WHITELIST);
             assert!(result.is_ok());
             assert_eq!(result?, 2);
 
             assert_eq!(abi::IRegistry::policy_id_counter(&registry)?, 3);
 
             let data = abi::IRegistry::policy_data(&registry, 2)?;
-            assert_eq!(data.0, PolicyType::Whitelist);
+            assert_eq!(data.0, PolicyType::WHITELIST);
             assert_eq!(data.1, admin);
             Ok(())
         })
@@ -385,7 +328,7 @@ mod tests {
             let mut registry = TIP403Registry::new();
 
             let policy_id =
-                abi::IRegistry::create_policy(&mut registry, admin, admin, PolicyType::Whitelist)?;
+                abi::IRegistry::create_policy(&mut registry, admin, admin, PolicyType::WHITELIST)?;
 
             assert!(!abi::IRegistry::is_authorized(&registry, policy_id, user)?);
 
@@ -406,7 +349,7 @@ mod tests {
             let mut registry = TIP403Registry::new();
 
             let policy_id =
-                abi::IRegistry::create_policy(&mut registry, admin, admin, PolicyType::Blacklist)?;
+                abi::IRegistry::create_policy(&mut registry, admin, admin, PolicyType::BLACKLIST)?;
 
             assert!(abi::IRegistry::is_authorized(&registry, policy_id, user)?);
 
@@ -462,9 +405,9 @@ mod tests {
                     admin,
                     admin,
                     if i % 2 == 0 {
-                        PolicyType::Whitelist
+                        PolicyType::WHITELIST
                     } else {
-                        PolicyType::Blacklist
+                        PolicyType::BLACKLIST
                     },
                 )?;
                 created_policy_ids.push(policy_id);

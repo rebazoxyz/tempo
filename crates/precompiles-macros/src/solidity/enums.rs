@@ -35,10 +35,19 @@ pub(super) fn generate_unit_enum(def: &UnitEnumDef) -> TokenStream {
         })
         .unzip();
 
+    // Emit cfg-gated Storable derive if the enum originally had it
+    let storable_attr = if def.has_storable {
+        quote! { #[cfg_attr(feature = "precompile", derive(tempo_precompiles_macros::Storable))] }
+    } else {
+        quote! {}
+    };
+
     let enum_def = quote! {
         #(#attrs)*
         #[repr(u8)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[allow(non_camel_case_types)]
+        #storable_attr
         #vis enum #enum_name {
             #(#variants_with_discriminants),*
         }

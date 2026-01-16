@@ -432,7 +432,7 @@ mod tests {
             registry.initialize()?;
 
             // Create a valid policy
-            let new_policy_id = registry.create_policy(admin, admin, PolicyType::Whitelist)?;
+            let new_policy_id = registry.create_policy(admin, admin, PolicyType::WHITELIST)?;
 
             let change_policy_call = tip20::changeTransferPolicyIdCall { new_policy_id };
             let calldata = change_policy_call.abi_encode();
@@ -441,7 +441,7 @@ mod tests {
             assert_eq!(token.transfer_policy_id()?, new_policy_id);
 
             // Create another valid policy for the unauthorized test
-            let another_policy_id = registry.create_policy(admin, admin, PolicyType::Blacklist)?;
+            let another_policy_id = registry.create_policy(admin, admin, PolicyType::BLACKLIST)?;
 
             let change_policy_call = tip20::changeTransferPolicyIdCall {
                 new_policy_id: another_policy_id,
