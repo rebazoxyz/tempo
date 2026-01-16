@@ -9,6 +9,10 @@
       "has": [{ "type": "host", "value": { "neq": "docs.tempo.xyz" } }]
     }
   ],
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "status": 404, "dest": "/404" }
+  ],
   "redirects": [
     {
       "source": "/documentation/protocol/:path*",
