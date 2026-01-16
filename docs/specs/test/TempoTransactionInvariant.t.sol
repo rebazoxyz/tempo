@@ -13,10 +13,10 @@ import {IAccountKeychain} from "../src/interfaces/IAccountKeychain.sol";
 import {ITIP20} from "../src/interfaces/ITIP20.sol";
 
 import {VmRlp, VmExecuteTransaction} from "tempo-std/StdVm.sol";
-import {TempoTransaction, TempoCall, TempoAuthorization, TempoTransactionLib} from "./helpers/tx/TempoTransactionLib.sol";
-import {LegacyTransaction, LegacyTransactionLib} from "./helpers/tx/LegacyTransactionLib.sol";
-import {Eip1559Transaction, Eip1559TransactionLib} from "./helpers/tx/Eip1559TransactionLib.sol";
-import {Eip7702Transaction, Eip7702Authorization, Eip7702TransactionLib} from "./helpers/tx/Eip7702TransactionLib.sol";
+import {TempoTransaction, TempoCall, TempoAuthorization, TempoTransactionLib} from "tempo-std/tx/TempoTransactionLib.sol";
+import {LegacyTransaction, LegacyTransactionLib} from "tempo-std/tx/LegacyTransactionLib.sol";
+import {Eip1559Transaction, Eip1559TransactionLib} from "tempo-std/tx/Eip1559TransactionLib.sol";
+import {Eip7702Transaction, Eip7702Authorization, Eip7702TransactionLib} from "tempo-std/tx/Eip7702TransactionLib.sol";
 
 /// @title Tempo Transaction Invariant Tests
 /// @notice Comprehensive Foundry invariant tests for Tempo transaction behavior

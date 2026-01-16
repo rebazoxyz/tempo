@@ -3,9 +3,9 @@ pragma solidity ^0.8.13;
 
 import {Vm} from "forge-std/Vm.sol";
 import {VmRlp} from "tempo-std/StdVm.sol";
-import {LegacyTransaction, LegacyTransactionLib} from "./tx/LegacyTransactionLib.sol";
-import {TempoTransaction, TempoCall, TempoAuthorization, TempoTransactionLib} from "./tx/TempoTransactionLib.sol";
-import {TxRlp} from "./tx/TxRlp.sol";
+import {LegacyTransaction, LegacyTransactionLib} from "tempo-std/tx/LegacyTransactionLib.sol";
+import {TempoTransaction, TempoCall, TempoAuthorization, TempoTransactionLib} from "tempo-std/tx/TempoTransactionLib.sol";
+import {TxRlp} from "tempo-std/tx/TxRlp.sol";
 
 /// @title TxBuilder - Transaction Building Library
 /// @dev Used by invariant tests to construct transactions for vm.executeTransaction
