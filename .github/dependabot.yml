@@ -6,7 +6,7 @@ updates:
       interval: "weekly"
     labels:
       - "A-dependencies"
-      - "A-actions"
+      - "A-ci"
     commit-message:
       prefix: "chore(deps)"
     open-pull-requests-limit: 1
