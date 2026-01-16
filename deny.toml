@@ -87,6 +87,5 @@ unknown-git = "deny"
 allow-git = [
   "https://github.com/commonwarexyz/monorepo",
   "https://github.com/foundry-rs/foundry",
-  "https://github.com/rakita/foundry",
   "https://github.com/paradigmxyz/reth",
 ]
