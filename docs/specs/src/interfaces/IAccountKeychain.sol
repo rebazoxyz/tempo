@@ -39,8 +39,8 @@ interface IAccountKeychain {
 
     /// @notice Currency spending limit structure
     struct CurrencyLimit {
-        string currency; // Currency code (e.g., "USD", "EUR", "GBP")
         uint256 amount; // Spending limit amount
+        string currency; // Currency code (e.g., "USD", "EUR", "GBP")
     }
 
     /// @notice Key information structure

@@ -29,8 +29,8 @@ crate::sol! {
 
         /// Currency spending limit structure
         struct CurrencyLimit {
-            string currency;
             uint256 amount;
+            string currency;
         }
 
         /// Key information structure

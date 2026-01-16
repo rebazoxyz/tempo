@@ -1268,12 +1268,12 @@ mod tests {
                 tokenLimits: vec![],
                 currencyLimits: vec![
                     CurrencyLimit {
+                        limit: U256::from(1000),
                         currency: "USD".to_string(),
-                        amount: U256::from(1000),
                     },
                     CurrencyLimit {
+                        limit: U256::from(500),
                         currency: "EUR".to_string(),
-                        amount: U256::from(500),
                     },
                 ],
             };
@@ -1371,8 +1371,8 @@ mod tests {
                 enforceLimits: true,
                 tokenLimits: vec![],
                 currencyLimits: vec![CurrencyLimit {
+                    limit: U256::from(1000),
                     currency: "USD".to_string(),
-                    amount: U256::from(1000),
                 }],
             };
             keychain.authorize_key(eoa, auth_call)?;
@@ -1480,8 +1480,8 @@ mod tests {
                 enforceLimits: true,
                 tokenLimits: vec![],
                 currencyLimits: vec![CurrencyLimit {
+                    limit: U256::from(500),
                     currency: "USD".to_string(),
-                    amount: U256::from(500),
                 }],
             };
             keychain.authorize_key(eoa, auth_call)?;
@@ -1612,8 +1612,8 @@ mod tests {
                     amount: U256::from(100),
                 }],
                 currencyLimits: vec![CurrencyLimit {
+                    limit: U256::from(1000),
                     currency: "USD".to_string(),
-                    amount: U256::from(1000),
                 }],
             };
             keychain.authorize_key(eoa, auth_call)?;
@@ -1671,8 +1671,8 @@ mod tests {
                 enforceLimits: true,
                 tokenLimits: vec![],
                 currencyLimits: vec![CurrencyLimit {
+                    limit: U256::from(1000),
                     currency: "USD".to_string(),
-                    amount: U256::from(1000),
                 }],
             };
             keychain.authorize_key(eoa, auth_call)?;

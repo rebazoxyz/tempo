@@ -35,11 +35,11 @@ pub struct TokenLimit {
 #[cfg_attr(feature = "reth-codec", derive(reth_codecs::Compact))]
 #[cfg_attr(test, reth_codecs::add_arbitrary_tests(compact, rlp))]
 pub struct CurrencyLimit {
-    /// Currency code (e.g., "USD", "EUR", "GBP")
-    pub currency: String,
-
     /// Maximum spending amount in this currency (enforced over the key's lifetime)
     pub limit: U256,
+
+    /// Currency code (e.g., "USD", "EUR", "GBP")
+    pub currency: String,
 }
 
 /// Key authorization for provisioning access keys
