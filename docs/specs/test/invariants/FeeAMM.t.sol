@@ -422,8 +422,8 @@ contract FeeAMMInvariantTest is InvariantBaseTest {
         // Bound amountOut to available reserves
         ctx.amountOut = bound(amountOutRaw, 1, poolBefore.reserveUserToken);
 
-        // Calculate expected amountIn using proper ceiling: ceil(amountOut * N / SCALE)
-        ctx.expectedAmountIn = (ctx.amountOut * N + SCALE - 1) / SCALE;
+        // Calculate expected amountIn: amountIn = (amountOut * N / SCALE) + 1
+        ctx.expectedAmountIn = (ctx.amountOut * N) / SCALE + 1;
         ctx.reserveUserBefore = poolBefore.reserveUserToken;
         ctx.reserveValidatorBefore = poolBefore.reserveValidatorToken;
 
@@ -637,16 +637,16 @@ contract FeeAMMInvariantTest is InvariantBaseTest {
         uint256 amountOut = bound(pool.reserveUserToken, 1, 100);
         vm.assume(amountOut <= pool.reserveUserToken);
 
-        uint256 expectedIn = (amountOut * N + SCALE - 1) / SCALE;
+        uint256 expectedIn = (amountOut * N) / SCALE + 1;
         _ensureFunds(actor, TIP20(validatorToken), expectedIn * 2);
 
         vm.startPrank(actor);
         try amm.rebalanceSwap(userToken, validatorToken, amountOut, actor) returns (
             uint256 amountIn
         ) {
-            // TEMPO-AMM10/18: Rebalance swap must follow ceiling formula: ceil(amountOut * N / SCALE)
-            // Using proper ceiling: (x + y - 1) / y, which rounds up only when not exactly divisible
-            uint256 expectedAmountIn = (amountOut * N + SCALE - 1) / SCALE;
+            // TEMPO-AMM10/18: Rebalance swap must follow exact formula: amountIn = floor(amountOut * N / SCALE) + 1
+            // This is the exact rounding-up formula that always favors the pool
+            uint256 expectedAmountIn = (amountOut * N) / SCALE + 1;
             assertEq(
                 amountIn,
                 expectedAmountIn,
@@ -780,8 +780,7 @@ contract FeeAMMInvariantTest is InvariantBaseTest {
         // Verify this is indeed exact division
         vm.assume((amountOut * N) % SCALE == 0);
 
-        // With proper ceiling, exact division should NOT add +1
-        uint256 expectedIn = (amountOut * N + SCALE - 1) / SCALE;
+        uint256 expectedIn = (amountOut * N) / SCALE + 1; // Should still be +1 even with exact division
         _ensureFunds(actor, TIP20(validatorToken), expectedIn * 2);
 
         vm.startPrank(actor);
@@ -790,13 +789,14 @@ contract FeeAMMInvariantTest is InvariantBaseTest {
         ) {
             vm.stopPrank();
 
-            // TEMPO-AMM22: With exact division, proper ceiling equals floor
-            // (2000 * 9985) / 10000 = 1997 exactly, so ceiling = floor = 1997
-            uint256 expectedAmountIn = (amountOut * N + SCALE - 1) / SCALE;
+            // TEMPO-AMM22: Even with exact division, the +1 should still apply
+            // Without +1: amountIn would be (2000 * 9985) / 10000 = 1997
+            // With +1: amountIn should be 1998
+            uint256 floorValue = (amountOut * N) / SCALE;
             assertEq(
                 amountIn,
-                expectedAmountIn,
-                "TEMPO-AMM22: Rebalance with exact division should use proper ceiling"
+                floorValue + 1,
+                "TEMPO-AMM22: Rebalance with exact division should still add +1"
             );
 
             _log(
@@ -805,8 +805,8 @@ contract FeeAMMInvariantTest is InvariantBaseTest {
                     vm.toString(amountOut),
                     " amountIn=",
                     vm.toString(amountIn),
-                    " (expected=",
-                    vm.toString(expectedAmountIn),
+                    " (floor=",
+                    vm.toString(floorValue),
                     ")"
                 )
             );
@@ -1418,12 +1418,12 @@ contract FeeAMMInvariantTest is InvariantBaseTest {
 
     /// @notice TEMPO-AMM22: Rebalance swap rounding always favors the pool
     function _invariantRebalanceRoundingFavorsPool() internal view {
-        // The ceiling formula in rebalanceSwap ensures pool never loses to rounding
-        // amountIn = ceil(amountOut * N / SCALE) = (amountOut * N + SCALE - 1) / SCALE
+        // The +1 in rebalanceSwap formula ensures pool never loses to rounding
+        // amountIn = (amountOut * N) / SCALE + 1
 
         // Verify via accumulated ghost variables
         if (_ghostRebalanceOutputSum > 0) {
-            // Total input should be >= theoretical floor (due to ceiling rounding)
+            // Total input should be >= theoretical (due to +1 rounding per swap)
             uint256 theoretical = (_ghostRebalanceOutputSum * N) / SCALE;
             assertTrue(
                 _ghostRebalanceInputSum >= theoretical,

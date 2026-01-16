@@ -240,9 +240,8 @@ contract FeeAMMTest is BaseTest {
         uint256 amountIn =
             amm.rebalanceSwap(address(userToken), address(validatorToken), 100e18, alice);
 
-        // amountIn = ceil(100e18 * 9985 / 10000) = (100e18 * 9985 + 10000 - 1) / 10000
-        // = 99.85e18 exactly, so ceiling = floor = 99850000000000000000
-        assertEq(amountIn, 99_850_000_000_000_000_000);
+        // amountIn = (100e18 * 9985) / 10000 + 1
+        assertEq(amountIn, 99_850_000_000_000_000_001);
         assertEq(userToken.balanceOf(alice), aliceUserBefore + 100e18);
     }
 
@@ -372,8 +371,7 @@ contract FeeAMMTest is BaseTest {
         (uint128 reserveUAfter, uint128 reserveVAfter) = amm.pools(poolId);
 
         // Rate invariant: amountIn = ceil(amountOut * N / SCALE)
-        // Using proper ceiling formula: (x + y - 1) / y
-        uint256 expectedAmountIn = (amountOut * amm.N() + amm.SCALE() - 1) / amm.SCALE();
+        uint256 expectedAmountIn = (amountOut * amm.N()) / amm.SCALE() + 1;
         assertEq(amountIn, expectedAmountIn);
 
         // Reserve conservation: reserveV increases by amountIn, reserveU decreases by amountOut
