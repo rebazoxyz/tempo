@@ -129,7 +129,7 @@ impl ConfigureEvm for TempoEvmConfig {
         let spec = self.chain_spec().tempo_hardfork_at(header.timestamp());
 
         Ok(EvmEnv {
-            cfg_env: cfg_env.with_spec(spec),
+            cfg_env: cfg_env.with_spec_and_mainnet_gas_params(spec),
             block_env: TempoBlockEnv {
                 inner: block_env,
                 timestamp_millis_part: header.timestamp_millis_part,
@@ -162,7 +162,7 @@ impl ConfigureEvm for TempoEvmConfig {
         let spec = self.chain_spec().tempo_hardfork_at(attributes.timestamp);
 
         Ok(EvmEnv {
-            cfg_env: cfg_env.with_spec(spec),
+            cfg_env: cfg_env.with_spec_and_mainnet_gas_params(spec),
             block_env: TempoBlockEnv {
                 inner: block_env,
                 timestamp_millis_part: attributes.timestamp_millis_part,
