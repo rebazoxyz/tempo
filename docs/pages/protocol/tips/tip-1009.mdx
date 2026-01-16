@@ -1,11 +1,12 @@
-# TIP: Expiring Nonces
+# Expiring Nonces
 
 This document specifies expiring nonces for Tempo transactions, providing time-bounded replay protection without requiring sequential nonce management.
 
-- **Spec ID**: TIP-XXX (Expiring Nonces)
+- **TIP ID**: TIP-1009
 - **Authors/Owners**: Tempo Team
 - **Status**: Draft
-- **Related Specs**: TIP-20, Tempo Transaction Spec, 2D Nonce Spec
+- **Related Specs/TIPs**: [TIP-20](/protocol/tip20/spec), [Transactions](/protocol/transactions/spec)
+- **Protocol Version**: TBD
 
 ---
 
@@ -13,7 +14,7 @@ This document specifies expiring nonces for Tempo transactions, providing time-b
 
 ## Abstract
 
-Expiring nonces provide an alternative replay protection mechanism where transactions are valid only within a specified time window. Instead of tracking sequential nonces, the protocol uses transaction hashes with expiry timestamps to prevent replay attacks. This enables use cases like gasless transactions, meta-transactions, and simplified UX where users don't need to manage nonce ordering.
+TIP-1009 introduces expiring nonces, an alternative replay protection mechanism where transactions are valid only within a specified time window. Instead of tracking sequential nonces, the protocol uses transaction hashes with expiry timestamps to prevent replay attacks. This enables use cases like gasless transactions, meta-transactions, and simplified UX where users don't need to manage nonce ordering.
 
 ## Motivation
 
