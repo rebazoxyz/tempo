@@ -243,7 +243,7 @@ pyroscope_pprofrs = "0.2.10"
 rayon = "1.10"
 
 # build deps
-vergen = "=9.1.0"
+vergen = "=9.0.4"
 vergen-git2 = "=1.0.5"
 [patch.crates-io]
 # Commonware right after after PR #2841 was merged
