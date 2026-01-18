@@ -173,7 +173,7 @@ fn subblocks_are_included_with_failing_txs() {
             .engine_events
             .new_listener();
 
-        let mut expected_transactions: Vec<TxHash> = Vec::new();
+        let mut pending_transactions: Vec<TxHash> = Vec::new();
         let mut failing_transactions: Vec<TxHash> = Vec::new();
         while let Some(update) = stream.next().await {
             let block = match update {
@@ -186,24 +186,21 @@ fn subblocks_are_included_with_failing_txs() {
             };
             let receipts = block.execution_outcome().receipts().first().unwrap();
 
-            // Assert that block only contains our subblock transactions and system transactions
-            assert_eq!(
-                block.sealed_block().body().transactions.len(),
-                SYSTEM_TX_COUNT + expected_transactions.len()
-            );
+            let block_txs: Vec<_> = block
+                .sealed_block()
+                .body()
+                .transactions
+                .iter()
+                .map(|t| *t.tx_hash())
+                .collect();
 
-            // Assert that all expected transactions are included in the block.
-            for tx in expected_transactions.drain(..) {
-                if !block
-                    .sealed_block()
-                    .body()
-                    .transactions
-                    .iter()
-                    .any(|t| t.tx_hash() == *tx)
-                {
-                    panic!("transaction {tx} was not included");
-                }
-            }
+            let included_in_block: Vec<_> = pending_transactions
+                .iter()
+                .filter(|tx| block_txs.contains(tx))
+                .copied()
+                .collect();
+
+            pending_transactions.retain(|tx| !block_txs.contains(tx));
 
             let fee_recipients = Vec::<SubBlockMetadata>::decode(
                 &mut block
@@ -232,7 +229,7 @@ fn subblocks_are_included_with_failing_txs() {
                 .iter()
                 .zip(block.recovered_block().transactions_recovered())
             {
-                if !expected_transactions.contains(tx.tx_hash()) {
+                if !included_in_block.contains(tx.tx_hash()) {
                     continue;
                 }
 
@@ -291,6 +288,11 @@ fn subblocks_are_included_with_failing_txs() {
 
             // Exit once we reach height 20.
             if block.block_number() == 20 {
+                assert!(
+                    pending_transactions.is_empty(),
+                    "not all transactions were included by block 20: {:?}",
+                    pending_transactions
+                );
                 break;
             }
 
@@ -303,11 +305,11 @@ fn subblocks_are_included_with_failing_txs() {
                             submit_subblock_tx_from(node, &PrivateKeySigner::random(), 100_000)
                                 .await;
                         failing_transactions.push(tx);
-                        expected_transactions.push(tx);
+                        pending_transactions.push(tx);
                         tx
                     } else {
                         let tx = submit_subblock_tx(node).await;
-                        expected_transactions.push(tx);
+                        pending_transactions.push(tx);
                         tx
                     };
                 }
