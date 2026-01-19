@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "solady/tokens/ERC20.sol";
+import "solady/utils/SafeTransferLib.sol";
+import "solady/auth/Ownable.sol";
+import "solady/utils/ReentrancyGuard.sol";
+import "solady/utils/ECDSA.sol";
 
 /// @title StablecoinEscrow
 /// @notice Escrows stablecoins for bridging to Tempo
@@ -13,9 +13,7 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 ///      verification was incompatible with Ethereum's MPT receipt trie structure.
 ///      Instead of complex on-chain MPT verification, burns are attested by the same
 ///      threshold validator set that finalizes headers in the light client.
-contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
-    using SafeERC20 for IERC20;
-
+contract StablecoinEscrow is Ownable, ReentrancyGuard {
     /// @notice The Tempo light client for header verification
     address public immutable lightClient;
 
@@ -44,6 +42,9 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
     /// @notice Domain separator for burn attestations
     bytes32 public constant BURN_ATTESTATION_DOMAIN = keccak256("TEMPO_BURN_ATTESTATION_V1");
 
+    /// @notice Pending owner for 2-step ownership transfer
+    address public pendingOwner;
+
     event Deposited(
         bytes32 indexed depositId,
         address indexed token,
@@ -57,6 +58,7 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
 
     event TokenAdded(address indexed token);
     event TokenRemoved(address indexed token);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
 
     error TokenNotSupported();
     error ZeroAmount();
@@ -69,9 +71,23 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
     error AmountTooLarge();
     error ThresholdNotMet();
 
-    constructor(address _lightClient, uint64 _tempoChainId) Ownable(msg.sender) {
+    constructor(address _lightClient, uint64 _tempoChainId) {
+        _initializeOwner(msg.sender);
         lightClient = _lightClient;
         tempoChainId = _tempoChainId;
+    }
+
+    /// @notice Transfer ownership in 2 steps (start)
+    function transferOwnership(address newOwner) public payable override onlyOwner {
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner(), newOwner);
+    }
+
+    /// @notice Accept ownership (complete 2-step transfer)
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "Not pending owner");
+        _setOwner(msg.sender);
+        pendingOwner = address(0);
     }
 
     /// @notice Add a supported token
@@ -104,15 +120,10 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
 
         uint64 normalizedAmount = _normalizeAmount(token, amount);
         
-        // Ensure normalized amount is not zero (prevents dust deposits that can't be minted)
         if (normalizedAmount == 0) revert ZeroAmount();
 
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        SafeTransferLib.safeTransferFrom(token, msg.sender, address(this), amount);
 
-        // Note: depositId emitted here is a placeholder. The canonical deposit ID used by the
-        // bridge precompile is computed from (origin_chain_id, escrow_address, origin_tx_hash, 
-        // origin_log_index) which are only available after the transaction is mined.
-        // This emitted depositId is for off-chain tracking only.
         depositId = keccak256(
             abi.encodePacked(block.chainid, address(this), token, tempoRecipient, normalizedAmount, msg.sender, nonce)
         );
@@ -138,29 +149,23 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
         uint64 amount,
         bytes[] calldata signatures
     ) external nonReentrant {
-        // Verify the header is finalized
         ITempoLightClient lc = ITempoLightClient(lightClient);
         if (!lc.isHeaderFinalized(tempoHeight)) revert HeaderNotFinalized();
 
-        // Verify burn hasn't been spent
         if (spentBurnIds[burnId]) revert BurnAlreadySpent();
 
-        // Security: only allow unlocking tokens that were ever supported
         if (!everSupportedTokens[originToken]) revert TokenNotSupported();
 
-        // Verify validator attestations
         bytes32 attestationDigest = _computeAttestationDigest(
             burnId, tempoHeight, originToken, recipient, amount
         );
 
         _verifyValidatorSignatures(lc, attestationDigest, signatures);
 
-        // Mark burn as spent
         spentBurnIds[burnId] = true;
 
-        // Denormalize and transfer
         uint256 denormalizedAmount = _denormalizeAmount(originToken, amount);
-        IERC20(originToken).safeTransfer(recipient, denormalizedAmount);
+        SafeTransferLib.safeTransfer(originToken, recipient, denormalizedAmount);
 
         emit Unlocked(burnId, originToken, recipient, amount);
     }
@@ -176,7 +181,6 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
         external
         nonReentrant
     {
-        // Early duplicate check to avoid wasting gas on decode
         if (spentBurnIds[burnId]) revert BurnAlreadySpent();
 
         _processAttestedUnlock(burnId, recipient, uint64(amount), proof);
@@ -189,7 +193,6 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
         uint64 expectedAmount,
         bytes calldata proof
     ) internal {
-        // Decode the ABI-encoded attestation
         (
             bytes32 decodedBurnId,
             uint64 tempoHeight,
@@ -199,31 +202,25 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
             bytes[] memory signatures
         ) = abi.decode(proof, (bytes32, uint64, address, address, uint64, bytes[]));
 
-        // Verify decoded values match expected
         if (decodedBurnId != burnId) revert InvalidBurnEvent();
         if (decodedRecipient != recipient) revert InvalidBurnEvent();
         if (decodedAmount != expectedAmount) revert InvalidBurnEvent();
 
-        // Verify the header is finalized
         ITempoLightClient lc = ITempoLightClient(lightClient);
         if (!lc.isHeaderFinalized(tempoHeight)) revert HeaderNotFinalized();
 
-        // Security: only allow unlocking tokens that were ever supported
         if (!everSupportedTokens[originToken]) revert TokenNotSupported();
 
-        // Verify validator attestations
         bytes32 attestationDigest = _computeAttestationDigest(
             burnId, tempoHeight, originToken, recipient, decodedAmount
         );
 
         _verifyValidatorSignatures(lc, attestationDigest, signatures);
 
-        // Mark burn as spent
         spentBurnIds[burnId] = true;
 
-        // Denormalize and transfer
         uint256 denormalizedAmount = _denormalizeAmount(originToken, decodedAmount);
-        IERC20(originToken).safeTransfer(recipient, denormalizedAmount);
+        SafeTransferLib.safeTransfer(originToken, recipient, denormalizedAmount);
 
         emit Unlocked(burnId, originToken, recipient, decodedAmount);
     }
@@ -310,7 +307,6 @@ contract StablecoinEscrow is Ownable2Step, ReentrancyGuard {
         for (uint256 i = 0; i < signatures.length; i++) {
             address signer = ECDSA.recover(digest, signatures[i]);
 
-            // Signatures must be sorted by signer address to prevent duplicates
             require(signer > lastSigner, "Signatures not sorted");
             lastSigner = signer;
 
@@ -332,6 +328,6 @@ interface ITempoLightClient {
     function isValidator(address validator) external view returns (bool);
 }
 
-interface IERC20Metadata is IERC20 {
+interface IERC20Metadata {
     function decimals() external view returns (uint8);
 }

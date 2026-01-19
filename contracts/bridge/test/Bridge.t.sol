@@ -5,11 +5,18 @@ import "forge-std/Test.sol";
 import "../src/TempoLightClient.sol";
 import "../src/StablecoinEscrow.sol";
 import "../src/libraries/BLS12381.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20} from "solady/tokens/ERC20.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
 
 /// @dev Mock ERC20 for testing
 contract MockUSDC is ERC20 {
-    constructor() ERC20("USD Coin", "USDC") {}
+    function name() public pure override returns (string memory) {
+        return "USD Coin";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "USDC";
+    }
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
@@ -22,7 +29,13 @@ contract MockUSDC is ERC20 {
 
 /// @dev Mock 18-decimal token for testing amount normalization
 contract MockDAI is ERC20 {
-    constructor() ERC20("Dai Stablecoin", "DAI") {}
+    function name() public pure override returns (string memory) {
+        return "Dai Stablecoin";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "DAI";
+    }
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
@@ -328,7 +341,7 @@ contract BridgeTest is Test {
         address attacker = makeAddr("attacker");
 
         vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        vm.expectRevert(Ownable.Unauthorized.selector);
         lightClient.addValidator(makeAddr("evil"));
     }
 
@@ -336,7 +349,7 @@ contract BridgeTest is Test {
         address attacker = makeAddr("attacker");
 
         vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        vm.expectRevert(Ownable.Unauthorized.selector);
         escrow.addToken(makeAddr("evil"));
     }
 
@@ -422,7 +435,7 @@ contract BridgeTest is Test {
         address attacker = makeAddr("attacker");
 
         vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        vm.expectRevert(Ownable.Unauthorized.selector);
         lightClient.setBLSPublicKey(blsKey);
     }
 
@@ -430,7 +443,7 @@ contract BridgeTest is Test {
         address attacker = makeAddr("attacker");
 
         vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
+        vm.expectRevert(Ownable.Unauthorized.selector);
         lightClient.setSignatureMode(false);
     }
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "solady/auth/Ownable.sol";
+import "solady/utils/ECDSA.sol";
 import "./libraries/BLS12381.sol";
 
 /// @title TempoLightClient
@@ -27,7 +27,7 @@ import "./libraries/BLS12381.sol";
 /// was established on Ethereum for audit trail purposes.
 ///
 /// @custom:security-contact security@tempo.xyz
-contract TempoLightClient is Ownable2Step {
+contract TempoLightClient is Ownable {
     /// @notice Domain separator for header signatures
     bytes32 public constant HEADER_DOMAIN = keccak256("TEMPO_HEADER_V1");
 
@@ -71,12 +71,16 @@ contract TempoLightClient is Ownable2Step {
     /// @notice Legacy currentPublicKey getter for backwards compatibility
     bytes public currentPublicKey;
 
+    /// @notice Pending owner for 2-step ownership transfer
+    address public pendingOwner;
+
     event HeaderSubmitted(uint64 indexed height, bytes32 headerHash, bytes32 receiptsRoot);
     event KeyRotated(uint64 indexed newEpoch, bytes newPublicKey);
     event BLSPublicKeyUpdated(uint64 indexed epoch, bytes blsKey);
     event ValidatorAdded(address indexed validator);
     event ValidatorRemoved(address indexed validator);
     event SignatureModeChanged(bool useEcdsa);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
 
     error InvalidSignatureCount();
     error InvalidSignature();
@@ -90,13 +94,25 @@ contract TempoLightClient is Ownable2Step {
     error InvalidBLSSignatureLength();
     error BLSPrecompilesNotAvailable();
 
-    constructor(uint64 _tempoChainId, uint64 _initialEpoch) Ownable(msg.sender) {
+    constructor(uint64 _tempoChainId, uint64 _initialEpoch) {
+        _initializeOwner(msg.sender);
         tempoChainId = _tempoChainId;
         currentEpoch = _initialEpoch;
-        // Default to ECDSA mode for backwards compatibility
         useEcdsaMode = true;
-        // Initialize threshold to 1 to prevent 0-threshold edge case if no validators added
         threshold = 1;
+    }
+
+    /// @notice Transfer ownership in 2 steps (start)
+    function transferOwnership(address newOwner) public payable override onlyOwner {
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner(), newOwner);
+    }
+
+    /// @notice Accept ownership (complete 2-step transfer)
+    function acceptOwnership() external {
+        require(msg.sender == pendingOwner, "Not pending owner");
+        _setOwner(msg.sender);
+        pendingOwner = address(0);
     }
 
     /// @notice Set the signature verification mode
@@ -179,7 +195,6 @@ contract TempoLightClient is Ownable2Step {
         );
 
         if (useEcdsaMode) {
-            // Decode signature as array of ECDSA signatures
             bytes[] memory signatures = abi.decode(signature, (bytes[]));
             _verifyThresholdSignatures(headerDigest, signatures);
         } else {
@@ -221,14 +236,12 @@ contract TempoLightClient is Ownable2Step {
         );
 
         if (useEcdsaMode) {
-            // Copy calldata signatures to memory
             bytes[] memory sigs = new bytes[](signatures.length);
             for (uint256 i = 0; i < signatures.length; i++) {
                 sigs[i] = signatures[i];
             }
             _verifyThresholdSignatures(headerDigest, sigs);
         } else {
-            // In BLS mode with signatures array, expect single element with aggregated signature
             require(signatures.length == 1, "BLS mode expects single aggregated signature");
             _verifyBLSSignature(headerDigest, signatures[0]);
         }
@@ -249,7 +262,6 @@ contract TempoLightClient is Ownable2Step {
         bytes32 rotationDigest = keccak256(abi.encodePacked(ROTATION_DOMAIN, tempoChainId, newEpoch, newPublicKey));
 
         if (useEcdsaMode) {
-            // Copy calldata signatures to memory
             bytes[] memory sigs = new bytes[](signatures.length);
             for (uint256 i = 0; i < signatures.length; i++) {
                 sigs[i] = signatures[i];
@@ -263,7 +275,6 @@ contract TempoLightClient is Ownable2Step {
         currentEpoch = newEpoch;
         currentPublicKey = newPublicKey;
 
-        // If the new public key is a valid BLS public key, also update blsPublicKey
         if (newPublicKey.length == BLS12381.G2_POINT_SIZE) {
             blsPublicKey = newPublicKey;
             emit BLSPublicKeyUpdated(newEpoch, newPublicKey);
@@ -366,9 +377,8 @@ contract TempoLightClient is Ownable2Step {
     }
 
     function _updateThreshold() internal {
-        // Ensure threshold is never 0 - require at least 1 signature
         if (validators.length == 0) {
-            threshold = 1; // Prevents 0-threshold exploit
+            threshold = 1;
         } else {
             threshold = (validators.length * 2 + 2) / 3;
         }
