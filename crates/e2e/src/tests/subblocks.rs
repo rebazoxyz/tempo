@@ -19,7 +19,7 @@ use reth_ethereum::{
 };
 use reth_node_builder::ConsensusEngineEvent;
 use reth_node_core::primitives::transaction::TxHashRef;
-use tempo_chainspec::spec::{SYSTEM_TX_COUNT, TEMPO_BASE_FEE};
+use tempo_chainspec::spec::TEMPO_BASE_FEE;
 use tempo_node::primitives::{
     SubBlockMetadata, TempoTransaction, TempoTxEnvelope,
     subblock::{PartialValidatorKey, TEMPO_SUBBLOCK_NONCE_KEY_PREFIX},
