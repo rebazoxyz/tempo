@@ -540,6 +540,7 @@ impl Bridge {
     ///   preventing threshold manipulation during validator set transitions
     ///
     /// IMPORTANT: This formula must match the signer implementation in bridge-exex.
+    #[allow(clippy::too_many_arguments)]
     pub fn compute_deposit_attestation_digest(
         tempo_chain_id: u64,
         request_id: B256,

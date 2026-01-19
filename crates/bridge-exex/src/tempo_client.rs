@@ -70,7 +70,7 @@ impl TempoClient {
     /// Create a new Tempo client.
     ///
     /// The provided signer is used for both transaction signing (broadcasting) and attestation.
-    /// Use [`with_broadcaster_signer`] to set a separate signer for broadcasting transactions.
+    /// Use [`Self::with_broadcaster_signer`] to set a separate signer for broadcasting transactions.
     pub async fn new(rpc_url: &str, signer: PrivateKeySigner) -> Result<Self> {
         let validator_address = signer.address();
         let wallet = EthereumWallet::from(signer);
