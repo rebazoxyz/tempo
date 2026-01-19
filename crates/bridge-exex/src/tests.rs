@@ -6,5 +6,6 @@
 //! 3. Reorg handling
 //! 4. Multi-validator signing scenarios
 
+mod anvil;
 mod fixtures;
 mod integration;

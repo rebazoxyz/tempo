@@ -221,6 +221,29 @@ impl StateManager {
             last_tempo_block: state.last_tempo_block,
         }
     }
+
+    /// Remove a signed deposit (e.g., due to reorg invalidation)
+    pub async fn remove_signed_deposit(&self, request_id: &B256) -> Result<bool> {
+        let removed = {
+            let mut state = self.state.write().await;
+            state.signed_deposits.remove(request_id).is_some()
+        };
+        if removed {
+            self.save().await?;
+            info!(%request_id, "Removed signed deposit (invalidated)");
+        }
+        Ok(removed)
+    }
+
+    /// Get a signed deposit by request ID
+    pub async fn get_signed_deposit(&self, request_id: &B256) -> Option<SignedDeposit> {
+        self.state
+            .read()
+            .await
+            .signed_deposits
+            .get(request_id)
+            .cloned()
+    }
 }
 
 /// Statistics about the bridge state

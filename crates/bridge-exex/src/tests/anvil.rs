@@ -4,7 +4,7 @@
 //! deploying bridge contracts, and testing deposit/burn flows.
 
 use alloy::{
-    network::EthereumWallet,
+    network::{EthereumWallet, TransactionBuilder},
     primitives::{Address, Bytes, B256, U256},
     providers::{Provider, ProviderBuilder},
     rpc::types::{Filter, Log as RpcLog, TransactionReceipt},
@@ -303,7 +303,8 @@ impl AnvilHarness {
         let mut deploy_data = bytecode.to_vec();
         deploy_data.extend_from_slice(&constructor_args);
 
-        let tx = alloy::rpc::types::TransactionRequest::default().input(deploy_data.into());
+        let tx = alloy::rpc::types::TransactionRequest::default()
+            .with_deploy_code(deploy_data);
 
         let pending = self.provider.send_transaction(tx).await?;
         let receipt = pending.get_receipt().await?;
@@ -540,6 +541,92 @@ impl AnvilHarness {
             signers.push(BridgeSigner::from_bytes(&signer.to_bytes())?);
         }
         Ok(signers)
+    }
+
+    /// Take a snapshot of the current chain state
+    pub async fn snapshot(&self) -> Result<u64> {
+        let snapshot_id: alloy::primitives::U256 = self
+            .provider
+            .raw_request("evm_snapshot".into(), ())
+            .await?;
+        let id: u64 = snapshot_id.try_into().unwrap_or(0);
+        debug!(snapshot_id = id, "Chain snapshot taken");
+        Ok(id)
+    }
+
+    /// Revert to a previous snapshot (simulates chain rollback)
+    pub async fn revert_snapshot(&self, snapshot_id: u64) -> Result<bool> {
+        let result: bool = self
+            .provider
+            .raw_request(
+                "evm_revert".into(),
+                (alloy::primitives::U256::from(snapshot_id),),
+            )
+            .await?;
+        debug!(snapshot_id, reverted = result, "Chain snapshot reverted");
+        Ok(result)
+    }
+
+    /// Simulate a reorg by reverting to a snapshot and mining new blocks.
+    /// Returns the new block number after mining.
+    pub async fn reorg_to_height(&self, snapshot_id: u64, new_blocks: u64) -> Result<u64> {
+        self.revert_snapshot(snapshot_id).await?;
+
+        if new_blocks > 0 {
+            self.mine_blocks(new_blocks).await?;
+        }
+
+        let new_height = self.block_number().await?;
+        info!(
+            snapshot_id,
+            new_blocks, new_height, "Chain reorg simulated"
+        );
+        Ok(new_height)
+    }
+
+    /// Get block hash at a specific block number
+    pub async fn get_block_hash(&self, block_number: u64) -> Result<B256> {
+        let block = self
+            .provider
+            .get_block_by_number(block_number.into())
+            .await?
+            .ok_or_else(|| eyre!("Block {} not found", block_number))?;
+        Ok(block.header.hash)
+    }
+
+    /// Query Deposited events from escrow contract in a block range
+    pub async fn query_deposits(&self, from_block: u64, to_block: u64) -> Result<Vec<DepositEvent>> {
+        let filter = Filter::new()
+            .address(self.escrow)
+            .event_signature(StablecoinEscrow::Deposited::SIGNATURE_HASH)
+            .from_block(from_block)
+            .to_block(to_block);
+
+        let logs = self.provider.get_logs(&filter).await?;
+        let mut events = Vec::new();
+
+        for log in logs {
+            let primitive_log = alloy::primitives::Log {
+                address: log.address(),
+                data: log.inner.data.clone(),
+            };
+
+            if let Ok(decoded) = StablecoinEscrow::Deposited::decode_log(&primitive_log) {
+                events.push(DepositEvent {
+                    deposit_id: decoded.data.depositId,
+                    token: decoded.data.token,
+                    depositor: decoded.data.depositor,
+                    amount: decoded.data.amount,
+                    tempo_recipient: decoded.data.tempoRecipient,
+                    nonce: decoded.data.nonce,
+                    tx_hash: log.transaction_hash.unwrap_or_default(),
+                    block_number: log.block_number.unwrap_or(0),
+                    log_index: log.log_index.unwrap_or(0),
+                });
+            }
+        }
+
+        Ok(events)
     }
 }
 

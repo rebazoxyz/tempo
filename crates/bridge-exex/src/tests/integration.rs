@@ -760,24 +760,103 @@ mod anvil_tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "Requires Anvil running on localhost:8545"]
+    #[ignore = "Requires Anvil binary and forge build artifacts"]
     async fn test_deposit_flow_with_anvil() {
-        // This test requires:
-        // 1. Anvil running: `anvil --port 8545`
-        // 2. Escrow contract deployed
-        // 3. Tempo node running with bridge precompile
+        use super::super::anvil::AnvilHarness;
 
-        let _accounts = anvil_accounts();
-        let _deposit = TestDeposit::usdc_deposit(1_000_000, Address::repeat_byte(0x42));
-        let _ = &_deposit;
+        // Step 1: Spawn harness (deploys contracts automatically)
+        let harness = AnvilHarness::spawn().await.expect("Failed to spawn harness");
 
-        // TODO: Deploy escrow contract
-        // TODO: Make deposit on Anvil
-        // TODO: Watch for deposit event
-        // TODO: Register on Tempo
-        // TODO: Sign with validators
-        // TODO: Finalize
-        // TODO: Verify TIP-20 minted
+        let (depositor_addr, depositor_signer) = harness.accounts[0].clone();
+        let tempo_recipient = Address::repeat_byte(0x42);
+        let amount = 1_000_000u64; // 1 USDC
+
+        // Step 2: Mint & approve USDC
+        harness
+            .mint_usdc(depositor_addr, amount)
+            .await
+            .expect("Failed to mint USDC");
+        harness
+            .approve_usdc(&depositor_signer, amount)
+            .await
+            .expect("Failed to approve USDC");
+
+        // Step 3: Make deposit - returns (TransactionReceipt, DepositEvent)
+        let (receipt, deposit_event) = harness
+            .deposit_usdc(&depositor_signer, amount, tempo_recipient)
+            .await
+            .expect("Failed to deposit USDC");
+
+        // Step 4: Verify deposit event fields
+        assert!(receipt.status());
+        assert!(!deposit_event.deposit_id.is_zero());
+        assert_eq!(deposit_event.token, harness.usdc);
+        assert_eq!(deposit_event.depositor, depositor_addr);
+        assert_eq!(deposit_event.amount, amount);
+        assert_eq!(deposit_event.tempo_recipient, tempo_recipient);
+        assert_eq!(deposit_event.nonce, 0);
+
+        // Step 5: Sign with validators using BridgeSigner
+        let threshold = harness.get_threshold().await.expect("Failed to get threshold");
+        let bridge_signers = harness
+            .create_bridge_signers(threshold as usize + 1)
+            .expect("Failed to create bridge signers");
+
+        let mut signatures = Vec::new();
+        for signer in &bridge_signers {
+            let sig = signer
+                .sign_deposit(&deposit_event.deposit_id)
+                .await
+                .expect("Failed to sign deposit");
+            signatures.push(sig);
+        }
+
+        // Step 6: Verify signature count >= threshold
+        assert!(
+            signatures.len() as u64 >= threshold,
+            "Signature count {} should be >= threshold {}",
+            signatures.len(),
+            threshold
+        );
+
+        // Step 7: Record in StateManager
+        let state_manager = StateManager::new_in_memory();
+        assert!(
+            !state_manager
+                .has_signed_deposit(&deposit_event.deposit_id)
+                .await
+        );
+
+        state_manager
+            .record_signed_deposit(SignedDeposit {
+                request_id: deposit_event.deposit_id,
+                origin_chain_id: ANVIL_CHAIN_ID,
+                origin_tx_hash: deposit_event.tx_hash,
+                tempo_recipient: deposit_event.tempo_recipient,
+                amount: deposit_event.amount,
+                signature_tx_hash: B256::random(),
+                signed_at: deposit_event.block_number,
+            })
+            .await
+            .expect("Failed to record signed deposit");
+
+        assert!(
+            state_manager
+                .has_signed_deposit(&deposit_event.deposit_id)
+                .await
+        );
+
+        // Step 8: Mark finalized and assert
+        state_manager
+            .mark_deposit_finalized(deposit_event.deposit_id)
+            .await
+            .expect("Failed to mark deposit finalized");
+
+        assert!(
+            state_manager
+                .is_deposit_finalized(&deposit_event.deposit_id)
+                .await
+        );
     }
 
     #[tokio::test]
@@ -799,17 +878,172 @@ mod anvil_tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires Anvil running on localhost:8545"]
+    #[ignore = "Requires Anvil binary and forge build artifacts"]
     async fn test_reorg_handling_with_anvil() {
-        // This test requires Anvil with reorg simulation
+        use super::super::anvil::AnvilHarness;
 
-        let _reorg = MockReorg::at_depth(100, 2);
+        // Step 1: Spawn harness
+        let harness = AnvilHarness::spawn().await.expect("Failed to spawn harness");
+        let state_manager = StateManager::new_in_memory();
 
-        // TODO: Make deposit in block 101
-        // TODO: Wait for detection
-        // TODO: Simulate reorg via Anvil
-        // TODO: Verify deposit is invalidated
-        // TODO: Verify new deposit in reorg chain is processed
+        // Step 2: Mine to block 100
+        let initial_block = harness.block_number().await.unwrap();
+        let blocks_to_mine = if initial_block < 100 {
+            100 - initial_block
+        } else {
+            0
+        };
+        if blocks_to_mine > 0 {
+            harness.mine_blocks(blocks_to_mine).await.unwrap();
+        }
+
+        let current_block = harness.block_number().await.unwrap();
+        assert!(current_block >= 100, "Should be at block 100 or higher");
+
+        // Take snapshot before the deposit (at block 100)
+        let snapshot_id = harness.snapshot().await.unwrap();
+
+        // Step 3: Make deposit at block 101
+        let (depositor_addr, depositor_signer) = harness.accounts[0].clone();
+        let tempo_recipient = Address::repeat_byte(0x42);
+        let amount = 1_000_000u64;
+
+        harness.mint_usdc(depositor_addr, amount).await.unwrap();
+        harness
+            .approve_usdc(&depositor_signer, amount)
+            .await
+            .unwrap();
+
+        let (receipt, deposit_event) = harness
+            .deposit_usdc(&depositor_signer, amount, tempo_recipient)
+            .await
+            .unwrap();
+
+        let deposit_block_number = receipt.block_number.expect("Should have block number");
+        let deposit_block_hash = harness
+            .get_block_hash(deposit_block_number)
+            .await
+            .unwrap();
+
+        assert!(deposit_block_number > 100, "Deposit should be after block 100");
+        assert!(!deposit_event.deposit_id.is_zero(), "Deposit ID should not be zero");
+
+        // Step 4: Record deposit in StateManager as pending
+        state_manager
+            .record_signed_deposit(SignedDeposit {
+                request_id: deposit_event.deposit_id,
+                origin_chain_id: ANVIL_CHAIN_ID,
+                origin_tx_hash: deposit_event.tx_hash,
+                tempo_recipient: deposit_event.tempo_recipient,
+                amount: deposit_event.amount,
+                signature_tx_hash: B256::random(),
+                signed_at: deposit_block_number,
+            })
+            .await
+            .unwrap();
+
+        assert!(
+            state_manager
+                .has_signed_deposit(&deposit_event.deposit_id)
+                .await,
+            "Deposit should be recorded"
+        );
+
+        // Step 5: Simulate reorg via Anvil (revert to snapshot and mine new blocks)
+        let new_height = harness.reorg_to_height(snapshot_id, 5).await.unwrap();
+
+        // Verify the chain was reorganized
+        let new_block_hash = harness.get_block_hash(new_height).await.unwrap();
+        assert_ne!(
+            new_block_hash, deposit_block_hash,
+            "Block hash should be different after reorg"
+        );
+
+        // Step 6: Verify old deposit is invalidated (check by querying chain)
+        // The deposit event should no longer exist on-chain after reorg
+        let deposits_after_reorg = harness
+            .query_deposits(100, new_height)
+            .await
+            .unwrap();
+
+        let old_deposit_exists = deposits_after_reorg
+            .iter()
+            .any(|d| d.deposit_id == deposit_event.deposit_id);
+
+        assert!(
+            !old_deposit_exists,
+            "Old deposit should not exist on reorged chain"
+        );
+
+        // Invalidate the deposit in StateManager (simulating what bridge would do on reorg)
+        let removed = state_manager
+            .remove_signed_deposit(&deposit_event.deposit_id)
+            .await
+            .unwrap();
+        assert!(removed, "Should have removed the invalidated deposit");
+
+        assert!(
+            !state_manager
+                .has_signed_deposit(&deposit_event.deposit_id)
+                .await,
+            "Deposit should be invalidated after reorg"
+        );
+
+        // Step 7 & 8: Query new chain for Deposited events and process new deposit if exists
+        // Make a new deposit on the reorged chain
+        harness.mint_usdc(depositor_addr, amount).await.unwrap();
+        harness
+            .approve_usdc(&depositor_signer, amount)
+            .await
+            .unwrap();
+
+        let (new_receipt, new_deposit_event) = harness
+            .deposit_usdc(&depositor_signer, amount, tempo_recipient)
+            .await
+            .unwrap();
+
+        let new_deposit_block = new_receipt.block_number.expect("Should have block number");
+
+        // Record the new deposit
+        state_manager
+            .record_signed_deposit(SignedDeposit {
+                request_id: new_deposit_event.deposit_id,
+                origin_chain_id: ANVIL_CHAIN_ID,
+                origin_tx_hash: new_deposit_event.tx_hash,
+                tempo_recipient: new_deposit_event.tempo_recipient,
+                amount: new_deposit_event.amount,
+                signature_tx_hash: B256::random(),
+                signed_at: new_deposit_block,
+            })
+            .await
+            .unwrap();
+
+        // Step 9: Assert state consistency
+        assert!(
+            state_manager
+                .has_signed_deposit(&new_deposit_event.deposit_id)
+                .await,
+            "New deposit should be recorded"
+        );
+
+        assert!(
+            !state_manager
+                .has_signed_deposit(&deposit_event.deposit_id)
+                .await,
+            "Old deposit should remain invalidated"
+        );
+
+        assert_ne!(
+            deposit_event.deposit_id, new_deposit_event.deposit_id,
+            "New deposit should have different ID"
+        );
+
+        // Verify escrow balance reflects only the new deposit
+        let escrow_balance = harness.usdc_balance(harness.escrow).await.unwrap();
+        assert_eq!(
+            escrow_balance, amount,
+            "Escrow should have balance from new deposit only"
+        );
     }
 
     #[tokio::test]
