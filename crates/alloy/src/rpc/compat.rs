@@ -57,6 +57,7 @@ impl TryIntoSimTx<TempoTxEnvelope> for TempoTransactionRequest {
                             key_id,
                             tempo_authorization_list,
                             key_authorization,
+                            valid_before: None,
                         }));
                     }
                 };
@@ -73,6 +74,7 @@ impl TryIntoSimTx<TempoTxEnvelope> for TempoTransactionRequest {
                             key_id,
                             tempo_authorization_list,
                             key_authorization,
+                            valid_before: None,
                         })
                     },
                 )?)
@@ -98,6 +100,7 @@ impl TryIntoTxEnv<TempoTxEnv, TempoBlockEnv> for TempoTransactionRequest {
             tempo_authorization_list,
             nonce_key,
             key_authorization,
+            valid_before,
         } = self;
         Ok(TempoTxEnv {
             fee_token,
@@ -140,7 +143,7 @@ impl TryIntoTxEnv<TempoTxEnv, TempoBlockEnv> for TempoTransactionRequest {
                     key_authorization,
                     signature_hash: B256::ZERO,
                     tx_hash: B256::ZERO,
-                    valid_before: None,
+                    valid_before,
                     valid_after: None,
                     subblock_transaction: false,
                     override_key_id: key_id,
