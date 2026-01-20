@@ -1,0 +1,123 @@
+name: Nightly Deep Invariant Tests
+
+on:
+  schedule:
+    - cron: '0 3 * * 4'  # Thursday 3 AM UTC
+    - cron: '0 3 * * 0'  # Sunday 3 AM UTC
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Invariant runs'
+        default: '1500'
+        type: string
+      depth:
+        description: 'Invariant depth'
+        default: '1500'
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  rust-invariants:
+    name: Deep Invariants (Rust Precompiles)
+    runs-on: depot-ubuntu-latest-8
+    timeout-minutes: 120  # Hard cutoff to prevent overbilling
+
+    steps:
+      - name: Checkout tempo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+          path: tempo
+
+      - name: Checkout tempo-foundry
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: tempoxyz/tempo-foundry
+          ref: staging-revm
+          path: tempo-foundry
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: rui314/setup-mold@725a8794d15fc7563f59595bd9556495c0564878 # v1
+      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        with:
+          workspaces: tempo-foundry
+
+      - name: Update tempo-foundry to use current commit
+        working-directory: tempo-foundry
+        run: |
+          COMMIT_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "Updating tempo dependencies to commit: $COMMIT_SHA"
+
+          # Update all tempo dependencies to point to the current commit
+          # Using # as delimiter since URLs contain /
+          sed -i -E \
+            "s#(tempo-[a-z-]+) = \{ git = \"https://github.com/tempoxyz/tempo\", rev = \"[^\"]+\" \}#\1 = { git = \"https://github.com/tempoxyz/tempo\", rev = \"$COMMIT_SHA\" }#g" \
+            Cargo.toml
+
+          echo "Updated Cargo.toml:"
+          grep "tempo-" Cargo.toml | head -20
+
+          # Update Cargo.lock to resolve version conflicts
+          cargo update
+
+      - name: Build tempo-foundry forge
+        working-directory: tempo-foundry
+        run: cargo build -p forge --profile release
+
+      - name: Run deep invariant tests
+        working-directory: tempo/docs/specs
+        env:
+          FOUNDRY_INVARIANT_RUNS: ${{ inputs.runs || '1500' }}
+          FOUNDRY_INVARIANT_DEPTH: ${{ inputs.depth || '1500' }}
+        run: |
+          echo "Running invariants with runs=$FOUNDRY_INVARIANT_RUNS, depth=$FOUNDRY_INVARIANT_DEPTH"
+          echo "Target: ~60 minutes runtime, hard cutoff at 120 minutes"
+          ../../../tempo-foundry/target/release/forge test -vvv --match-contract Invariant
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: invariant-failure-logs-${{ github.run_id }}
+          path: |
+            tempo/docs/specs/*.log
+            tempo/docs/specs/test/**/*.log
+
+      - name: Notify Slack on failure
+        if: failure() && github.event_name == 'schedule'
+        uses: slackapi/slack-github-action@37ebaef184d7626c5f204ab8d3baff4262dd30f0 # v1.27.0
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          payload: |
+            {
+              "text": "🚨 Nightly invariant tests failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Nightly Invariant Tests Failed*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs> | Commit: `${{ github.sha }}`"
+                  }
+                }
+              ]
+            }
+
+  invariant-deep-success:
+    name: invariant-deep success
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - rust-invariants
+    timeout-minutes: 5
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # v1.2.2
+        with:
+          jobs: ${{ toJSON(needs) }}
