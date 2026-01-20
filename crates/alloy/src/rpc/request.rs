@@ -72,6 +72,11 @@ pub struct TempoTransactionRequest {
     /// Provide a signed KeyAuthorization when the transaction provisions an access key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_authorization: Option<SignedKeyAuthorization>,
+
+    /// Optional valid_before timestamp for expiring nonce transactions (TIP-1009).
+    /// When set with nonce_key = U256::MAX, the transaction uses expiring nonce mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_before: Option<u64>,
 }
 
 impl TempoTransactionRequest {
@@ -89,6 +94,17 @@ impl TempoTransactionRequest {
     /// Builder-pattern method for setting a 2D nonce key for a [`TempoTransaction`].
     pub fn with_nonce_key(mut self, nonce_key: U256) -> Self {
         self.nonce_key = Some(nonce_key);
+        self
+    }
+
+    /// Set the valid_before timestamp for expiring nonce transactions.
+    pub fn set_valid_before(&mut self, valid_before: u64) {
+        self.valid_before = Some(valid_before);
+    }
+
+    /// Builder-pattern method for setting valid_before timestamp.
+    pub fn with_valid_before(mut self, valid_before: u64) -> Self {
+        self.valid_before = Some(valid_before);
         self
     }
 
@@ -140,7 +156,7 @@ impl TempoTransactionRequest {
             chain_id: self.inner.chain_id.unwrap_or(1),
             nonce,
             fee_payer_signature: None,
-            valid_before: None,
+            valid_before: self.valid_before,
             valid_after: None,
             gas_limit,
             max_fee_per_gas,
@@ -268,6 +284,7 @@ impl From<TempoTransaction> for TempoTransactionRequest {
             key_id: None,
             nonce_key: Some(tx.nonce_key),
             key_authorization: tx.key_authorization,
+            valid_before: tx.valid_before,
         }
     }
 }
