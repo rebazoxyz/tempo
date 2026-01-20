@@ -367,6 +367,5 @@ mod tests {
             moderato_genesis.tempo_hardfork_at(u64::MAX),
             TempoHardfork::Genesis
         );
-
     }
 }
