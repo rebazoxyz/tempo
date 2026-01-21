@@ -1120,16 +1120,15 @@ where
                 }
             }
 
+            // TIP-1000: Storage pricing updates for launch
+            // Tempo transactions with any `nonce_key` and `nonce == 0` require an additional 250,000 gas.
+            if spec.is_t1() && tx.nonce == 0 {
+                // TODO(rakita): make simpler function that give only the value without additional checks.
+                init_gas.initial_gas += gas_params.new_account_cost(true, true);
+            }
+
             init_gas
         };
-
-        // TIP-1000: Storage pricing updates for launch
-        // Tempo transactions with any `nonce_key` and `nonce == 0` require an additional 250,000 gas
-        // TODO(rakita): check if this is needed for `validate_aa_initial_tx_gas` function.
-        if spec.is_t1() && tx.nonce == 0 {
-            // TODO(rakita): make simpler function that give only the value without additional checks.
-            init_gas.initial_gas += gas_params.new_account_cost(true, true);
-        }
 
         if evm.ctx.cfg.is_eip7623_disabled() {
             init_gas.floor_gas = 0u64;
@@ -1333,18 +1332,26 @@ where
     // Calculate batch intrinsic gas using helper
     let mut batch_gas = calculate_aa_batch_intrinsic_gas(aa_env, gas_params, tx.access_list())?;
 
+    let mut nonce_2d_gas = 0;
     // Calculate 2D nonce gas if nonce_key is non-zero
     // If tx nonce is 0, it's a new key (0 -> 1 transition), otherwise existing key
-    let nonce_2d_gas = if !aa_env.nonce_key.is_zero() {
-        if tx.nonce() == 0 {
-            // New key - cold SLOAD + SSTORE set (0 -> non-zero)
-            NEW_NONCE_KEY_GAS
-        } else {
-            // Existing key - cold SLOAD + warm SSTORE reset
-            EXISTING_NONCE_KEY_GAS
+    if spec.is_t1() {
+        // TIP-1000: Storage pricing updates for launch
+        // Tempo transactions with any `nonce_key` and `nonce == 0` require an additional 250,000 gas
+        if tx.nonce == 0 {
+            // TODO(rakita): make simpler function that give only the value without additional checks.
+            batch_gas.initial_gas += gas_params.new_account_cost(true, true);
         }
-    } else {
-        0
+    } else if let Some(aa_env) = &tx.tempo_tx_env {
+        if !aa_env.nonce_key.is_zero() {
+            nonce_2d_gas = if tx.nonce() == 0 {
+                // New key - cold SLOAD + SSTORE set (0 -> non-zero)
+                NEW_NONCE_KEY_GAS
+            } else {
+                // Existing key - cold SLOAD + warm SSTORE reset
+                EXISTING_NONCE_KEY_GAS
+            };
+        }
     };
 
     if evm.ctx.cfg.is_eip7623_disabled() {
@@ -1458,10 +1465,10 @@ where
         if let Some(tempo_tx_env) = evm_ctx.tx().tempo_tx_env.as_ref() {
             // AA transaction - use batch execution with calls field
             let calls = tempo_tx_env.aa_calls.clone();
-            self.inspect_execute_multi_call(evm, init_and_floor_gas, calls)
+            self.inspect_execute_multi_call(evm, &adjusted_gas, calls)
         } else {
             // Standard transaction - use single-call execution
-            self.inspect_execute_single_call(evm, init_and_floor_gas)
+            self.inspect_execute_single_call(evm, &adjusted_gas)
         }
     }
 }
