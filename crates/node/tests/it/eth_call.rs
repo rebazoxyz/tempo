@@ -39,7 +39,7 @@ async fn test_eth_call() -> eyre::Result<()> {
     token
         .mint(caller, mint_amount)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -79,7 +79,7 @@ async fn test_eth_trace_call() -> eyre::Result<()> {
     token
         .mint(caller, mint_amount)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -171,7 +171,7 @@ async fn test_eth_get_logs() -> eyre::Result<()> {
     let mint_receipt = token
         .mint(caller, mint_amount)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -181,7 +181,7 @@ async fn test_eth_get_logs() -> eyre::Result<()> {
     token
         .transfer(recipient, mint_amount)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()

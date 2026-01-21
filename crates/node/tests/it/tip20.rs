@@ -47,7 +47,7 @@ async fn test_tip20_transfer() -> eyre::Result<()> {
             token
                 .mint(*account, *balance)
                 .gas_price(TEMPO_BASE_FEE as u128)
-                .gas(300_000)
+                .gas(1_000_000)
                 .send()
                 .await?,
         );
@@ -107,7 +107,7 @@ async fn test_tip20_transfer() -> eyre::Result<()> {
         let pending_tx = token
             .transfer(recipient, sender_balance)
             .gas_price(TEMPO_BASE_FEE as u128)
-            .gas(300_000)
+            .gas(1_000_000)
             .send()
             .await?;
 
@@ -173,7 +173,7 @@ async fn test_tip20_mint() -> eyre::Result<()> {
             token
                 .mint(*account, *balance)
                 .gas_price(TEMPO_BASE_FEE as u128)
-                .gas(300_000)
+                .gas(1_000_000)
                 .send()
                 .await?,
         );
@@ -255,7 +255,7 @@ async fn test_tip20_transfer_from() -> eyre::Result<()> {
     token
         .mint(caller, total_balance)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -270,7 +270,7 @@ async fn test_tip20_transfer_from() -> eyre::Result<()> {
             token
                 .approve(signer.address(), *balance)
                 .gas_price(TEMPO_BASE_FEE as u128)
-                .gas(300_000)
+                .gas(1_000_000)
                 .send()
                 .await?,
         );
@@ -310,7 +310,7 @@ async fn test_tip20_transfer_from() -> eyre::Result<()> {
         let pending_tx = spender_token
             .transferFrom(caller, recipient, *allowance)
             .gas_price(TEMPO_BASE_FEE as u128)
-            .gas(300_000)
+            .gas(1_000_000)
             .send()
             .await?;
 
@@ -350,7 +350,7 @@ async fn test_tip20_transfer_with_memo() -> eyre::Result<()> {
     token
         .mint(caller, transfer_amount)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -361,7 +361,7 @@ async fn test_tip20_transfer_with_memo() -> eyre::Result<()> {
     let receipt = token
         .transferWithMemo(recipient, transfer_amount, memo)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -407,7 +407,7 @@ async fn test_tip20_blacklist() -> eyre::Result<()> {
     let policy_receipt = registry
         .createPolicy(admin, ITIP403Registry::PolicyType::BLACKLIST)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -425,7 +425,7 @@ async fn test_tip20_blacklist() -> eyre::Result<()> {
     token
         .changeTransferPolicyId(policy_id)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -448,7 +448,7 @@ async fn test_tip20_blacklist() -> eyre::Result<()> {
         let pending_tx = registry
             .modifyPolicyBlacklist(policy_id, account.address(), true)
             .gas_price(TEMPO_BASE_FEE as u128)
-            .gas(300_000)
+            .gas(1_000_000)
             .send()
             .await?;
 
@@ -460,7 +460,7 @@ async fn test_tip20_blacklist() -> eyre::Result<()> {
         token
             .mint(account.address(), U256::from(1000))
             .gas_price(TEMPO_BASE_FEE as u128)
-            .gas(300_000)
+            .gas(1_000_000)
             .send()
             .await
             .expect("Could not send tx")
@@ -500,7 +500,7 @@ async fn test_tip20_blacklist() -> eyre::Result<()> {
             token
                 .transfer(Address::random(), U256::ONE)
                 .gas_price(TEMPO_BASE_FEE as u128)
-                .gas(300_000)
+                .gas(1_000_000)
                 .send()
                 .await
                 .expect("Could not send tx")
@@ -533,7 +533,7 @@ async fn test_tip20_whitelist() -> eyre::Result<()> {
     let policy_receipt = registry
         .createPolicy(admin, ITIP403Registry::PolicyType::WHITELIST)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -551,7 +551,7 @@ async fn test_tip20_whitelist() -> eyre::Result<()> {
     token
         .changeTransferPolicyId(policy_id)
         .gas_price(TEMPO_BASE_FEE as u128)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
@@ -584,7 +584,7 @@ async fn test_tip20_whitelist() -> eyre::Result<()> {
         let pending_tx = registry
             .modifyPolicyWhitelist(policy_id, account, true)
             .gas_price(TEMPO_BASE_FEE as u128)
-            .gas(300_000)
+            .gas(1_000_000)
             .send()
             .await?;
 
@@ -598,7 +598,7 @@ async fn test_tip20_whitelist() -> eyre::Result<()> {
         token
             .mint(account.address(), U256::from(1000))
             .gas_price(TEMPO_BASE_FEE as u128)
-            .gas(300_000)
+            .gas(1_000_000)
             .send()
             .await
             .expect("Could not send tx")

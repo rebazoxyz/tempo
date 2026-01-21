@@ -65,7 +65,7 @@ where
 
     roles
         .grantRole(*ISSUER_ROLE, caller)
-        .gas(300_000)
+        .gas(1_000_000)
         .send()
         .await?
         .get_receipt()
