@@ -83,7 +83,8 @@ async fn test_block_building_insufficient_fee_amm_liquidity() -> eyre::Result<()
     let pool_id = pool_key.get_id();
 
     let lp_balance = fee_amm
-        .liquidityBalances(pool_id, sender_address).gas(1_000_000)
+        .liquidityBalances(pool_id, sender_address)
+        .gas(1_000_000)
         .call()
         .await?;
     println!("User LP balance: {lp_balance}");

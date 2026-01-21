@@ -44,7 +44,11 @@ async fn test_payment_lane_with_mixed_load() -> eyre::Result<()> {
     let fee_token1 = ITIP20::new(fee_token_address1, provider.clone());
 
     let fee_manager2 = IFeeManager::new(TIP_FEE_MANAGER_ADDRESS, provider2.clone());
-    let fee_token_address2 = fee_manager2.userTokens(caller2).gas(1_000_000).call().await?;
+    let fee_token_address2 = fee_manager2
+        .userTokens(caller2)
+        .gas(1_000_000)
+        .call()
+        .await?;
     let fee_token2 = ITIP20::new(fee_token_address2, provider2.clone());
 
     // Setup TIP20 tokens for payment transactions

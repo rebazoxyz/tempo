@@ -42,7 +42,10 @@ async fn test_fee_in_stable() -> eyre::Result<()> {
     let fee_token = ITIP20::new(fee_token_address, provider.clone());
     let initial_balance = fee_token.balanceOf(caller).gas(1_000_000).call().await?;
 
-    let tx = TransactionRequest::default().from(caller).to(caller).gas_limit(1_000_000);
+    let tx = TransactionRequest::default()
+        .from(caller)
+        .to(caller)
+        .gas_limit(1_000_000);
 
     let pending_tx = provider.send_transaction(tx).await?;
     let tx_hash = pending_tx.watch().await?;
@@ -105,13 +108,24 @@ async fn test_default_fee_token() -> eyre::Result<()> {
 
     // Ensure the fee token is not set for the user
     let fee_manager = IFeeManager::new(TIP_FEE_MANAGER_ADDRESS, provider.clone());
-    let fee_token_address = fee_manager.userTokens(new_address).gas(1_000_000).call().await?;
+    let fee_token_address = fee_manager
+        .userTokens(new_address)
+        .gas(1_000_000)
+        .call()
+        .await?;
     assert_eq!(fee_token_address, Address::ZERO);
 
     // Get the balance of the fee token before the tx
-    let initial_balance = path_usd.balanceOf(new_address).gas(1_000_000).call().await?;
+    let initial_balance = path_usd
+        .balanceOf(new_address)
+        .gas(1_000_000)
+        .call()
+        .await?;
 
-    let tx = TransactionRequest::default().from(new_address).to(caller).gas_limit(1_000_000);
+    let tx = TransactionRequest::default()
+        .from(new_address)
+        .to(caller)
+        .gas_limit(1_000_000);
     let pending_tx = new_provider.send_transaction(tx).await?;
     let tx_hash = pending_tx.watch().await?;
     let receipt = new_provider
@@ -119,7 +133,11 @@ async fn test_default_fee_token() -> eyre::Result<()> {
         .await?;
 
     // Assert that the fee token balance has decreased by gas spent
-    let balance_after = path_usd.balanceOf(new_address).gas(1_000_000).call().await?;
+    let balance_after = path_usd
+        .balanceOf(new_address)
+        .gas(1_000_000)
+        .call()
+        .await?;
     let cost = calc_gas_balance_spending(receipt.gas_used, receipt.effective_gas_price());
     assert_eq!(balance_after, initial_balance - U256::from(cost));
 

@@ -2249,7 +2249,8 @@ async fn test_aa_p256_call_batching() -> eyre::Result<()> {
     println!("\nChecking initial recipient balances:");
     for (i, (recipient, _)) in recipients.iter().enumerate() {
         let balance = ITIP20::new(fee_token, &provider)
-            .balanceOf(*recipient).gas(1_000_000)
+            .balanceOf(*recipient)
+            .gas(1_000_000)
             .call()
             .await?;
         initial_balances.push(balance);
@@ -2323,7 +2324,8 @@ async fn test_aa_p256_call_batching() -> eyre::Result<()> {
     {
         let expected_amount = transfer_base_amount * U256::from(*multiplier);
         let final_balance = ITIP20::new(fee_token, &provider)
-            .balanceOf(*recipient).gas(1_000_000)
+            .balanceOf(*recipient)
+            .gas(1_000_000)
             .call()
             .await?;
 
@@ -2350,7 +2352,8 @@ async fn test_aa_p256_call_batching() -> eyre::Result<()> {
         .fold(U256::ZERO, |acc, x| acc + x);
 
     let signer_final_balance = ITIP20::new(fee_token, &provider)
-        .balanceOf(signer_addr).gas(1_000_000)
+        .balanceOf(signer_addr)
+        .gas(1_000_000)
         .call()
         .await?;
     let expected_signer_balance = initial_funding_amount - total_transferred;
@@ -2396,7 +2399,8 @@ async fn test_aa_fee_payer_tx() -> eyre::Result<()> {
 
     // Verify user has ZERO balance (check AlphaUSD since that's what fees are paid in)
     let user_token_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(user_addr).gas(1_000_000)
+        .balanceOf(user_addr)
+        .gas(1_000_000)
         .call()
         .await?;
     assert_eq!(
@@ -2408,7 +2412,8 @@ async fn test_aa_fee_payer_tx() -> eyre::Result<()> {
 
     // Get fee payer's balance before transaction (check AlphaUSD since that's what fees are paid in)
     let fee_payer_balance_before = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(fee_payer_addr).gas(1_000_000)
+        .balanceOf(fee_payer_addr)
+        .gas(1_000_000)
         .call()
         .await?;
     println!("Fee payer balance before: {fee_payer_balance_before} tokens");
@@ -2494,7 +2499,8 @@ async fn test_aa_fee_payer_tx() -> eyre::Result<()> {
 
     // Verify user still has ZERO balance (fee payer paid)
     let user_token_balance_after = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(user_addr).gas(1_000_000)
+        .balanceOf(user_addr)
+        .gas(1_000_000)
         .call()
         .await?;
     assert_eq!(
@@ -2505,7 +2511,8 @@ async fn test_aa_fee_payer_tx() -> eyre::Result<()> {
 
     // Verify fee payer's balance decreased (check AlphaUSD since that's what fees are paid in)
     let fee_payer_balance_after = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(fee_payer_addr).gas(1_000_000)
+        .balanceOf(fee_payer_addr)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -3368,7 +3375,8 @@ async fn test_aa_access_key() -> eyre::Result<()> {
 
     // Check root key's initial balance
     let root_balance_initial = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(root_key_addr).gas(1_000_000)
+        .balanceOf(root_key_addr)
+        .gas(1_000_000)
         .call()
         .await?;
     println!("Root key initial balance: {root_balance_initial} tokens");
@@ -3515,7 +3523,8 @@ async fn test_aa_access_key() -> eyre::Result<()> {
 
     // Get recipient's initial balance (should be 0)
     let recipient_balance_before = ITIP20::new(DEFAULT_FEE_TOKEN, provider.clone())
-        .balanceOf(recipient).gas(1_000_000)
+        .balanceOf(recipient)
+        .gas(1_000_000)
         .call()
         .await?;
     assert_eq!(
@@ -3682,7 +3691,8 @@ async fn test_aa_access_key() -> eyre::Result<()> {
 
     // Verify recipient received the tokens
     let recipient_balance_after = ITIP20::new(DEFAULT_FEE_TOKEN, provider.clone())
-        .balanceOf(recipient).gas(1_000_000)
+        .balanceOf(recipient)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -3697,7 +3707,8 @@ async fn test_aa_access_key() -> eyre::Result<()> {
 
     // Verify root key's balance decreased
     let root_balance_after = ITIP20::new(DEFAULT_FEE_TOKEN, provider.clone())
-        .balanceOf(root_key_addr).gas(1_000_000)
+        .balanceOf(root_key_addr)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -4349,7 +4360,8 @@ async fn test_transaction_key_authorization_and_spending_limits() -> eyre::Resul
     assert_eq!(status, "0x1", "Transfer within spending limit must succeed");
 
     let recipient_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient).gas(1_000_000)
+        .balanceOf(recipient)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -4465,7 +4477,8 @@ async fn test_aa_keychain_enforce_limits() -> eyre::Result<()> {
 
     // Verify the large transfer succeeded (unlimited key has no limit enforcement)
     let recipient1_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient1).gas(1_000_000)
+        .balanceOf(recipient1)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -4555,7 +4568,8 @@ async fn test_aa_keychain_enforce_limits() -> eyre::Result<()> {
 
     // Verify recipient2 received NO tokens
     let recipient2_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient2).gas(1_000_000)
+        .balanceOf(recipient2)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -4613,7 +4627,8 @@ async fn test_aa_keychain_enforce_limits() -> eyre::Result<()> {
     let _tx_hash = submit_and_mine_aa_tx(&mut setup, second_unlimited_tx, unlimited_sig2).await?;
 
     let recipient3_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient3).gas(1_000_000)
+        .balanceOf(recipient3)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -4725,7 +4740,8 @@ async fn test_aa_keychain_expiry() -> eyre::Result<()> {
     nonce += 1;
 
     let recipient1_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient1).gas(1_000_000)
+        .balanceOf(recipient1)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -4813,7 +4829,8 @@ async fn test_aa_keychain_expiry() -> eyre::Result<()> {
     nonce += 1;
 
     let recipient2_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient2).gas(1_000_000)
+        .balanceOf(recipient2)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -4891,7 +4908,8 @@ async fn test_aa_keychain_expiry() -> eyre::Result<()> {
 
     // Verify recipient3 received NO tokens
     let recipient3_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient3).gas(1_000_000)
+        .balanceOf(recipient3)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -5169,7 +5187,8 @@ async fn test_aa_keychain_rpc_validation() -> eyre::Result<()> {
     assert_eq!(status2, "0x1", "Positive test transaction must succeed");
 
     let recipient2_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient2).gas(1_000_000)
+        .balanceOf(recipient2)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -5245,7 +5264,8 @@ async fn test_aa_keychain_rpc_validation() -> eyre::Result<()> {
 
     // Verify recipient3 received NO tokens
     let recipient3_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient3).gas(1_000_000)
+        .balanceOf(recipient3)
+        .gas(1_000_000)
         .call()
         .await?;
 
@@ -5824,7 +5844,11 @@ async fn test_aa_keychain_revocation_toctou_dos() -> eyre::Result<()> {
     // Verify the key is actually revoked by querying the keychain
     use tempo_contracts::precompiles::account_keychain::IAccountKeychain::IAccountKeychainInstance;
     let keychain = IAccountKeychainInstance::new(ACCOUNT_KEYCHAIN_ADDRESS, &provider);
-    let key_info = keychain.getKey(root_addr, access_key_addr).gas(1_000_000).call().await?;
+    let key_info = keychain
+        .getKey(root_addr, access_key_addr)
+        .gas(1_000_000)
+        .call()
+        .await?;
     assert!(key_info.isRevoked, "Key should be marked as revoked");
     println!("Access key revoked");
 
@@ -5853,7 +5877,8 @@ async fn test_aa_keychain_revocation_toctou_dos() -> eyre::Result<()> {
 
     // Check the transfer recipient balance to verify if the transaction actually executed
     let recipient_balance = ITIP20::new(DEFAULT_FEE_TOKEN, &provider)
-        .balanceOf(recipient).gas(1_000_000)
+        .balanceOf(recipient)
+        .gas(1_000_000)
         .call()
         .await?;
 

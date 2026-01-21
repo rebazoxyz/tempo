@@ -102,7 +102,10 @@ async fn test_bids() -> eyre::Result<()> {
         assert_eq!(order.amount, order_amount);
         assert_eq!(order.remaining, order_amount);
     }
-    assert_eq!(exchange.nextOrderId().gas(1_000_000).call().await?, num_orders + 1);
+    assert_eq!(
+        exchange.nextOrderId().gas(1_000_000).call().await?,
+        num_orders + 1
+    );
 
     // Calculate fill amount to fill all `n-1` orders, partial fill last order
     let fill_amount = (num_orders * order_amount) - (order_amount / 2);
@@ -153,7 +156,11 @@ async fn test_bids() -> eyre::Result<()> {
 
     // Assert exchange balance for makers
     for (account, _) in account_data.iter().take(account_data.len() - 1) {
-        let balance = exchange.balanceOf(*account, *base.address()).gas(1_000_000).call().await?;
+        let balance = exchange
+            .balanceOf(*account, *base.address())
+            .gas(1_000_000)
+            .call()
+            .await?;
         assert_eq!(balance, order_amount);
     }
 
@@ -251,7 +258,10 @@ async fn test_asks() -> eyre::Result<()> {
         assert_eq!(order.amount, order_amount);
         assert_eq!(order.remaining, order_amount);
     }
-    assert_eq!(exchange.nextOrderId().gas(1_000_000).call().await?, num_orders + 1);
+    assert_eq!(
+        exchange.nextOrderId().gas(1_000_000).call().await?,
+        num_orders + 1
+    );
 
     // Calculate fill amount to fill all `n-1` orders, partial fill last order
     let fill_amount = (num_orders * order_amount) - (order_amount / 2);
@@ -417,7 +427,10 @@ async fn test_cancel_orders() -> eyre::Result<()> {
         assert_eq!(order.amount, order_amount);
         assert_eq!(order.remaining, order_amount);
     }
-    assert_eq!(exchange.nextOrderId().gas(1_000_000).call().await?, num_orders + 1);
+    assert_eq!(
+        exchange.nextOrderId().gas(1_000_000).call().await?,
+        num_orders + 1
+    );
 
     // Cancel all orders
     for (order_id, (_, signer)) in (1..=num_orders).zip(&account_data) {
@@ -557,7 +570,8 @@ async fn test_multi_hop_swap() -> eyre::Result<()> {
     let bob_eurc = ITIP20::new(*eurc.address(), bob_provider.clone());
     let bob_eurc_before = bob_eurc.balanceOf(bob).gas(1_000_000).call().await?;
     let bob_linking_usd = ITIP20::new(*linking_usd.address(), bob_provider);
-    let bob_linking_usd_wallet_before = bob_linking_usd.balanceOf(bob).gas(1_000_000).call().await?;
+    let bob_linking_usd_wallet_before =
+        bob_linking_usd.balanceOf(bob).gas(1_000_000).call().await?;
     let bob_linking_usd_exchange_before = bob_exchange
         .balanceOf(bob, *linking_usd.address())
         .gas(1_000_000)

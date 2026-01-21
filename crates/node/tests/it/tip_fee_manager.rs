@@ -49,7 +49,11 @@ async fn test_set_user_token() -> eyre::Result<()> {
     // Verify default user token matches the genesis-created AlphaUSD (reserved address)
     let expected_default_token = address!("20C0000000000000000000000000000000000001");
     assert_eq!(
-        fee_manager.userTokens(user_address).gas(1_000_000).call().await?,
+        fee_manager
+            .userTokens(user_address)
+            .gas(1_000_000)
+            .call()
+            .await?,
         expected_default_token
     );
 
@@ -60,7 +64,11 @@ async fn test_set_user_token() -> eyre::Result<()> {
         .header
         .beneficiary;
 
-    let validator_balance_before = validator_token.balanceOf(validator).gas(1_000_000).call().await?;
+    let validator_balance_before = validator_token
+        .balanceOf(validator)
+        .gas(1_000_000)
+        .call()
+        .await?;
 
     let fee_amm = ITIPFeeAMM::new(TIP_FEE_MANAGER_ADDRESS, provider.clone());
 
@@ -105,7 +113,11 @@ async fn test_set_user_token() -> eyre::Result<()> {
         .watch()
         .await?;
 
-    let validator_balance_after = validator_token.balanceOf(validator).gas(1_000_000).call().await?;
+    let validator_balance_after = validator_token
+        .balanceOf(validator)
+        .gas(1_000_000)
+        .call()
+        .await?;
     // Validator receives all accumulated fees, not just from this tx
     assert!(validator_balance_after > validator_balance_before);
 
@@ -117,7 +129,11 @@ async fn test_set_user_token() -> eyre::Result<()> {
         .await?;
     assert!(set_receipt.status());
 
-    let current_token = fee_manager.userTokens(user_address).gas(1_000_000).call().await?;
+    let current_token = fee_manager
+        .userTokens(user_address)
+        .gas(1_000_000)
+        .call()
+        .await?;
     assert_eq!(current_token, *user_token.address());
 
     // Fees from setUserToken tx also accumulated
@@ -127,10 +143,21 @@ async fn test_set_user_token() -> eyre::Result<()> {
         .await?
         .watch()
         .await?;
-    assert!(validator_token.balanceOf(validator).gas(1_000_000).call().await? > validator_balance_after);
+    assert!(
+        validator_token
+            .balanceOf(validator)
+            .gas(1_000_000)
+            .call()
+            .await?
+            > validator_balance_after
+    );
 
     // Send a dummy transaction and verify fee was paid in the newly configured user_token
-    let user_balance_before = user_token.balanceOf(user_address).gas(1_000_000).call().await?;
+    let user_balance_before = user_token
+        .balanceOf(user_address)
+        .gas(1_000_000)
+        .call()
+        .await?;
     let collected_fees_before = fee_manager
         .collectedFees(validator, *validator_token.address())
         .gas(1_000_000)
@@ -145,7 +172,11 @@ async fn test_set_user_token() -> eyre::Result<()> {
     assert!(receipt.status());
 
     // Verify fee was paid in user_token (max_fee deducted from user)
-    let user_balance_after = user_token.balanceOf(user_address).gas(1_000_000).call().await?;
+    let user_balance_after = user_token
+        .balanceOf(user_address)
+        .gas(1_000_000)
+        .call()
+        .await?;
     let tx = provider.get_transaction_by_hash(tx_hash).await?.unwrap();
     let expected_max_fee =
         calc_gas_balance_spending(tx.inner.gas_limit(), receipt.effective_gas_price);
@@ -163,14 +194,22 @@ async fn test_set_user_token() -> eyre::Result<()> {
     );
 
     // Distribute fees before checking validator balance
-    let validator_balance_before = validator_token.balanceOf(validator).gas(1_000_000).call().await?;
+    let validator_balance_before = validator_token
+        .balanceOf(validator)
+        .gas(1_000_000)
+        .call()
+        .await?;
     fee_manager
         .distributeFees(validator, *validator_token.address())
         .send()
         .await?
         .watch()
         .await?;
-    let validator_balance_after = validator_token.balanceOf(validator).gas(1_000_000).call().await?;
+    let validator_balance_after = validator_token
+        .balanceOf(validator)
+        .gas(1_000_000)
+        .call()
+        .await?;
 
     assert!(validator_balance_after > validator_balance_before);
 
@@ -183,7 +222,11 @@ async fn test_set_user_token() -> eyre::Result<()> {
         .await?;
     assert!(set_receipt.status());
 
-    let current_token = fee_manager.userTokens(user_address).gas(1_000_000).call().await?;
+    let current_token = fee_manager
+        .userTokens(user_address)
+        .gas(1_000_000)
+        .call()
+        .await?;
     assert_eq!(current_token, PATH_USD_ADDRESS);
 
     Ok(())
@@ -370,7 +413,11 @@ async fn test_fee_payer_tx() -> eyre::Result<()> {
 
     // Query the fee payer's actual fee token from the FeeManager
     let fee_manager = IFeeManager::new(TIP_FEE_MANAGER_ADDRESS, &provider);
-    let fee_payer_token = fee_manager.userTokens(fee_payer.address()).gas(1_000_000).call().await?;
+    let fee_payer_token = fee_manager
+        .userTokens(fee_payer.address())
+        .gas(1_000_000)
+        .call()
+        .await?;
 
     assert!(
         ITIP20::new(fee_payer_token, &provider)

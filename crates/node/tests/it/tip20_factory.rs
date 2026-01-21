@@ -65,7 +65,10 @@ async fn test_create_token() -> eyre::Result<()> {
     assert_eq!(token.decimals().gas(1_000_000).call().await?, 6);
     assert_eq!(token.currency().gas(1_000_000).call().await?, currency);
     // Supply cap is u128::MAX
-    assert_eq!(token.supplyCap().gas(1_000_000).call().await?, U256::from(u128::MAX));
+    assert_eq!(
+        token.supplyCap().gas(1_000_000).call().await?,
+        U256::from(u128::MAX)
+    );
     assert_eq!(token.transferPolicyId().gas(1_000_000).call().await?, 1);
 
     Ok(())
@@ -98,14 +101,22 @@ async fn test_is_tip20_checks_code_deployment() -> eyre::Result<()> {
     );
 
     // isTIP20 should return false because no code is deployed
-    let is_tip20 = factory.isTIP20(non_existent_tip20_addr).gas(1_000_000).call().await?;
+    let is_tip20 = factory
+        .isTIP20(non_existent_tip20_addr)
+        .gas(1_000_000)
+        .call()
+        .await?;
     assert!(
         !is_tip20,
         "isTIP20 should return false for address with no deployed code"
     );
 
     // Verify that a valid TIP20 (PATH_USD) returns true
-    let path_usd_is_tip20 = factory.isTIP20(PATH_USD_ADDRESS).gas(1_000_000).call().await?;
+    let path_usd_is_tip20 = factory
+        .isTIP20(PATH_USD_ADDRESS)
+        .gas(1_000_000)
+        .call()
+        .await?;
     assert!(path_usd_is_tip20, "PATH_USD should be a valid TIP20");
 
     Ok(())

@@ -312,9 +312,14 @@ async fn test_eth_estimate_gas_different_fee_tokens() -> eyre::Result<()> {
         .await?;
 
     // Verify the tokens are set correctly
-    let user_token = fee_manager.userTokens(user_address).gas(1_000_000).call().await?;
+    let user_token = fee_manager
+        .userTokens(user_address)
+        .gas(1_000_000)
+        .call()
+        .await?;
     let validator_token = fee_manager
-        .validatorTokens(validator_address).gas(1_000_000)
+        .validatorTokens(validator_address)
+        .gas(1_000_000)
         .call()
         .await?;
 

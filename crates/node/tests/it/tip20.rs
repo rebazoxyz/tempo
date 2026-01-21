@@ -71,7 +71,8 @@ async fn test_tip20_transfer() -> eyre::Result<()> {
         let account_token = ITIP20::new(*token.address(), account_provider);
 
         let Err(result) = account_token
-            .transfer(Address::random(), balance + U256::ONE).gas(1_000_000)
+            .transfer(Address::random(), balance + U256::ONE)
+            .gas(1_000_000)
             .call()
             .await
         else {
@@ -102,7 +103,11 @@ async fn test_tip20_transfer() -> eyre::Result<()> {
         let recipient_balance = token.balanceOf(recipient).gas(1_000_000).call().await?;
 
         // Simulate the tx and send
-        let success = token.transfer(recipient, sender_balance).gas(1_000_000).call().await?;
+        let success = token
+            .transfer(recipient, sender_balance)
+            .gas(1_000_000)
+            .call()
+            .await?;
         assert!(success);
         let pending_tx = token
             .transfer(recipient, sender_balance)
@@ -267,7 +272,11 @@ async fn test_tip20_transfer_from() -> eyre::Result<()> {
     // Update allowance for each sender account
     let mut pending_txs = vec![];
     for (signer, balance) in account_data.iter() {
-        let allowance = token.allowance(caller, signer.address()).gas(1_000_000).call().await?;
+        let allowance = token
+            .allowance(caller, signer.address())
+            .gas(1_000_000)
+            .call()
+            .await?;
         assert_eq!(allowance, U256::ZERO);
         pending_txs.push(
             token
@@ -285,7 +294,11 @@ async fn test_tip20_transfer_from() -> eyre::Result<()> {
 
     // Verify allowances are set
     for (account, expected_balance) in account_data.iter() {
-        let allowance = token.allowance(caller, account.address()).gas(1_000_000).call().await?;
+        let allowance = token
+            .allowance(caller, account.address())
+            .gas(1_000_000)
+            .call()
+            .await?;
         assert_eq!(allowance, *expected_balance);
     }
 
@@ -300,7 +313,8 @@ async fn test_tip20_transfer_from() -> eyre::Result<()> {
 
         // Expect transferFrom to fail if it exceeds balance
         let excess_result = spender_token
-            .transferFrom(caller, recipient, *allowance + U256::ONE).gas(1_000_000)
+            .transferFrom(caller, recipient, *allowance + U256::ONE)
+            .gas(1_000_000)
             .call()
             .await;
 
@@ -324,7 +338,11 @@ async fn test_tip20_transfer_from() -> eyre::Result<()> {
         let receipt = tx.get_receipt().await?;
 
         // Verify allowance is decremented
-        let remaining_allowance = token.allowance(caller, receipt.from).gas(1_000_000).call().await?;
+        let remaining_allowance = token
+            .allowance(caller, receipt.from)
+            .gas(1_000_000)
+            .call()
+            .await?;
         assert_eq!(remaining_allowance, U256::ZERO);
 
         // Verify recipient received tokens
@@ -479,7 +497,11 @@ async fn test_tip20_blacklist() -> eyre::Result<()> {
             .connect_http(http_url.clone());
         let token = ITIP20::new(*token.address(), provider);
 
-        let transfer_result = token.transfer(Address::random(), U256::ONE).gas(1_000_000).call().await;
+        let transfer_result = token
+            .transfer(Address::random(), U256::ONE)
+            .gas(1_000_000)
+            .call()
+            .await;
         // TODO: assert the actual error once PrecompileError is propagated through revm
         assert!(transfer_result.is_err(),);
     }
@@ -494,7 +516,8 @@ async fn test_tip20_blacklist() -> eyre::Result<()> {
 
             // Ensure that blacklisted accounts can not receive tokens
             let transfer_result = token
-                .transfer(blacklisted.address(), U256::ONE).gas(1_000_000)
+                .transfer(blacklisted.address(), U256::ONE)
+                .gas(1_000_000)
                 .call()
                 .await;
             // TODO: assert the actual error once PrecompileError is propagated through revm
@@ -628,13 +651,21 @@ async fn test_tip20_whitelist() -> eyre::Result<()> {
             .connect_http(http_url.clone());
         let token = ITIP20::new(*token.address(), provider);
 
-        let transfer_result = token.transfer(Address::random(), U256::ONE).gas(1_000_000).call().await;
+        let transfer_result = token
+            .transfer(Address::random(), U256::ONE)
+            .gas(1_000_000)
+            .call()
+            .await;
         assert!(transfer_result.is_err());
     }
 
     // Ensure whitelisted accounts can't send to non-whitelisted receivers
     for sender in whitelisted_senders.iter() {
-        let transfer_result = sender.transfer(Address::random(), U256::ONE).gas(1_000_000).call().await;
+        let transfer_result = sender
+            .transfer(Address::random(), U256::ONE)
+            .gas(1_000_000)
+            .call()
+            .await;
         // TODO: assert the actual error once PrecompileError is propagated through revm
         assert!(transfer_result.is_err());
     }
@@ -755,10 +786,20 @@ async fn test_tip20_rewards() -> eyre::Result<()> {
     );
     await_receipts(&mut pending).await?;
 
-    assert_eq!(token.balanceOf(alice).gas(1_000_000).call().await?, U256::from(900e18));
-    assert_eq!(token.balanceOf(bob).gas(1_000_000).call().await?, U256::ZERO);
     assert_eq!(
-        token.balanceOf(*token.address()).gas(1_000_000).call().await?,
+        token.balanceOf(alice).gas(1_000_000).call().await?,
+        U256::from(900e18)
+    );
+    assert_eq!(
+        token.balanceOf(bob).gas(1_000_000).call().await?,
+        U256::ZERO
+    );
+    assert_eq!(
+        token
+            .balanceOf(*token.address())
+            .gas(1_000_000)
+            .call()
+            .await?,
         reward_amount
     );
 
@@ -770,7 +811,10 @@ async fn test_tip20_rewards() -> eyre::Result<()> {
         .await?
         .get_receipt()
         .await?;
-    assert_eq!(token.balanceOf(bob).gas(1_000_000).call().await?, reward_amount);
+    assert_eq!(
+        token.balanceOf(bob).gas(1_000_000).call().await?,
+        reward_amount
+    );
 
     Ok(())
 }
@@ -900,7 +944,10 @@ async fn test_tip20_pause_blocks_fee_collection() -> eyre::Result<()> {
     );
 
     // Verify token is now paused
-    assert!(token.paused().gas(1_000_000).call().await?, "Token should be paused");
+    assert!(
+        token.paused().gas(1_000_000).call().await?,
+        "Token should be paused"
+    );
 
     // Verify user paid fees (balance decreased due to gas fees)
     let balance_after_pause_tx = token.balanceOf(user).gas(1_000_000).call().await?;
@@ -915,7 +962,8 @@ async fn test_tip20_pause_blocks_fee_collection() -> eyre::Result<()> {
 
     // Try to send another transaction - should fail because fee token is paused
     let transfer_result = user_token
-        .transfer(Address::random(), U256::from(100)).gas(1_000_000)
+        .transfer(Address::random(), U256::from(100))
+        .gas(1_000_000)
         .call()
         .await;
 
