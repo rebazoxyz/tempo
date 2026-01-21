@@ -11638,6 +11638,7 @@ dependencies = [
 name = "tempo"
 version = "1.0.2"
 dependencies = [
+ "alloy-primitives",
  "clap",
  "commonware-cryptography",
  "commonware-math",
@@ -11647,13 +11648,19 @@ dependencies = [
  "pyroscope",
  "pyroscope_pprofrs",
  "rand 0.8.5",
+ "reth-chainspec",
+ "reth-cli",
  "reth-cli-commands",
  "reth-cli-runner",
  "reth-cli-util",
+ "reth-db-api",
  "reth-ethereum",
  "reth-ethereum-cli",
  "reth-node-builder",
+ "reth-primitives-traits",
+ "reth-provider",
  "reth-rpc-server-types",
+ "reth-storage-api",
  "tempo-chainspec",
  "tempo-commonware-node",
  "tempo-commonware-node-config",
