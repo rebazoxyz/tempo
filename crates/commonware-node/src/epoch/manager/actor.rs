@@ -71,7 +71,7 @@ use tracing::{Level, Span, debug, error, error_span, info, instrument, warn, war
 
 use crate::{
     consensus::Digest,
-    epoch::manager::ingress::{EpochTransition, Exit},
+    epoch::manager::ingress::{EpochTransition, Exit, GetCurrentEpoch},
 };
 
 use super::ingress::{Content, Message};
@@ -259,6 +259,10 @@ where
                                     ack.acknowledge();
                                 }
                             }
+                        }
+                        Content::GetCurrentEpoch(GetCurrentEpoch { response }) => {
+                            let epoch = self.active_epochs.last_key_value().map(|(e, _)| e.get());
+                            let _ = response.send(epoch);
                         }
                     }
                 },

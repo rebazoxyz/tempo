@@ -305,6 +305,7 @@ where
             epoch_strategy: epoch_strategy.clone(),
         });
 
+        let feed_state = self.feed_state.clone();
         let (feed, feed_mailbox) = crate::feed::init(
             context.with_label("feed"),
             marshal_mailbox.clone(),
@@ -359,6 +360,8 @@ where
                 views_until_leader_skip: ViewDelta::new(self.views_until_leader_skip),
             },
         );
+
+        feed_state.set_epoch_manager(epoch_manager_mailbox.clone());
 
         let (dkg_manager, dkg_manager_mailbox) = dkg::manager::init(
             context.with_label("dkg_manager"),

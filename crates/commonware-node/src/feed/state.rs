@@ -1,6 +1,6 @@
 //! Shared state for the feed module.
 
-use crate::{alias::marshal, consensus::Digest};
+use crate::{alias::marshal, consensus::Digest, epoch};
 use alloy_consensus::BlockHeader as _;
 use alloy_primitives::hex;
 use commonware_codec::{Encode, ReadExt as _};
@@ -56,6 +56,7 @@ pub struct FeedStateHandle {
     state: Arc<RwLock<FeedState>>,
     marshal: Arc<OnceLock<marshal::Mailbox>>,
     epocher: Arc<OnceLock<FixedEpocher>>,
+    epoch_manager: Arc<RwLock<Option<epoch::manager::Mailbox>>>,
     events_tx: broadcast::Sender<Event>,
     /// Cache for identity transition proofs to avoid re-walking the chain.
     identity_cache: Arc<RwLock<Option<IdentityTransitionCache>>>,
@@ -75,6 +76,7 @@ impl FeedStateHandle {
             })),
             marshal: Arc::new(OnceLock::new()),
             epocher: Arc::new(OnceLock::new()),
+            epoch_manager: Arc::new(RwLock::new(None)),
             events_tx,
             identity_cache: Arc::new(RwLock::new(None)),
         }
@@ -88,6 +90,11 @@ impl FeedStateHandle {
     /// Set the epocher for epoch boundary calculations. Should only be called once.
     pub(crate) fn set_epocher(&self, epocher: FixedEpocher) {
         let _ = self.epocher.set(epocher);
+    }
+
+    /// Set the epoch manager mailbox for querying current epoch. Should only be called once.
+    pub(crate) fn set_epoch_manager(&self, mailbox: epoch::manager::Mailbox) {
+        *self.epoch_manager.write() = Some(mailbox);
     }
 
     /// Get the broadcast sender for events.
@@ -453,12 +460,8 @@ impl ConsensusFeed for FeedStateHandle {
     }
 
     async fn epoch_number(&self) -> Option<u64> {
-        let epocher = self.epocher()?;
-        let state = self.state.read();
-        let height = state.latest_finalized.as_ref()?.height?;
-        epocher
-            .containing(Height::new(height))
-            .map(|info| info.epoch().get())
+        let mut mailbox = self.epoch_manager.read().clone()?;
+        mailbox.get_current_epoch().await
     }
 }
 

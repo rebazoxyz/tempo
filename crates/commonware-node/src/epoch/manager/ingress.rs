@@ -5,7 +5,7 @@ use commonware_cryptography::{
 };
 use commonware_utils::ordered;
 use eyre::WrapErr as _;
-use futures::channel::mpsc;
+use futures::channel::{mpsc, oneshot};
 use tracing::{Span, error};
 
 use crate::consensus::block::Block;
@@ -42,6 +42,14 @@ impl Mailbox {
             .unbounded_send(Message::in_current_span(Exit { epoch }))
             .wrap_err("epoch manager no longer running")
     }
+
+    pub async fn get_current_epoch(&mut self) -> Option<u64> {
+        let (tx, rx) = oneshot::channel();
+        self.inner
+            .unbounded_send(Message::in_current_span(GetCurrentEpoch { response: tx }))
+            .ok()?;
+        rx.await.ok().flatten()
+    }
 }
 
 #[derive(Debug)]
@@ -64,6 +72,7 @@ pub(super) enum Content {
     Enter(EpochTransition),
     Exit(Exit),
     Update(Box<Update<Block>>),
+    GetCurrentEpoch(GetCurrentEpoch),
 }
 
 impl From<EpochTransition> for Content {
@@ -84,6 +93,12 @@ impl From<Update<Block>> for Content {
     }
 }
 
+impl From<GetCurrentEpoch> for Content {
+    fn from(value: GetCurrentEpoch) -> Self {
+        Self::GetCurrentEpoch(value)
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct EpochTransition {
     pub(super) epoch: Epoch,
@@ -95,6 +110,16 @@ pub(super) struct EpochTransition {
 #[derive(Debug)]
 pub(super) struct Exit {
     pub(super) epoch: Epoch,
+}
+
+pub(super) struct GetCurrentEpoch {
+    pub(super) response: oneshot::Sender<Option<u64>>,
+}
+
+impl std::fmt::Debug for GetCurrentEpoch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GetCurrentEpoch").finish()
+    }
 }
 
 impl Reporter for Mailbox {
