@@ -9,7 +9,7 @@ invariant = { fail_on_revert = true, show_solidity = true }
 fs_permissions = [{ access = "read-write", path = "./"}]
 via_ir = true
 # Use T1 hardfork to enable expiring nonce transactions (TIP-1009)
-hardfork = "tempo:t1"
+hardfork = { Tempo = "T1" }
 remappings = [
     "tempo-std/=lib/tempo-std/src/",
     "forge-std/=lib/forge-std/src/"
