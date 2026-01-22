@@ -19,6 +19,23 @@ import {
 /// @title GasPricing Invariant Test
 /// @notice Invariant tests for TIP-1000 (State Creation Cost) and TIP-1010 (Mainnet Gas Parameters)
 /// @dev Tests gas pricing invariants that MUST hold for Tempo T1 hardfork using vmExec.executeTransaction()
+///
+/// IMPORTANT LIMITATIONS:
+/// These tests validate TIP-1000 gas pricing at the EVM SSTORE/CREATE opcode level.
+/// Protocol-level gas changes (intrinsic gas, tx gas cap, account creation) are enforced in
+/// Tempo's custom transaction handler (tempo-revm), NOT in the EVM execution layer.
+/// When running in Foundry fork mode, these protocol-level invariants cannot be validated
+/// because Foundry uses standard revm, not tempo-revm.
+///
+/// The following invariants are validated:
+/// - TEMPO-GAS1: SSTORE to new slot costs 250k gas (EVM level) ✅
+/// - TEMPO-GAS3: CREATE base cost 500k gas (EVM level) ✅
+/// - TEMPO-GAS8: Multiple new slots scale correctly (EVM level) ✅
+///
+/// The following invariants require tempo-revm (tested in Rust unit tests):
+/// - TEMPO-GAS2: Account creation (nonce 0→1) requires 250k intrinsic gas
+/// - TEMPO-GAS6: Transaction gas cap 30M
+/// - TEMPO-GAS7: First tx minimum 271k gas
 contract GasPricingInvariantTest is InvariantBase {
 
     using TxBuilder for *;
@@ -117,15 +134,16 @@ contract GasPricingInvariantTest is InvariantBase {
         _storageContract = new GasTestStorage();
 
         // Define handler selectors
-        // NOTE: handler_txGasCapEnforcement is disabled because the 30M gas cap is enforced
-        // at the mempool/pool validator level, not at EVM execution level. vmExec.executeTransaction()
-        // bypasses the pool validator, so this test would always fail in forked mode.
-        // The gas cap is properly tested in the Rust validator tests.
-        bytes4[] memory selectors = new bytes4[](4);
+        // NOTE: The following handlers are disabled because they test protocol-level gas changes
+        // that are enforced in tempo-revm's custom handler, not in EVM execution:
+        // - handler_txGasCapEnforcement: 30M cap enforced at pool validator level
+        // - handler_accountCreationThreshold: 250k intrinsic gas enforced in tempo-revm handler
+        // These are properly tested in Rust unit tests at crates/revm/src/handler.rs and
+        // crates/transaction-pool/src/validator.rs
+        bytes4[] memory selectors = new bytes4[](3);
         selectors[0] = this.handler_sstoreNewSlotThreshold.selector;
-        selectors[1] = this.handler_accountCreationThreshold.selector;
-        selectors[2] = this.handler_createThreshold.selector;
-        selectors[3] = this.handler_multipleNewSlots.selector;
+        selectors[1] = this.handler_createThreshold.selector;
+        selectors[2] = this.handler_multipleNewSlots.selector;
         targetSelector(FuzzSelector({ addr: address(this), selectors: selectors }));
 
         // Initialize log file
@@ -163,10 +181,10 @@ contract GasPricingInvariantTest is InvariantBase {
 
         // Verify no violations occurred
         assertEq(ghost_sstoreNewSlotBelowThresholdAllowed, 0, "TEMPO-GAS1 violation: SSTORE new slot succeeded with insufficient gas");
-        assertEq(ghost_accountCreationBelowThresholdAllowed, 0, "TEMPO-GAS2 violation: Account creation succeeded with insufficient gas");
         assertEq(ghost_createBelowThresholdAllowed, 0, "TEMPO-GAS3 violation: CREATE succeeded with insufficient gas");
-        // NOTE: TEMPO-GAS6 (tx gas cap) is enforced at pool level, not EVM level - tested in Rust validator tests
-        // assertEq(ghost_txOverCapAllowed, 0, "TEMPO-GAS6 violation: Transaction over gas cap was allowed");
+        // NOTE: The following are enforced at protocol level (tempo-revm), not EVM level:
+        // - TEMPO-GAS2 (account creation): tested in crates/revm/src/handler.rs
+        // - TEMPO-GAS6 (tx gas cap): tested in crates/transaction-pool/src/validator.rs
     }
 
     /*//////////////////////////////////////////////////////////////
