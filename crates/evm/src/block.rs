@@ -188,7 +188,10 @@ where
         };
         let gas_per_subblock = self.shared_gas_limit / validator_set.len() as u64;
 
-        let mut incentive_gas = 0;
+        // Track total reserved gas across all subblocks to calculate available incentive gas.
+        // The incentive gas pool is the full shared_gas_limit minus gas reserved by subblock
+        // transactions, regardless of how many validators submitted subblocks.
+        let mut total_reserved_gas = 0u64;
         let mut seen = HashSet::new();
         let mut next_non_empty = 0;
         for metadata in metadata {
@@ -243,7 +246,7 @@ where
                 ));
             }
 
-            incentive_gas += gas_per_subblock - reserved_gas;
+            total_reserved_gas += reserved_gas;
         }
 
         if next_non_empty != self.seen_subblocks.len() {
@@ -252,6 +255,10 @@ where
             ));
         }
 
+        // The available incentive gas is the full shared_gas_limit minus gas reserved by
+        // subblock transactions. This ensures the incentive gas pool doesn't shrink when
+        // fewer validators submit subblocks.
+        let incentive_gas = self.shared_gas_limit.saturating_sub(total_reserved_gas);
         if incentive_gas < self.incentive_gas_used {
             return Err(BlockValidationError::msg("incentive gas limit exceeded"));
         }
@@ -877,9 +884,11 @@ mod tests {
         let signer = PrivateKey::from_seed(0);
         let validator_key = B256::from_slice(&signer.public_key());
 
-        // Set incentive_gas_used higher than available incentive gas
+        // Set incentive_gas_used higher than available incentive gas (shared_gas_limit).
+        // With default shared_gas_limit of 10M, using 100M should exceed the limit.
         let executor = TestExecutorBuilder::default()
             .with_validator_set(vec![validator_key])
+            .with_shared_gas_limit(10_000_000)
             .with_incentive_gas_used(100_000_000)
             .build(&mut db, &chainspec);
 
@@ -891,6 +900,216 @@ mod tests {
             result.unwrap_err().to_string(),
             "incentive gas limit exceeded"
         );
+    }
+
+    #[test]
+    fn test_validate_shared_gas_fewer_subblocks_than_validators() {
+        // This test ensures that the incentive gas pool is the full shared_gas_limit
+        // minus reserved gas, NOT dependent on how many validators submitted subblocks.
+        // This was the bug that caused devnet to halt.
+        let chainspec = test_chainspec();
+        let mut db = State::builder().with_bundle_update().build();
+
+        // Create 4 validators but only 3 will submit subblocks
+        let signer1 = PrivateKey::from_seed(1);
+        let signer2 = PrivateKey::from_seed(2);
+        let signer3 = PrivateKey::from_seed(3);
+        let signer4 = PrivateKey::from_seed(4);
+
+        let validator_keys = vec![
+            B256::from_slice(&signer1.public_key()),
+            B256::from_slice(&signer2.public_key()),
+            B256::from_slice(&signer3.public_key()),
+            B256::from_slice(&signer4.public_key()),
+        ];
+
+        // shared_gas_limit = 40M, so with 4 validators, gas_per_subblock = 10M
+        // With only 3 subblocks (empty), the OLD bug would calculate:
+        //   incentive_gas = 3 * 10M = 30M (WRONG - should be 40M)
+        // The FIX calculates: incentive_gas = 40M - 0 = 40M (CORRECT)
+        let shared_gas_limit = 40_000_000u64;
+
+        // Use 35M of incentive gas - this would fail with the old calculation (30M available)
+        // but should pass with the fix (40M available)
+        let incentive_gas_used = 35_000_000u64;
+
+        let executor = TestExecutorBuilder::default()
+            .with_validator_set(validator_keys)
+            .with_shared_gas_limit(shared_gas_limit)
+            .with_incentive_gas_used(incentive_gas_used)
+            .build(&mut db, &chainspec);
+
+        // Only 3 validators submit subblocks (all empty)
+        let metadata = vec![
+            create_valid_subblock_metadata(B256::ZERO, &signer1),
+            create_valid_subblock_metadata(B256::ZERO, &signer2),
+            create_valid_subblock_metadata(B256::ZERO, &signer3),
+            // signer4 did NOT submit a subblock
+        ];
+
+        let result = executor.validate_shared_gas(&metadata);
+        assert!(
+            result.is_ok(),
+            "Should pass: 35M incentive gas used <= 40M available (shared_gas_limit - 0 reserved)"
+        );
+    }
+
+    #[test]
+    fn test_validate_shared_gas_with_reserved_gas_in_subblocks() {
+        // Test that reserved gas from subblock transactions reduces the incentive pool
+        let chainspec = test_chainspec();
+        let mut db = State::builder().with_bundle_update().build();
+
+        let signer1 = PrivateKey::from_seed(1);
+        let signer2 = PrivateKey::from_seed(2);
+
+        let validator_keys = vec![
+            B256::from_slice(&signer1.public_key()),
+            B256::from_slice(&signer2.public_key()),
+        ];
+
+        // shared_gas_limit = 20M
+        let shared_gas_limit = 20_000_000u64;
+
+        // Use 15M of incentive gas
+        let incentive_gas_used = 15_000_000u64;
+
+        // Create a subblock transaction that reserves 3M gas
+        let subblock_tx = create_subblock_tx_with_gas(
+            &PartialValidatorKey::from_slice(&signer1.public_key()[..15]),
+            3_000_000,
+        );
+
+        let executor = TestExecutorBuilder::default()
+            .with_validator_set(validator_keys)
+            .with_shared_gas_limit(shared_gas_limit)
+            .with_incentive_gas_used(incentive_gas_used)
+            .with_seen_subblock(
+                PartialValidatorKey::from_slice(&signer1.public_key()[..15]),
+                vec![subblock_tx],
+            )
+            .build(&mut db, &chainspec);
+
+        // signer1 submits subblock with 3M reserved, signer2 submits empty
+        let metadata = vec![
+            create_valid_subblock_metadata(B256::ZERO, &signer1),
+            create_valid_subblock_metadata(B256::ZERO, &signer2),
+        ];
+
+        // Available incentive gas = 20M - 3M = 17M
+        // Incentive gas used = 15M
+        // Should pass: 15M <= 17M
+        let result = executor.validate_shared_gas(&metadata);
+        assert!(
+            result.is_ok(),
+            "Should pass: 15M incentive gas used <= 17M available (20M - 3M reserved)"
+        );
+    }
+
+    #[test]
+    fn test_validate_shared_gas_exceeds_with_reserved_gas() {
+        // Test that incentive gas check fails when usage exceeds available after reservations
+        let chainspec = test_chainspec();
+        let mut db = State::builder().with_bundle_update().build();
+
+        let signer1 = PrivateKey::from_seed(1);
+        let signer2 = PrivateKey::from_seed(2);
+
+        let validator_keys = vec![
+            B256::from_slice(&signer1.public_key()),
+            B256::from_slice(&signer2.public_key()),
+        ];
+
+        // shared_gas_limit = 20M
+        let shared_gas_limit = 20_000_000u64;
+
+        // Use 18M of incentive gas
+        let incentive_gas_used = 18_000_000u64;
+
+        // Create a subblock transaction that reserves 5M gas
+        let subblock_tx = create_subblock_tx_with_gas(
+            &PartialValidatorKey::from_slice(&signer1.public_key()[..15]),
+            5_000_000,
+        );
+
+        let executor = TestExecutorBuilder::default()
+            .with_validator_set(validator_keys)
+            .with_shared_gas_limit(shared_gas_limit)
+            .with_incentive_gas_used(incentive_gas_used)
+            .with_seen_subblock(
+                PartialValidatorKey::from_slice(&signer1.public_key()[..15]),
+                vec![subblock_tx],
+            )
+            .build(&mut db, &chainspec);
+
+        let metadata = vec![
+            create_valid_subblock_metadata(B256::ZERO, &signer1),
+            create_valid_subblock_metadata(B256::ZERO, &signer2),
+        ];
+
+        // Available incentive gas = 20M - 5M = 15M
+        // Incentive gas used = 18M
+        // Should fail: 18M > 15M
+        let result = executor.validate_shared_gas(&metadata);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "incentive gas limit exceeded"
+        );
+    }
+
+    #[test]
+    fn test_validate_shared_gas_no_subblocks() {
+        // Test with zero subblocks - full shared_gas_limit available for incentives
+        let chainspec = test_chainspec();
+        let mut db = State::builder().with_bundle_update().build();
+
+        let signer = PrivateKey::from_seed(0);
+        let validator_key = B256::from_slice(&signer.public_key());
+
+        let shared_gas_limit = 50_000_000u64;
+        let incentive_gas_used = 50_000_000u64; // Use the full shared_gas_limit
+
+        let executor = TestExecutorBuilder::default()
+            .with_validator_set(vec![validator_key])
+            .with_shared_gas_limit(shared_gas_limit)
+            .with_incentive_gas_used(incentive_gas_used)
+            .build(&mut db, &chainspec);
+
+        // No subblocks submitted
+        let metadata: Vec<SubBlockMetadata> = vec![];
+
+        // Available incentive gas = 50M - 0 = 50M
+        // Incentive gas used = 50M
+        // Should pass: 50M <= 50M
+        let result = executor.validate_shared_gas(&metadata);
+        assert!(
+            result.is_ok(),
+            "Should pass: full shared_gas_limit available when no subblocks"
+        );
+    }
+
+    fn create_subblock_tx_with_gas(proposer: &PartialValidatorKey, gas_limit: u64) -> TempoTxEnvelope {
+        let mut nonce_bytes = [0u8; 32];
+        nonce_bytes[0] = TEMPO_SUBBLOCK_NONCE_KEY_PREFIX;
+        nonce_bytes[1..16].copy_from_slice(proposer.as_slice());
+
+        let tx = TempoTransaction {
+            chain_id: 1,
+            calls: vec![Call {
+                to: Address::ZERO.into(),
+                input: Default::default(),
+                value: Default::default(),
+            }],
+            nonce: U256::from_be_bytes(nonce_bytes),
+            gas_limit,
+            max_fee_per_gas: 0,
+            valid_until: 0,
+            authorizations: vec![],
+            max_priority_fee_per_gas: 0,
+        };
+
+        TempoTxEnvelope::Tempo(Signed::new_unhashed(tx, TEMPO_SYSTEM_TX_SIGNATURE))
     }
 
     #[test]
