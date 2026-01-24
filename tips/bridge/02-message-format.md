@@ -85,8 +85,10 @@ DST = "TEMPO_BRIDGE_BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_"
 
 | Format | Size | Use |
 |--------|------|-----|
-| Compressed G2 | 96 bytes | Transmission and on-chain verification |
-| Public Key (G1) | 48 bytes | Stored in contract |
+| Compressed G1 (public key) | 48 bytes | Off-chain transmission |
+| Uncompressed G1 (public key) | 128 bytes | On-chain storage (EIP-2537 format) |
+| Compressed G2 (signature) | 96 bytes | Off-chain transmission |
+| Uncompressed G2 (signature) | 256 bytes | On-chain verification (EIP-2537 format) |
 
 ## Rust Implementation
 

@@ -20,6 +20,7 @@ interface IMessageBridge {
     error EpochMustIncrease(uint64 current, uint64 proposed);
     error KeyTransitionNotAuthorized();
     error NoActivePublicKey();
+    error PublicKeyIsInfinity();
 
     //=============================================================
     //                          EVENTS
@@ -58,7 +59,7 @@ interface IMessageBridge {
     /// @param sender The original sender on the source chain
     /// @param messageHash The 32-byte message hash
     /// @param originChainId The source chain ID
-    /// @param signature Aggregated BLS threshold signature (G2 point, 128 bytes uncompressed)
+    /// @param signature Aggregated BLS threshold signature (G2 point, 256 bytes uncompressed)
     function write(address sender, bytes32 messageHash, uint64 originChainId, bytes calldata signature) external;
 
     //=============================================================
@@ -92,7 +93,7 @@ interface IMessageBridge {
     /// @dev The old key signs: keccak256("TEMPO_BRIDGE_KEY_ROTATION_V1" || oldEpoch || newEpoch || newPublicKey)
     /// @param newEpoch The new epoch (must be > current)
     /// @param newPublicKey The new BLS group public key (G1, 128 bytes)
-    /// @param authSignature Signature from OLD key authorizing this (G2, 128 bytes)
+    /// @param authSignature Signature from OLD key authorizing this (G2, 256 bytes)
     function rotateKey(uint64 newEpoch, bytes calldata newPublicKey, bytes calldata authSignature) external;
 
     /// @notice Compute the hash for key rotation authorization

@@ -241,4 +241,25 @@ contract MessageBridgeTest is Test {
         bytes32 hash3 = bridge.computeKeyRotationHash(1, 3, newKey);
         assertNotEq(hash, hash3);
     }
+
+    //=============================================================
+    //             INFINITY PUBLIC KEY TESTS (Security)
+    //=============================================================
+
+    function test_constructor_rejectsInfinityKey() public {
+        // Point at infinity is all zeros for G1 (128 bytes)
+        bytes memory infinityKey = new bytes(128);
+
+        vm.expectRevert(IMessageBridge.PublicKeyIsInfinity.selector);
+        new MessageBridge(owner, INITIAL_EPOCH, infinityKey);
+    }
+
+    function test_forceSetGroupPublicKey_rejectsInfinityKey() public {
+        // Point at infinity is all zeros for G1 (128 bytes)
+        bytes memory infinityKey = new bytes(128);
+
+        vm.prank(owner);
+        vm.expectRevert(IMessageBridge.PublicKeyIsInfinity.selector);
+        bridge.forceSetGroupPublicKey(2, infinityKey);
+    }
 }
