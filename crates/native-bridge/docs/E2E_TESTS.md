@@ -316,27 +316,55 @@ bridge: submitted attestation (tx_hash=0x...)
 
 ### Devnet Deployment Options
 
-#### Option A: Helm Chart Update (Recommended)
+#### Option A: Helm Chart (Recommended)
 
-Add bridge args to the validator helm values:
+The `tempo-node` and `tempo-devnet` charts now support native bridge configuration.
+
+**1. Create a new bridge-enabled devnet:**
 
 ```yaml
-# values.yaml
-tempo:
-  extraArgs:
-    - "--bridge.enabled"
-    - "--bridge.config=/config/bridge.toml"
-  
-  extraVolumes:
-    - name: bridge-config
-      configMap:
-        name: bridge-config
-  
-  extraVolumeMounts:
-    - name: bridge-config
-      mountPath: /config/bridge.toml
-      subPath: bridge.toml
+# devnet-bridge-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devnet-bridge
+  namespace: argocd
+spec:
+  source:
+    repoURL: git@github.com:tempoxyz/helm-charts.git
+    targetRevision: tempo-devnet-0.2.0  # or feat/native-bridge-support branch
+    path: charts/tempo-devnet
+    helm:
+      valuesObject:
+        tempo:
+          image:
+            tag: sha-c59ae19c1  # Image with bridge feature
+          # ... validators config ...
+        bridge:
+          enabled: true
+          epoch: 1
+          chains:
+            - name: tempo
+              chainId: 31319
+              wsUrl: "ws://localhost:8546"
+              rpcUrl: "http://localhost:8545"
+              bridgeAddress: "0x..."  # MessageBridge contract
+              finalityBlocks: 1
 ```
+
+**2. Apply the ArgoCD application:**
+
+```bash
+kubectl apply -f devnet-bridge-app.yaml
+```
+
+The chart will:
+- Generate `bridge.toml` in the init container
+- Pass `--bridge.enabled --bridge.config /data/work/bridge.toml` to tempo
+
+**PRs:**
+- Helm chart: https://github.com/tempoxyz/helm-charts/pull/197
+- Tempo: https://github.com/tempoxyz/tempo/pull/2235
 
 #### Option B: Manual Testing on Existing Devnet
 
@@ -358,6 +386,7 @@ tempo node ... --bridge.enabled --bridge.config /tmp/bridge.toml
 - ✅ **P2P Gossip** - Validators share partial signatures via `BRIDGE_CHANNEL_IDENT` (channel 7)
 - ✅ **Threshold Aggregation** - Aggregator collects partials and recovers threshold signature
 - ✅ **Multi-Validator Support** - All validators can participate in signing
+- ✅ **Helm Chart / Argo Integration** - Automated devnet deployment with bridge
 
 ### What's Still TODO
 
@@ -372,8 +401,6 @@ tempo node ... --bridge.enabled --bridge.config /tmp/bridge.toml
 3. **Duplicate Submission Prevention** - Multiple validators may submit
    - Currently all validators that reach threshold try to submit
    - Should coordinate to avoid wasted gas (or let contract handle idempotently)
-
-4. **Helm Chart / Argo Integration** - Automated devnet deployment with bridge
 
 ---
 
