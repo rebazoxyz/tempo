@@ -15,24 +15,33 @@
 use crate::error::{BridgeError, Result};
 use crate::message::{G1_COMPRESSED_LEN, G1_UNCOMPRESSED_LEN, G2_COMPRESSED_LEN, G2_UNCOMPRESSED_LEN};
 
-use blst::{blst_p1_affine, blst_p1_uncompress, blst_p2_affine, blst_p2_uncompress, BLST_ERROR};
+use blst::{
+    blst_p1_affine, blst_p1_affine_serialize, blst_p1_uncompress,
+    blst_p2_affine, blst_p2_affine_serialize, blst_p2_uncompress,
+    BLST_ERROR,
+};
 
-/// Convert a compressed G2 signature (96 bytes) to EIP-2537 format (256 bytes).
+/// Uncompressed G1 size from blst (96 bytes: 2 × 48-byte Fp elements).
+const BLST_G1_SERIALIZE_LEN: usize = 96;
+
+/// Uncompressed G2 size from blst (192 bytes: 4 × 48-byte Fp elements).
+const BLST_G2_SERIALIZE_LEN: usize = 192;
+
+/// Convert a compressed G2 public key (96 bytes) to EIP-2537 format (256 bytes).
 ///
 /// The EIP-2537 format for G2 points is:
+/// - x.c1: 16 zero bytes + 48-byte field element (big-endian)
 /// - x.c0: 16 zero bytes + 48-byte field element (big-endian)
-/// - x.c1: 16 zero bytes + 48-byte field element (big-endian)  
-/// - y.c0: 16 zero bytes + 48-byte field element (big-endian)
 /// - y.c1: 16 zero bytes + 48-byte field element (big-endian)
+/// - y.c0: 16 zero bytes + 48-byte field element (big-endian)
 ///
 /// Total: 4 × 64 = 256 bytes
 pub fn g2_to_eip2537(compressed: &[u8; G2_COMPRESSED_LEN]) -> Result<[u8; G2_UNCOMPRESSED_LEN]> {
-    // Decompress the G2 point
     let mut affine = blst_p2_affine::default();
-    
+
     // SAFETY: blst_p2_uncompress validates the compressed point encoding
     let result = unsafe { blst_p2_uncompress(&mut affine, compressed.as_ptr()) };
-    
+
     if result != BLST_ERROR::BLST_SUCCESS {
         return Err(BridgeError::Signing(format!(
             "failed to decompress G2 point: {:?}",
@@ -40,29 +49,22 @@ pub fn g2_to_eip2537(compressed: &[u8; G2_COMPRESSED_LEN]) -> Result<[u8; G2_UNC
         )));
     }
 
-    // Convert affine point to EIP-2537 format
-    // blst_p2_affine contains: x (Fp2) and y (Fp2)
-    // Each Fp2 contains: fp[0] (c0) and fp[1] (c1)
-    // Each Fp is 48 bytes in blst (6 × u64 in little-endian)
-    
+    // Use blst's native serialization (192 bytes: x.c1, x.c0, y.c1, y.c0 each 48 bytes)
+    let mut serialized = [0u8; BLST_G2_SERIALIZE_LEN];
+    // SAFETY: output buffer is correctly sized, affine point is valid
+    unsafe { blst_p2_affine_serialize(serialized.as_mut_ptr(), &affine) };
+
+    // Pad each 48-byte Fp element to 64 bytes for EIP-2537 format
     let mut output = [0u8; G2_UNCOMPRESSED_LEN];
-    
-    // x.c0 (bytes 0-63): 16 padding + 48-byte value
-    fp_to_eip2537(&affine.x.fp[0].l, &mut output[0..64]);
-    
-    // x.c1 (bytes 64-127): 16 padding + 48-byte value
-    fp_to_eip2537(&affine.x.fp[1].l, &mut output[64..128]);
-    
-    // y.c0 (bytes 128-191): 16 padding + 48-byte value
-    fp_to_eip2537(&affine.y.fp[0].l, &mut output[128..192]);
-    
-    // y.c1 (bytes 192-255): 16 padding + 48-byte value
-    fp_to_eip2537(&affine.y.fp[1].l, &mut output[192..256]);
+    for i in 0..4 {
+        // 16 zero-padding bytes are already zero from array initialization
+        output[i * 64 + 16..(i + 1) * 64].copy_from_slice(&serialized[i * 48..(i + 1) * 48]);
+    }
 
     Ok(output)
 }
 
-/// Convert a compressed G1 public key (48 bytes) to EIP-2537 format (128 bytes).
+/// Convert a compressed G1 signature (48 bytes) to EIP-2537 format (128 bytes).
 ///
 /// The EIP-2537 format for G1 points is:
 /// - x: 16 zero bytes + 48-byte field element (big-endian)
@@ -70,12 +72,11 @@ pub fn g2_to_eip2537(compressed: &[u8; G2_COMPRESSED_LEN]) -> Result<[u8; G2_UNC
 ///
 /// Total: 2 × 64 = 128 bytes
 pub fn g1_to_eip2537(compressed: &[u8; G1_COMPRESSED_LEN]) -> Result<[u8; G1_UNCOMPRESSED_LEN]> {
-    // Decompress the G1 point
     let mut affine = blst_p1_affine::default();
-    
+
     // SAFETY: blst_p1_uncompress validates the compressed point encoding
     let result = unsafe { blst_p1_uncompress(&mut affine, compressed.as_ptr()) };
-    
+
     if result != BLST_ERROR::BLST_SUCCESS {
         return Err(BridgeError::Signing(format!(
             "failed to decompress G1 point: {:?}",
@@ -83,33 +84,19 @@ pub fn g1_to_eip2537(compressed: &[u8; G1_COMPRESSED_LEN]) -> Result<[u8; G1_UNC
         )));
     }
 
+    // Use blst's native serialization (96 bytes: x, y each 48 bytes big-endian)
+    let mut serialized = [0u8; BLST_G1_SERIALIZE_LEN];
+    // SAFETY: output buffer is correctly sized, affine point is valid
+    unsafe { blst_p1_affine_serialize(serialized.as_mut_ptr(), &affine) };
+
+    // Pad each 48-byte Fp element to 64 bytes for EIP-2537 format
     let mut output = [0u8; G1_UNCOMPRESSED_LEN];
-    
-    // x (bytes 0-63): 16 padding + 48-byte value
-    fp_to_eip2537(&affine.x.l, &mut output[0..64]);
-    
-    // y (bytes 64-127): 16 padding + 48-byte value
-    fp_to_eip2537(&affine.y.l, &mut output[64..128]);
+    for i in 0..2 {
+        // 16 zero-padding bytes are already zero from array initialization
+        output[i * 64 + 16..(i + 1) * 64].copy_from_slice(&serialized[i * 48..(i + 1) * 48]);
+    }
 
     Ok(output)
-}
-
-/// Convert blst Fp limbs (6 × u64 little-endian) to EIP-2537 Fp format (64 bytes).
-///
-/// EIP-2537 Fp format: 16 zero-padding bytes + 48-byte big-endian value
-fn fp_to_eip2537(limbs: &[u64; 6], out: &mut [u8]) {
-    assert!(out.len() >= 64);
-    
-    // First 16 bytes are zero padding
-    out[0..16].fill(0);
-    
-    // Convert 6 × 64-bit limbs (little-endian) to 48-byte big-endian
-    // blst stores Fp as 6 × u64 in little-endian (least significant limb first)
-    // We need big-endian output (most significant byte first)
-    for (i, limb) in limbs.iter().rev().enumerate() {
-        let bytes = limb.to_be_bytes();
-        out[16 + i * 8..16 + (i + 1) * 8].copy_from_slice(&bytes);
-    }
 }
 
 #[cfg(test)]
