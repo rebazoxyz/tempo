@@ -7,7 +7,10 @@ use crate::error::{BridgeError, Result};
 pub struct Config {
     pub general: GeneralConfig,
     pub chains: Vec<ChainConfig>,
-    pub signer: SignerConfig,
+    /// Signer config - optional when running in integrated validator mode
+    /// (the share is passed via --consensus.signing-share instead)
+    #[serde(default)]
+    pub signer: Option<SignerConfig>,
     pub threshold: ThresholdConfig,
 }
 

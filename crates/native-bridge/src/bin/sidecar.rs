@@ -42,10 +42,13 @@ async fn main() -> Result<()> {
 
             let config = Config::load(&args.config)?;
 
+            let signer = config.signer.as_ref()
+                .ok_or_else(|| eyre::eyre!("[signer] section required in standalone mode"))?;
+
             tracing::info!(
                 chains = config.chains.len(),
                 epoch = config.threshold.epoch,
-                validator_index = config.signer.validator_index,
+                validator_index = signer.validator_index,
                 "starting bridge sidecar"
             );
 

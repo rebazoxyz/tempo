@@ -34,7 +34,9 @@ impl BridgeSidecar {
     /// Create a new bridge sidecar.
     pub async fn new(config: Config) -> Result<Self> {
         // Load key share from file
-        let signer = BLSSigner::from_file(&config.signer.bls_key_share_file)?;
+        let signer_config = config.signer.as_ref()
+            .ok_or_else(|| crate::error::BridgeError::Config("[signer] section required".into()))?;
+        let signer = BLSSigner::from_file(&signer_config.bls_key_share_file)?;
 
         // Load sharing from file
         let sharing = load_sharing(&config.threshold.sharing_file)?;
