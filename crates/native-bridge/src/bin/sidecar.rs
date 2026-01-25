@@ -42,7 +42,9 @@ async fn main() -> Result<()> {
 
             let config = Config::load(&args.config)?;
 
-            let signer = config.signer.as_ref()
+            let signer = config
+                .signer
+                .as_ref()
                 .ok_or_else(|| eyre::eyre!("[signer] section required in standalone mode"))?;
 
             tracing::info!(

@@ -18,7 +18,7 @@ use commonware_utils::{Faults, N3f1, Participant};
 
 use crate::attestation::{AggregatedSignature, PartialSignature, PendingAttestation};
 use crate::error::{BridgeError, Result};
-use crate::message::{Message, G1_COMPRESSED_LEN};
+use crate::message::{G1_COMPRESSED_LEN, Message};
 use crate::signer::deserialize_g1;
 
 /// Aggregates partial signatures into threshold signatures.
@@ -129,12 +129,11 @@ impl Aggregator {
             .collect::<Result<Vec<_>>>()?;
 
         // Recover the threshold signature using the sharing's interpolation
-        let threshold_sig: G1 = threshold::recover::<MinSig, _, N3f1>(
-            &self.sharing,
-            &cw_partials,
-            &Sequential,
-        )
-        .map_err(|e| BridgeError::Aggregation(format!("threshold recovery failed: {e:?}")))?;
+        let threshold_sig: G1 =
+            threshold::recover::<MinSig, _, N3f1>(&self.sharing, &cw_partials, &Sequential)
+                .map_err(|e| {
+                    BridgeError::Aggregation(format!("threshold recovery failed: {e:?}"))
+                })?;
 
         // Serialize the recovered signature (G1, 48 bytes)
         let sig_bytes = serialize_g1(&threshold_sig)?;
@@ -181,11 +180,11 @@ mod tests {
     use super::*;
     use crate::message::BLS_DST;
     use crate::signer::BLSSigner;
-    use commonware_cryptography::bls12381::{dkg, primitives::ops::verify};
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
     use commonware_cryptography::bls12381::primitives::sharing::Mode;
+    use commonware_cryptography::bls12381::{dkg, primitives::ops::verify};
     use commonware_utils::NZU32;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     #[test]
     fn test_aggregate_partials_threshold_3_of_5() {
@@ -233,7 +232,11 @@ mod tests {
             attestation_hash.as_slice(),
             &threshold_sig,
         );
-        assert!(result.is_ok(), "threshold signature should verify: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "threshold signature should verify: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -261,7 +264,10 @@ mod tests {
             let partial = signer.sign_partial(attestation_hash).unwrap();
 
             let result = aggregator.add_partial(attestation_hash, partial, &message);
-            assert!(result.is_none(), "should not recover with insufficient partials");
+            assert!(
+                result.is_none(),
+                "should not recover with insufficient partials"
+            );
         }
 
         assert_eq!(aggregator.partial_count(&attestation_hash), insufficient);

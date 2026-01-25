@@ -101,9 +101,7 @@ impl Submitter {
             Some(signer) => {
                 // Send real transaction with signer
                 let wallet = alloy::network::EthereumWallet::from(signer.clone());
-                let provider = ProviderBuilder::new()
-                    .wallet(wallet)
-                    .connect_http(rpc_url);
+                let provider = ProviderBuilder::new().wallet(wallet).connect_http(rpc_url);
 
                 tracing::info!(
                     chain_id = self.chain_id,
@@ -134,8 +132,7 @@ impl Submitter {
 
                 if !receipt.status() {
                     return Err(BridgeError::Submission(format!(
-                        "transaction reverted: {:?}",
-                        tx_hash
+                        "transaction reverted: {tx_hash:?}"
                     )));
                 }
 

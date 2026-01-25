@@ -55,7 +55,7 @@ pub struct SignerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThresholdConfig {
-    /// Path to the sharing file (serialized Sharing<MinSig> from DKG).
+    /// Path to the sharing file (serialized `Sharing<MinSig>` from DKG).
     /// Optional in integrated validator mode (sharing is extracted from genesis).
     #[serde(default)]
     pub sharing_file: Option<String>,

@@ -150,7 +150,11 @@ pub struct Args {
 #[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
 pub struct BridgeArgs {
     /// Enable the native bridge sidecar functionality.
-    #[arg(long = "bridge.enabled", id = "bridge_enabled", default_value_t = false)]
+    #[arg(
+        long = "bridge.enabled",
+        id = "bridge_enabled",
+        default_value_t = false
+    )]
     pub enabled: bool,
 
     /// Path to bridge configuration file (TOML).

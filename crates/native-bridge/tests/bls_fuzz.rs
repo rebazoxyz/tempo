@@ -8,9 +8,9 @@
 //! - Attestation hash computation
 //! - BLS signature verification properties
 
-use alloy_primitives::{keccak256, Address, B256};
-use blst::min_pk::{PublicKey, SecretKey, Signature};
+use alloy_primitives::{Address, B256, keccak256};
 use blst::BLST_ERROR;
+use blst::min_pk::{PublicKey, SecretKey, Signature};
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -149,8 +149,7 @@ fn test_expand_message_xmd_rfc9380_vector_empty_32() {
     // Expected output from RFC 9380 Appendix A.3.1:
     // uniform_bytes = 68a985b87eb6b46952128911f2a4412bbc302a9d759667f87f7a21d803f07235
     let expected =
-        hex::decode("68a985b87eb6b46952128911f2a4412bbc302a9d759667f87f7a21d803f07235")
-            .unwrap();
+        hex::decode("68a985b87eb6b46952128911f2a4412bbc302a9d759667f87f7a21d803f07235").unwrap();
 
     // Note: If this doesn't match, the Solidity expand_message_xmd needs fixing
     assert_eq!(
@@ -167,8 +166,7 @@ fn test_expand_message_xmd_rfc9380_vector_abc_32() {
     assert_eq!(result.len(), 32);
 
     let expected =
-        hex::decode("d8ccab23b5985ccea865c6c97b6e5b8350e794e603b4b97902f53a8a0d605615")
-            .unwrap();
+        hex::decode("d8ccab23b5985ccea865c6c97b6e5b8350e794e603b4b97902f53a8a0d605615").unwrap();
 
     assert_eq!(
         result, expected,
@@ -200,8 +198,10 @@ fn test_attestation_hash_deterministic() {
     let origin_chain_id = 1u64;
     let destination_chain_id = 12345u64;
 
-    let hash1 = compute_attestation_hash(sender, message_hash, origin_chain_id, destination_chain_id);
-    let hash2 = compute_attestation_hash(sender, message_hash, origin_chain_id, destination_chain_id);
+    let hash1 =
+        compute_attestation_hash(sender, message_hash, origin_chain_id, destination_chain_id);
+    let hash2 =
+        compute_attestation_hash(sender, message_hash, origin_chain_id, destination_chain_id);
     assert_eq!(hash1, hash2, "attestation hash should be deterministic");
 }
 
@@ -212,17 +212,31 @@ fn test_attestation_hash_different_inputs() {
     let origin_chain_id = 1u64;
     let destination_chain_id = 12345u64;
 
-    let base = compute_attestation_hash(sender, message_hash, origin_chain_id, destination_chain_id);
+    let base =
+        compute_attestation_hash(sender, message_hash, origin_chain_id, destination_chain_id);
 
     // Different sender
     let different_sender = Address::repeat_byte(0xBB);
-    let h1 = compute_attestation_hash(different_sender, message_hash, origin_chain_id, destination_chain_id);
+    let h1 = compute_attestation_hash(
+        different_sender,
+        message_hash,
+        origin_chain_id,
+        destination_chain_id,
+    );
     assert_ne!(base, h1, "different sender should produce different hash");
 
     // Different message hash
     let different_hash = B256::repeat_byte(0x22);
-    let h2 = compute_attestation_hash(sender, different_hash, origin_chain_id, destination_chain_id);
-    assert_ne!(base, h2, "different message_hash should produce different hash");
+    let h2 = compute_attestation_hash(
+        sender,
+        different_hash,
+        origin_chain_id,
+        destination_chain_id,
+    );
+    assert_ne!(
+        base, h2,
+        "different message_hash should produce different hash"
+    );
 
     // Different origin
     let h3 = compute_attestation_hash(sender, message_hash, 2, destination_chain_id);
@@ -230,7 +244,10 @@ fn test_attestation_hash_different_inputs() {
 
     // Different destination
     let h4 = compute_attestation_hash(sender, message_hash, origin_chain_id, 99999);
-    assert_ne!(base, h4, "different destination should produce different hash");
+    assert_ne!(
+        base, h4,
+        "different destination should produce different hash"
+    );
 }
 
 #[test]
@@ -250,14 +267,18 @@ fn test_bls_sign_and_verify_roundtrip() {
     // Wrong message should fail
     let wrong_message = B256::repeat_byte(0x99);
     let result = signature.verify(true, wrong_message.as_slice(), BLS_DST, &[], &pk, true);
-    assert_ne!(result, BLST_ERROR::BLST_SUCCESS, "wrong message should not verify");
+    assert_ne!(
+        result,
+        BLST_ERROR::BLST_SUCCESS,
+        "wrong message should not verify"
+    );
 }
 
 #[test]
 fn test_bls_wrong_key_fails() {
     let ikm1 = [1u8; 32];
     let ikm2 = [2u8; 32];
-    
+
     let sk1 = SecretKey::key_gen(&ikm1, &[]).unwrap();
     let sk2 = SecretKey::key_gen(&ikm2, &[]).unwrap();
     let pk2 = sk2.sk_to_pk();
@@ -267,7 +288,11 @@ fn test_bls_wrong_key_fails() {
 
     // Verify with wrong public key should fail
     let result = signature.verify(true, message, BLS_DST, &[], &pk2, true);
-    assert_ne!(result, BLST_ERROR::BLST_SUCCESS, "wrong key should not verify");
+    assert_ne!(
+        result,
+        BLST_ERROR::BLST_SUCCESS,
+        "wrong key should not verify"
+    );
 }
 
 #[test]
@@ -283,15 +308,27 @@ fn test_bls_signature_sizes() {
     let pk_compressed = pk.compress();
     let sig_compressed = signature.compress();
 
-    assert_eq!(pk_compressed.len(), 48, "G1 compressed (public key) should be 48 bytes");
-    assert_eq!(sig_compressed.len(), 96, "G2 compressed (signature) should be 96 bytes");
+    assert_eq!(
+        pk_compressed.len(),
+        48,
+        "G1 compressed (public key) should be 48 bytes"
+    );
+    assert_eq!(
+        sig_compressed.len(),
+        96,
+        "G2 compressed (signature) should be 96 bytes"
+    );
 
     // Note: For EIP-2537 we need uncompressed format:
     // - G1 (public key): 128 bytes
     // - G2 (signature): 256 bytes
     let pk_uncompressed = pk.serialize();
-    assert_eq!(pk_uncompressed.len(), 96, "blst G1 serialized is 96 bytes (affine, unpadded)");
-    
+    assert_eq!(
+        pk_uncompressed.len(),
+        96,
+        "blst G1 serialized is 96 bytes (affine, unpadded)"
+    );
+
     // The 128-byte format for EIP-2537 adds padding
 }
 
@@ -394,21 +431,27 @@ proptest! {
 #[test]
 fn test_differential_expand_message_xmd_empty() {
     let result = expand_message_xmd(b"", BLS_DST, 256);
-    
+
     // This exact value is hardcoded in BLS12381.t.sol::test_expandMessageXmd_differential_empty
     let expected = hex::decode("16492f3f7d1a240be0e00102fb8e6a03a76e55371552f54987f0c5d1d26b5a53e3317641f3edc5a3b7dfb76724c77fd86f43208b0ce4766d418dc64613d224a005c2571bd09ded0f9b79afda75d47c1ead76b806e808febf4e0886a4186a0555fac4ce3f247d2612e90f5e7fed11ec8922a5a33db0a0cc60621f1aab72c05632c4f9c78686efa5d294fc5ce60f8485ad3c807348d4f247c519b1b9ac97c1b1564b41586dcf270306276fbbc7d2fb1492b0a70f47a38e0dbb7ae23c29186bbe642a48fe05ef85162ffacb7c18d31b5b3e1335023faf5f02e5d340bd587825665bc238d09d646b1fe86360467a871c190d90496b97601f82e1330a18d77606c048").unwrap();
-    
-    assert_eq!(result, expected, "Rust should match hardcoded Solidity vector for empty message");
+
+    assert_eq!(
+        result, expected,
+        "Rust should match hardcoded Solidity vector for empty message"
+    );
 }
 
 #[test]
 fn test_differential_expand_message_xmd_test() {
     let result = expand_message_xmd(b"test", BLS_DST, 256);
-    
+
     // This exact value is hardcoded in BLS12381.t.sol::test_expandMessageXmd_differential_test
     let expected = hex::decode("33388e19d7674f2f029e0de0e62b8b46c284e4915c8c12cb0df4ef92e1b61d072d1ce4a9a501e2f9eae1e431319d5ec930a53bbcf7b9f7fbba04dd47cabd02b3f76c14b7fda800c0db139920fef0507de46f9742143863b03141b6481d55ff9df2b0032c738099e75f3f00b28e201d7d7136fe4ecec8c603c1377ff7d5f12400a55ff562e3ddd10bdd8ba008457007acfd12bafc9667a0f5255cfc994a31b11c78a1444be70fc60e87704b997d8f41c5a39ea52d32ebfe24f727eae3fbcb10da58148722b692f23c730aba1f50de0ff568e0a08c9eeb75aaf09621b2e3d66f927e62d29594232238427530c48494a2061b300302b105e1f79720219202fec505").unwrap();
-    
-    assert_eq!(result, expected, "Rust should match hardcoded Solidity vector for 'test' message");
+
+    assert_eq!(
+        result, expected,
+        "Rust should match hardcoded Solidity vector for 'test' message"
+    );
 }
 
 #[test]
@@ -416,21 +459,28 @@ fn test_differential_expand_message_xmd_hash32() {
     // 0x42 repeated 32 times (simulates attestation hash)
     let message = [0x42u8; 32];
     let result = expand_message_xmd(&message, BLS_DST, 256);
-    
+
     // This exact value is hardcoded in BLS12381.t.sol::test_expandMessageXmd_differential_hash32
     let expected = hex::decode("97ee2a4bb87efa1327ca89a2da22fe6ac3daf2cd4d974fa341a6f43e4738aea1fdab1a22ca13c9a335638a5e9a02752b6db51c16af3a56446c075d78dfc240d3e301c615fb62c53e290ee00f5f65021296e84d3e6117fabb389f52a7651858b34c604be8563c0dcd5932f088887b38d7e020d9b9262eefea81020929652e5af96cf88f9a62512754e75e2b30b50bc52c16cce0920bc3a4ee6982f9b8cfb011ab3f8065e04f8906b2eaf4333775e0513edb6248fcdcfe01506f2ca821e493e88f5882000caeb020c948c05db8273f660a56eba7e2f53664360af534a0580524e2b8c08611a2a0d3cb5949a490a84fe937c43be905deed291b565fee30e8724233").unwrap();
-    
-    assert_eq!(result, expected, "Rust should match hardcoded Solidity vector for 32-byte hash input");
+
+    assert_eq!(
+        result, expected,
+        "Rust should match hardcoded Solidity vector for 32-byte hash input"
+    );
 }
 
 #[test]
 fn test_differential_expand_message_xmd_short() {
     let result = expand_message_xmd(b"short", BLS_DST, 32);
-    
+
     // This exact value is hardcoded in BLS12381.t.sol::test_expandMessageXmd_differential_short
-    let expected = hex::decode("647b59246b8fb81b72409a012bf469ed0dda1cac81fe5da0b4b0287a683788fc").unwrap();
-    
-    assert_eq!(result, expected, "Rust should match hardcoded Solidity vector for short output");
+    let expected =
+        hex::decode("647b59246b8fb81b72409a012bf469ed0dda1cac81fe5da0b4b0287a683788fc").unwrap();
+
+    assert_eq!(
+        result, expected,
+        "Rust should match hardcoded Solidity vector for short output"
+    );
 }
 
 // =============================================================================
@@ -473,12 +523,18 @@ fn test_infinity_key_attack_awareness() {
     // See BLS12381.sol verify() - should add infinity checks.
     //
     // Detection: All-zero bytes for compressed encoding indicates infinity.
-    
+
     let zero_pk = [0u8; 48];
     let zero_sig = [0u8; 96];
-    
+
     // Both should be considered "infinity" or invalid
     // The Solidity contract should explicitly reject these
-    assert!(zero_pk.iter().all(|&b| b == 0), "zero pk represents infinity");
-    assert!(zero_sig.iter().all(|&b| b == 0), "zero sig represents infinity");
+    assert!(
+        zero_pk.iter().all(|&b| b == 0),
+        "zero pk represents infinity"
+    );
+    assert!(
+        zero_sig.iter().all(|&b| b == 0),
+        "zero sig represents infinity"
+    );
 }

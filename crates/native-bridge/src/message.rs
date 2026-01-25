@@ -1,4 +1,4 @@
-use alloy_primitives::{keccak256, Address, B256};
+use alloy_primitives::{Address, B256, keccak256};
 use serde::{Deserialize, Serialize};
 
 /// Domain separator for bridge messages.
@@ -87,8 +87,18 @@ mod tests {
 
     #[test]
     fn test_different_sender_different_hash() {
-        let msg1 = Message::new(Address::repeat_byte(0xAA), B256::repeat_byte(0x11), 1, 12345);
-        let msg2 = Message::new(Address::repeat_byte(0xBB), B256::repeat_byte(0x11), 1, 12345);
+        let msg1 = Message::new(
+            Address::repeat_byte(0xAA),
+            B256::repeat_byte(0x11),
+            1,
+            12345,
+        );
+        let msg2 = Message::new(
+            Address::repeat_byte(0xBB),
+            B256::repeat_byte(0x11),
+            1,
+            12345,
+        );
         assert_ne!(msg1.attestation_hash(), msg2.attestation_hash());
     }
 }

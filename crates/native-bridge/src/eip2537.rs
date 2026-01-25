@@ -13,12 +13,13 @@
 //! - Public keys are G2 (96 bytes compressed → 256 bytes EIP-2537)
 
 use crate::error::{BridgeError, Result};
-use crate::message::{G1_COMPRESSED_LEN, G1_UNCOMPRESSED_LEN, G2_COMPRESSED_LEN, G2_UNCOMPRESSED_LEN};
+use crate::message::{
+    G1_COMPRESSED_LEN, G1_UNCOMPRESSED_LEN, G2_COMPRESSED_LEN, G2_UNCOMPRESSED_LEN,
+};
 
 use blst::{
-    blst_p1_affine, blst_p1_affine_serialize, blst_p1_uncompress,
-    blst_p2_affine, blst_p2_affine_serialize, blst_p2_uncompress,
-    BLST_ERROR,
+    BLST_ERROR, blst_p1_affine, blst_p1_affine_serialize, blst_p1_uncompress, blst_p2_affine,
+    blst_p2_affine_serialize, blst_p2_uncompress,
 };
 
 /// Uncompressed G1 size from blst (96 bytes: 2 × 48-byte Fp elements).
@@ -44,8 +45,7 @@ pub fn g2_to_eip2537(compressed: &[u8; G2_COMPRESSED_LEN]) -> Result<[u8; G2_UNC
 
     if result != BLST_ERROR::BLST_SUCCESS {
         return Err(BridgeError::Signing(format!(
-            "failed to decompress G2 point: {:?}",
-            result
+            "failed to decompress G2 point: {result:?}"
         )));
     }
 
@@ -79,8 +79,7 @@ pub fn g1_to_eip2537(compressed: &[u8; G1_COMPRESSED_LEN]) -> Result<[u8; G1_UNC
 
     if result != BLST_ERROR::BLST_SUCCESS {
         return Err(BridgeError::Signing(format!(
-            "failed to decompress G1 point: {:?}",
-            result
+            "failed to decompress G1 point: {result:?}"
         )));
     }
 
@@ -105,16 +104,11 @@ mod tests {
     use commonware_codec::Encode;
     use commonware_cryptography::bls12381::{
         dkg,
-        primitives::{
-            group::G1,
-            ops::sign,
-            sharing::Mode,
-            variant::MinSig,
-        },
+        primitives::{group::G1, ops::sign, sharing::Mode, variant::MinSig},
     };
-    use commonware_utils::{NZU32, N3f1};
-    use rand::rngs::StdRng;
+    use commonware_utils::{N3f1, NZU32};
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     #[test]
     fn test_g1_to_eip2537_produces_128_bytes() {
@@ -123,7 +117,7 @@ mod tests {
         let n = NZU32!(5);
         let (_sharing, shares) = dkg::deal_anonymous::<MinSig, N3f1>(&mut rng, Mode::default(), n);
         let share = &shares[0];
-        
+
         let message = b"test message";
         let dst = b"TEMPO_BRIDGE_BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_";
 
@@ -158,7 +152,7 @@ mod tests {
         let n = NZU32!(5);
         let (_sharing, shares) = dkg::deal_anonymous::<MinSig, N3f1>(&mut rng, Mode::default(), n);
         let share = &shares[0];
-        
+
         let signature: G1 = sign::<MinSig>(
             &share.private,
             b"TEMPO_BRIDGE_BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_",
@@ -180,7 +174,7 @@ mod tests {
         let n = NZU32!(5);
         let (_sharing, shares) = dkg::deal_anonymous::<MinSig, N3f1>(&mut rng, Mode::default(), n);
         let share = &shares[0];
-        
+
         let dst = b"TEMPO_BRIDGE_BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_";
 
         let sig1: G1 = sign::<MinSig>(&share.private, dst, b"message1");
@@ -201,7 +195,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(789);
         let n = NZU32!(5);
         let (sharing, _shares) = dkg::deal_anonymous::<MinSig, N3f1>(&mut rng, Mode::default(), n);
-        
+
         // Get the group public key (G2)
         let public_key = sharing.public();
         let compressed = public_key.encode();

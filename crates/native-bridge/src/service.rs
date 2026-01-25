@@ -6,8 +6,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use commonware_cryptography::bls12381::primitives::{group::Share, sharing::Sharing, variant::MinSig};
-use tokio::sync::{mpsc, Mutex};
+use commonware_cryptography::bls12381::primitives::{
+    group::Share, sharing::Sharing, variant::MinSig,
+};
+use tokio::sync::{Mutex, mpsc};
 
 use crate::config::ChainConfig;
 use crate::error::Result;

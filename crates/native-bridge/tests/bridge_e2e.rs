@@ -20,10 +20,10 @@ use alloy::sol_types::SolEvent;
 use alloy_primitives::B256;
 use commonware_codec::Encode;
 use commonware_cryptography::bls12381::{dkg, primitives::sharing::Mode};
-use commonware_utils::{NZU32, N3f1};
+use commonware_utils::{N3f1, NZU32};
 use futures::StreamExt;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use reth_ethereum::tasks::TaskManager;
 use reth_node_builder::{NodeBuilder, NodeConfig};
 use reth_node_core::args::RpcServerArgs;
@@ -31,7 +31,7 @@ use reth_rpc_builder::RpcModuleSelection;
 use tempo_chainspec::spec::TempoChainSpec;
 use tempo_native_bridge::{
     eip2537::g2_to_eip2537,
-    message::{Message, G2_COMPRESSED_LEN},
+    message::{G2_COMPRESSED_LEN, Message},
     sidecar::aggregator::Aggregator,
     signer::BLSSigner,
 };
@@ -79,7 +79,7 @@ sol! {
 fn encode_message_bridge_constructor(owner: Address, epoch: u64, public_key: &[u8]) -> Vec<u8> {
     // ABI encode: (address, uint64, bytes)
     // address is padded to 32 bytes
-    // uint64 is padded to 32 bytes  
+    // uint64 is padded to 32 bytes
     // bytes is encoded as: offset (32) + length (32) + data (padded to 32)
     let mut encoded = Vec::new();
 
@@ -162,15 +162,18 @@ impl Drop for AnvilInstance {
 /// Real MessageBridge bytecode.
 /// Uses EIP-2537 BLS12-381 precompiles (available on Prague+ hardfork and Tempo).
 /// From: crates/native-bridge/contracts/out/MessageBridge.sol/MessageBridge.json
-const MESSAGE_BRIDGE_BYTECODE: &str = include_str!("../contracts/out/MessageBridge.sol/MessageBridge.bytecode.hex");
+const MESSAGE_BRIDGE_BYTECODE: &str =
+    include_str!("../contracts/out/MessageBridge.sol/MessageBridge.bytecode.hex");
 
 /// Real TokenBridge bytecode.
 /// From: crates/native-bridge/contracts/out/TokenBridge.sol/TokenBridge.json
-const TOKEN_BRIDGE_BYTECODE: &str = include_str!("../contracts/out/TokenBridge.sol/TokenBridge.bytecode.hex");
+const TOKEN_BRIDGE_BYTECODE: &str =
+    include_str!("../contracts/out/TokenBridge.sol/TokenBridge.bytecode.hex");
 
 /// MockERC20 bytecode for testing on Anvil (Ethereum).
 /// From: crates/native-bridge/contracts/out/MockERC20.sol/MockERC20.json
-const MOCK_ERC20_BYTECODE: &str = include_str!("../contracts/out/MockERC20.sol/MockERC20.bytecode.hex");
+const MOCK_ERC20_BYTECODE: &str =
+    include_str!("../contracts/out/MockERC20.sol/MockERC20.bytecode.hex");
 
 /// G2 generator point (uncompressed, 256 bytes EIP-2537 format) for test deployment.
 /// This is a valid BLS12-381 G2 point that can be used as the initial public key.
@@ -216,11 +219,12 @@ async fn deploy_message_bridge_anvil(rpc_url: &str) -> eyre::Result<Address> {
     let initial_public_key = hex::decode(G2_GENERATOR_EIP2537)?;
 
     // Encode constructor args and append to bytecode
-    let constructor_args = encode_message_bridge_constructor(owner, initial_epoch, &initial_public_key);
+    let constructor_args =
+        encode_message_bridge_constructor(owner, initial_epoch, &initial_public_key);
     let deploy_code: Vec<u8> = bytecode.into_iter().chain(constructor_args).collect();
 
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .with_deploy_code(Bytes::from(deploy_code));
+    let tx =
+        alloy::rpc::types::TransactionRequest::default().with_deploy_code(Bytes::from(deploy_code));
 
     let pending = provider.send_transaction(tx).await?;
     let receipt = pending.get_receipt().await?;
@@ -254,11 +258,12 @@ async fn deploy_message_bridge_tempo(rpc_url: &str) -> eyre::Result<Address> {
     let initial_public_key = hex::decode(G2_GENERATOR_EIP2537)?;
 
     // Encode constructor args and append to bytecode
-    let constructor_args = encode_message_bridge_constructor(owner, initial_epoch, &initial_public_key);
+    let constructor_args =
+        encode_message_bridge_constructor(owner, initial_epoch, &initial_public_key);
     let deploy_code: Vec<u8> = bytecode.into_iter().chain(constructor_args).collect();
 
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .with_deploy_code(Bytes::from(deploy_code));
+    let tx =
+        alloy::rpc::types::TransactionRequest::default().with_deploy_code(Bytes::from(deploy_code));
 
     let pending = provider.send_transaction(tx).await?;
     let receipt = pending.get_receipt().await?;
@@ -665,8 +670,8 @@ async fn deploy_bridge_with_pubkey_anvil(
     let constructor_args = encode_message_bridge_constructor(owner, 1, public_key);
     let deploy_code: Vec<u8> = bytecode.into_iter().chain(constructor_args).collect();
 
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .with_deploy_code(Bytes::from(deploy_code));
+    let tx =
+        alloy::rpc::types::TransactionRequest::default().with_deploy_code(Bytes::from(deploy_code));
 
     let pending = provider.send_transaction(tx).await?;
     let receipt = pending.get_receipt().await?;
@@ -698,8 +703,8 @@ async fn deploy_bridge_with_pubkey_tempo(
     let constructor_args = encode_message_bridge_constructor(owner, 1, public_key);
     let deploy_code: Vec<u8> = bytecode.into_iter().chain(constructor_args).collect();
 
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .with_deploy_code(Bytes::from(deploy_code));
+    let tx =
+        alloy::rpc::types::TransactionRequest::default().with_deploy_code(Bytes::from(deploy_code));
 
     let pending = provider.send_transaction(tx).await?;
     let receipt = pending.get_receipt().await?;
@@ -738,8 +743,8 @@ async fn test_full_bridge_flow_ethereum_to_tempo() -> eyre::Result<()> {
     let (sharing, shares, group_pubkey) = generate_test_dkg_keys();
     let threshold = sharing.required::<N3f1>();
     tracing::info!(
-        threshold, 
-        n = shares.len(), 
+        threshold,
+        n = shares.len(),
         pubkey_len = group_pubkey.len(),
         "generated DKG keys"
     );
@@ -849,10 +854,7 @@ async fn test_full_bridge_flow_ethereum_to_tempo() -> eyre::Result<()> {
     let write_pending = tempo_tx_provider.send_transaction(write_tx).await?;
     let write_receipt = write_pending.get_receipt().await?;
 
-    assert!(
-        write_receipt.status(),
-        "write transaction should succeed"
-    );
+    assert!(write_receipt.status(), "write transaction should succeed");
 
     tracing::info!(
         tx_hash = %write_receipt.transaction_hash,
@@ -865,7 +867,10 @@ async fn test_full_bridge_flow_ethereum_to_tempo() -> eyre::Result<()> {
     // ========================================
     // Check MessageReceived event
     let logs = write_receipt.inner.logs();
-    assert!(!logs.is_empty(), "should have emitted MessageReceived event");
+    assert!(
+        !logs.is_empty(),
+        "should have emitted MessageReceived event"
+    );
 
     let event_topic = logs[0].topics()[0];
     assert_eq!(
@@ -891,7 +896,10 @@ async fn test_full_bridge_flow_ethereum_to_tempo() -> eyre::Result<()> {
 
     // Decode the uint256 result
     let timestamp = alloy_primitives::U256::from_be_slice(&call_result);
-    assert!(timestamp > alloy_primitives::U256::ZERO, "receivedAt should be non-zero");
+    assert!(
+        timestamp > alloy_primitives::U256::ZERO,
+        "receivedAt should be non-zero"
+    );
 
     tracing::info!(
         timestamp = %timestamp,
@@ -1068,8 +1076,8 @@ async fn deploy_mock_erc20_anvil(
     let constructor_args = encode_mock_erc20_constructor(name, symbol, decimals);
     let deploy_code: Vec<u8> = bytecode.into_iter().chain(constructor_args).collect();
 
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .with_deploy_code(Bytes::from(deploy_code));
+    let tx =
+        alloy::rpc::types::TransactionRequest::default().with_deploy_code(Bytes::from(deploy_code));
 
     let pending = provider.send_transaction(tx).await?;
     let receipt = pending.get_receipt().await?;
@@ -1120,10 +1128,11 @@ async fn create_tip20_tempo(
     // Parse TokenCreated event to get token address
     let logs = receipt.inner.logs();
     // Find the TokenCreated event (should be the second log, first is usually Transfer)
-    let token_created_log = logs.iter()
+    let token_created_log = logs
+        .iter()
         .find(|log| !log.topics().is_empty() && log.topics()[0] == TokenCreated::SIGNATURE_HASH)
         .ok_or_else(|| eyre::eyre!("TokenCreated event not found"))?;
-    
+
     // The token address is the first indexed parameter (topics[1])
     let token_address = Address::from_slice(&token_created_log.topics()[1].as_slice()[12..]);
     tracing::info!(%token_address, name, symbol, "created TIP-20 token on Tempo");
@@ -1139,19 +1148,28 @@ async fn create_tip20_tempo(
         .gas_limit(1_000_000)
         .input(grant_call.abi_encode().into());
 
-    let grant_receipt = provider.send_transaction(grant_tx).await?.get_receipt().await?;
+    let grant_receipt = provider
+        .send_transaction(grant_tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(grant_receipt.status(), "grantRole failed");
     tracing::info!(%issuer, role = ?*ISSUER_ROLE, "granted ISSUER_ROLE to TokenBridge");
 
     // Verify the role was granted
-    let has_role_call = hasRoleCall { account: issuer, role: *ISSUER_ROLE };
+    let has_role_call = hasRoleCall {
+        account: issuer,
+        role: *ISSUER_ROLE,
+    };
     let result = provider
-        .call(alloy::rpc::types::TransactionRequest::default()
-            .to(token_address)
-            .input(has_role_call.abi_encode().into()))
+        .call(
+            alloy::rpc::types::TransactionRequest::default()
+                .to(token_address)
+                .input(has_role_call.abi_encode().into()),
+        )
         .await
         .map_err(|e| eyre::eyre!("hasRole call failed: {e}"))?;
-    
+
     let has_role = result.len() >= 32 && result[31] == 1;
     if !has_role {
         return Err(eyre::eyre!("ISSUER_ROLE was not granted to {issuer}"));
@@ -1195,8 +1213,8 @@ async fn deploy_token_bridge_anvil(
     let constructor_args = encode_token_bridge_constructor(owner, message_bridge);
     let deploy_code: Vec<u8> = bytecode.into_iter().chain(constructor_args).collect();
 
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .with_deploy_code(Bytes::from(deploy_code));
+    let tx =
+        alloy::rpc::types::TransactionRequest::default().with_deploy_code(Bytes::from(deploy_code));
 
     let pending = provider.send_transaction(tx).await?;
     let receipt = pending.get_receipt().await?;
@@ -1227,8 +1245,8 @@ async fn deploy_token_bridge_tempo(
     let constructor_args = encode_token_bridge_constructor(owner, message_bridge);
     let deploy_code: Vec<u8> = bytecode.into_iter().chain(constructor_args).collect();
 
-    let tx = alloy::rpc::types::TransactionRequest::default()
-        .with_deploy_code(Bytes::from(deploy_code));
+    let tx =
+        alloy::rpc::types::TransactionRequest::default().with_deploy_code(Bytes::from(deploy_code));
 
     let pending = provider.send_transaction(tx).await?;
     let receipt = pending.get_receipt().await?;
@@ -1295,7 +1313,8 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     let eth_usdc = deploy_mock_erc20_anvil(&anvil.rpc_url, "USD Coin", "USDC", 6).await?;
 
     // Create TIP-20 (USDC.t) on Tempo with ISSUER_ROLE granted to TokenBridge
-    let tempo_usdc = create_tip20_tempo(&tempo_http, "Tempo USDC", "USDC.t", tempo_token_bridge).await?;
+    let tempo_usdc =
+        create_tip20_tempo(&tempo_http, "Tempo USDC", "USDC.t", tempo_token_bridge).await?;
 
     // ========================================
     // Step 5: Setup providers with signers
@@ -1339,7 +1358,11 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     let tx = alloy::rpc::types::TransactionRequest::default()
         .to(eth_token_bridge)
         .input(register_eth.abi_encode().into());
-    let receipt = eth_provider.send_transaction(tx).await?.get_receipt().await?;
+    let receipt = eth_provider
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(receipt.status(), "register asset on Ethereum failed");
     tracing::info!("registered USDC on Ethereum TokenBridge (home chain)");
 
@@ -1354,7 +1377,11 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     let tx = alloy::rpc::types::TransactionRequest::default()
         .to(tempo_token_bridge)
         .input(register_tempo.abi_encode().into());
-    let receipt = tempo_provider_with_wallet.send_transaction(tx).await?.get_receipt().await?;
+    let receipt = tempo_provider_with_wallet
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(receipt.status(), "register asset on Tempo failed");
     tracing::info!("registered USDC on Tempo TokenBridge (remote chain)");
 
@@ -1364,30 +1391,49 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     let bridge_amount = U256::from(1_000_000u64); // 1 USDC (6 decimals)
 
     // Mint USDC to user
-    let mint_call = mintCall { to: user, amount: bridge_amount };
+    let mint_call = mintCall {
+        to: user,
+        amount: bridge_amount,
+    };
     let tx = alloy::rpc::types::TransactionRequest::default()
         .to(eth_usdc)
         .input(mint_call.abi_encode().into());
-    let receipt = eth_provider.send_transaction(tx).await?.get_receipt().await?;
+    let receipt = eth_provider
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(receipt.status(), "mint USDC failed");
 
     // Approve TokenBridge to spend user's USDC
-    let approve_call = approveCall { spender: eth_token_bridge, amount: bridge_amount };
+    let approve_call = approveCall {
+        spender: eth_token_bridge,
+        amount: bridge_amount,
+    };
     let tx = alloy::rpc::types::TransactionRequest::default()
         .to(eth_usdc)
         .input(approve_call.abi_encode().into());
-    let receipt = eth_provider.send_transaction(tx).await?.get_receipt().await?;
+    let receipt = eth_provider
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(receipt.status(), "approve failed");
 
     // Verify user balance before bridging
     let balance_call = balanceOfCall { account: user };
     let result = anvil_provider
-        .call(alloy::rpc::types::TransactionRequest::default()
-            .to(eth_usdc)
-            .input(balance_call.abi_encode().into()))
+        .call(
+            alloy::rpc::types::TransactionRequest::default()
+                .to(eth_usdc)
+                .input(balance_call.abi_encode().into()),
+        )
         .await?;
     let user_balance_before = U256::from_be_slice(&result);
-    assert_eq!(user_balance_before, bridge_amount, "user should have 1 USDC");
+    assert_eq!(
+        user_balance_before, bridge_amount,
+        "user should have 1 USDC"
+    );
     tracing::info!(%user_balance_before, "user USDC balance before bridging");
 
     // ========================================
@@ -1406,12 +1452,17 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
         .to(eth_token_bridge)
         .gas_limit(500_000)
         .input(bridge_call.abi_encode().into());
-    let bridge_receipt = eth_provider.send_transaction(tx).await?.get_receipt().await?;
+    let bridge_receipt = eth_provider
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(bridge_receipt.status(), "bridgeTokens failed");
 
     // Parse TokensBridged event to get messageHash and nonce
     let bridge_logs = bridge_receipt.inner.logs();
-    let bridge_event = bridge_logs.iter()
+    let bridge_event = bridge_logs
+        .iter()
         .find(|log| !log.topics().is_empty() && log.topics()[0] == TokensBridged::SIGNATURE_HASH)
         .ok_or_else(|| eyre::eyre!("TokensBridged event not found"))?;
     let message_hash = bridge_event.topics()[1];
@@ -1419,28 +1470,46 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     tracing::info!(%message_hash, %transfer_nonce, "bridgeTokens emitted TokensBridged");
 
     // Verify USDC is locked in TokenBridge
-    let bridge_balance_call = balanceOfCall { account: eth_token_bridge };
+    let bridge_balance_call = balanceOfCall {
+        account: eth_token_bridge,
+    };
     let result = anvil_provider
-        .call(alloy::rpc::types::TransactionRequest::default()
-            .to(eth_usdc)
-            .input(bridge_balance_call.abi_encode().into()))
+        .call(
+            alloy::rpc::types::TransactionRequest::default()
+                .to(eth_usdc)
+                .input(bridge_balance_call.abi_encode().into()),
+        )
         .await?;
     let bridge_balance = U256::from_be_slice(&result);
-    assert_eq!(bridge_balance, bridge_amount, "TokenBridge should hold locked USDC");
+    assert_eq!(
+        bridge_balance, bridge_amount,
+        "TokenBridge should hold locked USDC"
+    );
     tracing::info!(%bridge_balance, "USDC locked in Ethereum TokenBridge");
 
     // Verify user balance is now 0
     let user_balance_call = balanceOfCall { account: user };
     let result = anvil_provider
-        .call(alloy::rpc::types::TransactionRequest::default()
-            .to(eth_usdc)
-            .input(user_balance_call.abi_encode().into()))
+        .call(
+            alloy::rpc::types::TransactionRequest::default()
+                .to(eth_usdc)
+                .input(user_balance_call.abi_encode().into()),
+        )
         .await?;
     let user_balance_after = U256::from_be_slice(&result);
-    assert_eq!(user_balance_after, U256::ZERO, "user should have 0 USDC after bridging");
+    assert_eq!(
+        user_balance_after,
+        U256::ZERO,
+        "user should have 0 USDC after bridging"
+    );
 
     // Step 9: Sign attestation with threshold signers
-    let message = Message::new(eth_token_bridge, message_hash, ethereum_chain_id, tempo_chain_id);
+    let message = Message::new(
+        eth_token_bridge,
+        message_hash,
+        ethereum_chain_id,
+        tempo_chain_id,
+    );
     let attestation_hash = message.attestation_hash();
     tracing::info!(%attestation_hash, "signing attestation for lock");
 
@@ -1467,7 +1536,11 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     let tx = alloy::rpc::types::TransactionRequest::default()
         .to(tempo_msg_bridge)
         .input(write_call.abi_encode().into());
-    let write_receipt = tempo_provider_with_wallet.send_transaction(tx).await?.get_receipt().await?;
+    let write_receipt = tempo_provider_with_wallet
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(write_receipt.status(), "write attestation failed");
     tracing::info!("attestation submitted to Tempo MessageBridge");
 
@@ -1483,19 +1556,30 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
         .to(tempo_token_bridge)
         .gas_limit(5_000_000)
         .input(claim_call.abi_encode().into());
-    let claim_receipt = tempo_provider_with_wallet.send_transaction(tx).await?.get_receipt().await?;
+    let claim_receipt = tempo_provider_with_wallet
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(claim_receipt.status(), "claimTokens failed");
     tracing::info!("tokens claimed on Tempo - USDC.t minted");
 
     // Verify tempo_user received USDC.t
-    let tempo_balance_call = balanceOfCall { account: tempo_user };
+    let tempo_balance_call = balanceOfCall {
+        account: tempo_user,
+    };
     let result = tempo_provider
-        .call(alloy::rpc::types::TransactionRequest::default()
-            .to(tempo_usdc)
-            .input(tempo_balance_call.abi_encode().into()))
+        .call(
+            alloy::rpc::types::TransactionRequest::default()
+                .to(tempo_usdc)
+                .input(tempo_balance_call.abi_encode().into()),
+        )
         .await?;
     let tempo_user_balance = U256::from_be_slice(&result);
-    assert_eq!(tempo_user_balance, bridge_amount, "tempo user should have USDC.t");
+    assert_eq!(
+        tempo_user_balance, bridge_amount,
+        "tempo user should have USDC.t"
+    );
     tracing::info!(%tempo_user_balance, "✓ USDC.t minted to tempo user");
 
     // ========================================
@@ -1504,12 +1588,19 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     tracing::info!("=== PHASE 2: Tempo → Ethereum (Burn → Unlock) ===");
 
     // Step 12: Approve TokenBridge to transfer USDC.t
-    let approve_tempo_call = approveCall { spender: tempo_token_bridge, amount: bridge_amount };
+    let approve_tempo_call = approveCall {
+        spender: tempo_token_bridge,
+        amount: bridge_amount,
+    };
     let tx = alloy::rpc::types::TransactionRequest::default()
         .to(tempo_usdc)
         .gas_limit(1_000_000)
         .input(approve_tempo_call.abi_encode().into());
-    let receipt = tempo_provider_with_wallet.send_transaction(tx).await?.get_receipt().await?;
+    let receipt = tempo_provider_with_wallet
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(receipt.status(), "approve USDC.t failed");
 
     // Step 13: Call bridgeTokens on Tempo (burns USDC.t)
@@ -1523,12 +1614,17 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
         .to(tempo_token_bridge)
         .gas_limit(5_000_000)
         .input(bridge_back_call.abi_encode().into());
-    let bridge_back_receipt = tempo_provider_with_wallet.send_transaction(tx).await?.get_receipt().await?;
+    let bridge_back_receipt = tempo_provider_with_wallet
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(bridge_back_receipt.status(), "bridgeTokens on Tempo failed");
 
     // Parse TokensBridged event
     let bridge_back_logs = bridge_back_receipt.inner.logs();
-    let bridge_back_event = bridge_back_logs.iter()
+    let bridge_back_event = bridge_back_logs
+        .iter()
         .find(|log| !log.topics().is_empty() && log.topics()[0] == TokensBridged::SIGNATURE_HASH)
         .ok_or_else(|| eyre::eyre!("TokensBridged event not found on Tempo"))?;
     let burn_message_hash = bridge_back_event.topics()[1];
@@ -1537,16 +1633,27 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
 
     // Verify USDC.t was burned (user balance should be 0)
     let result = tempo_provider
-        .call(alloy::rpc::types::TransactionRequest::default()
-            .to(tempo_usdc)
-            .input(tempo_balance_call.abi_encode().into()))
+        .call(
+            alloy::rpc::types::TransactionRequest::default()
+                .to(tempo_usdc)
+                .input(tempo_balance_call.abi_encode().into()),
+        )
         .await?;
     let tempo_user_balance_after = U256::from_be_slice(&result);
-    assert_eq!(tempo_user_balance_after, U256::ZERO, "USDC.t should be burned");
+    assert_eq!(
+        tempo_user_balance_after,
+        U256::ZERO,
+        "USDC.t should be burned"
+    );
     tracing::info!("✓ USDC.t burned from tempo user");
 
     // Step 14: Sign attestation for burn
-    let burn_message = Message::new(tempo_token_bridge, burn_message_hash, tempo_chain_id, ethereum_chain_id);
+    let burn_message = Message::new(
+        tempo_token_bridge,
+        burn_message_hash,
+        tempo_chain_id,
+        ethereum_chain_id,
+    );
     let burn_attestation_hash = burn_message.attestation_hash();
 
     let mut aggregator2 = Aggregator::new(sharing.clone(), 1);
@@ -1554,7 +1661,8 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     for share in shares.iter().take(threshold as usize) {
         let signer = BLSSigner::new(share.clone());
         let partial = signer.sign_partial(burn_attestation_hash)?;
-        if let Some(result) = aggregator2.add_partial(burn_attestation_hash, partial, &burn_message) {
+        if let Some(result) = aggregator2.add_partial(burn_attestation_hash, partial, &burn_message)
+        {
             aggregated_result2 = Some(result);
         }
     }
@@ -1572,7 +1680,11 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
     let tx = alloy::rpc::types::TransactionRequest::default()
         .to(eth_msg_bridge)
         .input(write_call2.abi_encode().into());
-    let write_receipt2 = eth_provider.send_transaction(tx).await?.get_receipt().await?;
+    let write_receipt2 = eth_provider
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
     assert!(write_receipt2.status(), "write burn attestation failed");
     tracing::info!("burn attestation submitted to Ethereum MessageBridge");
 
@@ -1588,32 +1700,50 @@ async fn test_token_bridge_full_flow_lock_mint_burn_unlock() -> eyre::Result<()>
         .to(eth_token_bridge)
         .gas_limit(500_000)
         .input(claim_back_call.abi_encode().into());
-    let claim_back_receipt = eth_provider.send_transaction(tx).await?.get_receipt().await?;
-    assert!(claim_back_receipt.status(), "claimTokens on Ethereum failed");
+    let claim_back_receipt = eth_provider
+        .send_transaction(tx)
+        .await?
+        .get_receipt()
+        .await?;
+    assert!(
+        claim_back_receipt.status(),
+        "claimTokens on Ethereum failed"
+    );
     tracing::info!("tokens claimed on Ethereum - USDC unlocked");
 
     // Verify user received USDC back
     let result = anvil_provider
-        .call(alloy::rpc::types::TransactionRequest::default()
-            .to(eth_usdc)
-            .input(user_balance_call.abi_encode().into()))
+        .call(
+            alloy::rpc::types::TransactionRequest::default()
+                .to(eth_usdc)
+                .input(user_balance_call.abi_encode().into()),
+        )
         .await?;
     let user_final_balance = U256::from_be_slice(&result);
-    assert_eq!(user_final_balance, bridge_amount, "user should have USDC back");
+    assert_eq!(
+        user_final_balance, bridge_amount,
+        "user should have USDC back"
+    );
     tracing::info!(%user_final_balance, "✓ USDC unlocked to user");
 
     // Verify TokenBridge escrow is now empty
     let result = anvil_provider
-        .call(alloy::rpc::types::TransactionRequest::default()
-            .to(eth_usdc)
-            .input(bridge_balance_call.abi_encode().into()))
+        .call(
+            alloy::rpc::types::TransactionRequest::default()
+                .to(eth_usdc)
+                .input(bridge_balance_call.abi_encode().into()),
+        )
         .await?;
     let bridge_final_balance = U256::from_be_slice(&result);
-    assert_eq!(bridge_final_balance, U256::ZERO, "TokenBridge escrow should be empty");
+    assert_eq!(
+        bridge_final_balance,
+        U256::ZERO,
+        "TokenBridge escrow should be empty"
+    );
 
     tracing::info!("🎉 TokenBridge full flow test passed!");
     tracing::info!("  ✓ Ethereum → Tempo: 1 USDC locked, 1 USDC.t minted");
     tracing::info!("  ✓ Tempo → Ethereum: 1 USDC.t burned, 1 USDC unlocked");
-    
+
     Ok(())
 }

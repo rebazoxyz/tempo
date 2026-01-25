@@ -27,9 +27,7 @@ use tempo_node::TempoFullNode;
 
 #[cfg(feature = "bridge")]
 use tempo_native_bridge::{
-    BridgeService, BridgeServiceConfig,
-    config::Config as BridgeConfig,
-    gossip::P2pGossip,
+    BridgeService, BridgeServiceConfig, config::Config as BridgeConfig, gossip::P2pGossip,
 };
 
 #[cfg(feature = "bridge")]
@@ -116,11 +114,13 @@ pub async fn run_consensus_stack(
         let chain_spec = execution_node.chain_spec();
         let genesis_header = chain_spec.genesis_header();
         let extra_data = genesis_header.extra_data();
-        
+
         if extra_data.is_empty() {
-            return Err(eyre::eyre!("genesis extraData is empty - cannot extract DKG sharing for bridge"));
+            return Err(eyre::eyre!(
+                "genesis extraData is empty - cannot extract DKG sharing for bridge"
+            ));
         }
-        
+
         let outcome = OnchainDkgOutcome::read(&mut extra_data.as_ref())
             .map_err(|e| eyre::eyre!("failed to parse DKG outcome from genesis extraData: {e}"))?;
         Some(outcome.sharing().clone())
@@ -189,19 +189,20 @@ pub async fn run_consensus_stack(
 
     #[cfg(feature = "bridge")]
     let bridge_handle = if config.bridge.enabled {
-        let bridge_config_path = config.bridge.config
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("--bridge.config is required when --bridge.enabled is set"))?;
+        let bridge_config_path = config.bridge.config.as_ref().ok_or_else(|| {
+            eyre::eyre!("--bridge.config is required when --bridge.enabled is set")
+        })?;
 
         let bridge_file_config = BridgeConfig::load(bridge_config_path)?;
 
-        let bridge_share = share.clone()
-            .ok_or_else(|| eyre::eyre!("--consensus.signing-share is required when --bridge.enabled is set"))?;
+        let bridge_share = share.clone().ok_or_else(|| {
+            eyre::eyre!("--consensus.signing-share is required when --bridge.enabled is set")
+        })?;
 
         // Use pre-extracted sharing from genesis
         let sharing = bridge_sharing
             .ok_or_else(|| eyre::eyre!("bridge sharing not extracted - this should not happen"))?;
-        
+
         tracing::info!(
             threshold = sharing.required::<commonware_utils::N3f1>(),
             total = sharing.total().get(),
@@ -216,7 +217,8 @@ pub async fn run_consensus_stack(
         // Create P2P gossip adapter from the registered bridge channel
         let gossip = P2pGossip::new(bridge_channel.0, bridge_channel.1);
 
-        let bridge_service = BridgeService::with_gossip(bridge_share, sharing, service_config, gossip).await?;
+        let bridge_service =
+            BridgeService::with_gossip(bridge_share, sharing, service_config, gossip).await?;
 
         tracing::info!("starting bridge service with P2P gossip");
         Some(tokio::spawn(async move {

@@ -6,7 +6,7 @@
 use alloy_primitives::B256;
 use commonware_codec::{DecodeExt, Encode};
 use commonware_cryptography::bls12381::primitives::{
-    group::{Private, Share, G1, G2},
+    group::{G1, G2, Private, Share},
     ops::sign,
     variant::MinSig,
 };
@@ -61,13 +61,11 @@ impl BLSSigner {
         })?;
 
         let hex_trimmed = hex_content.trim().trim_start_matches("0x");
-        let bytes = const_hex::decode(hex_trimmed).map_err(|e| {
-            BridgeError::Config(format!("invalid hex in key share file: {e}"))
-        })?;
+        let bytes = const_hex::decode(hex_trimmed)
+            .map_err(|e| BridgeError::Config(format!("invalid hex in key share file: {e}")))?;
 
-        let share = Share::decode(&bytes[..]).map_err(|e| {
-            BridgeError::Config(format!("failed to parse key share: {e}"))
-        })?;
+        let share = Share::decode(&bytes[..])
+            .map_err(|e| BridgeError::Config(format!("failed to parse key share: {e}")))?;
 
         Ok(Self::new(share))
     }
@@ -81,7 +79,8 @@ impl BLSSigner {
         // Sign using the low-level sign function with our custom DST.
         // This hashes the attestation_hash to G1 using the DST, then
         // multiplies by the private key share.
-        let signature: G1 = sign::<MinSig>(&self.share.private, BLS_DST, attestation_hash.as_slice());
+        let signature: G1 =
+            sign::<MinSig>(&self.share.private, BLS_DST, attestation_hash.as_slice());
 
         // Serialize the G1 signature (48 bytes compressed)
         let sig_bytes = serialize_g1(&signature)?;
@@ -117,9 +116,8 @@ fn serialize_g1(point: &G1) -> Result<[u8; G1_COMPRESSED_LEN]> {
 
 /// Deserialize a G1 point from compressed bytes (48 bytes).
 pub fn deserialize_g1(bytes: &[u8; G1_COMPRESSED_LEN]) -> Result<G1> {
-    G1::decode(&bytes[..]).map_err(|e| {
-        BridgeError::Signing(format!("failed to deserialize G1 signature: {e}"))
-    })
+    G1::decode(&bytes[..])
+        .map_err(|e| BridgeError::Signing(format!("failed to deserialize G1 signature: {e}")))
 }
 
 #[cfg(test)]
@@ -129,9 +127,9 @@ mod tests {
         dkg,
         primitives::{ops::verify, sharing::Mode},
     };
-    use commonware_utils::{NZU32, N3f1};
-    use rand::rngs::StdRng;
+    use commonware_utils::{N3f1, NZU32};
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     /// Create test shares using DKG (MinSig variant, same as consensus).
     fn test_shares() -> Vec<Share> {
@@ -158,12 +156,7 @@ mod tests {
 
         // Verify the signature against the share's public key (G2)
         let public_key = share.public::<MinSig>();
-        let result = verify::<MinSig>(
-            &public_key,
-            BLS_DST,
-            attestation_hash.as_slice(),
-            &g1_sig,
-        );
+        let result = verify::<MinSig>(&public_key, BLS_DST, attestation_hash.as_slice(), &g1_sig);
         assert!(result.is_ok(), "signature should verify: {:?}", result);
     }
 

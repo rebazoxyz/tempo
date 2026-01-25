@@ -32,11 +32,7 @@ pub struct MessageContext {
 
 impl BridgeGossipMessage {
     /// Create a new gossip message.
-    pub fn new(
-        attestation_hash: B256,
-        partial: PartialSignature,
-        context: MessageContext,
-    ) -> Self {
+    pub fn new(attestation_hash: B256, partial: PartialSignature, context: MessageContext) -> Self {
         Self {
             attestation_hash,
             partial,

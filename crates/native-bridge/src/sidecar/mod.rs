@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use commonware_codec::Read as CwRead;
 use commonware_cryptography::bls12381::primitives::{sharing::Sharing, variant::MinSig};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 use crate::config::Config;
 use crate::error::{BridgeError, Result};
@@ -34,13 +34,18 @@ impl BridgeSidecar {
     /// Create a new bridge sidecar.
     pub async fn new(config: Config) -> Result<Self> {
         // Load key share from file
-        let signer_config = config.signer.as_ref()
+        let signer_config = config
+            .signer
+            .as_ref()
             .ok_or_else(|| crate::error::BridgeError::Config("[signer] section required".into()))?;
         let signer = BLSSigner::from_file(&signer_config.bls_key_share_file)?;
 
         // Load sharing from file
-        let sharing_file = config.threshold.sharing_file.as_ref()
-            .ok_or_else(|| crate::error::BridgeError::Config("[threshold].sharing_file required in standalone mode".into()))?;
+        let sharing_file = config.threshold.sharing_file.as_ref().ok_or_else(|| {
+            crate::error::BridgeError::Config(
+                "[threshold].sharing_file required in standalone mode".into(),
+            )
+        })?;
         let sharing = load_sharing(sharing_file)?;
 
         let aggregator = Arc::new(Mutex::new(Aggregator::new(sharing, config.threshold.epoch)));
@@ -113,19 +118,19 @@ impl BridgeSidecar {
             };
 
             // If threshold reached, submit
-            if let Some((sig, message)) = maybe_sig {
-                if let Some(submitter) = submitters.get(&message.destination_chain_id) {
-                    match submitter.submit(&message, &sig).await {
-                        Ok(tx_hash) => {
-                            tracing::info!(
-                                dest = message.destination_chain_id,
-                                %tx_hash,
-                                "submitted attestation"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::error!("submission error: {e}");
-                        }
+            if let Some((sig, message)) = maybe_sig
+                && let Some(submitter) = submitters.get(&message.destination_chain_id)
+            {
+                match submitter.submit(&message, &sig).await {
+                    Ok(tx_hash) => {
+                        tracing::info!(
+                            dest = message.destination_chain_id,
+                            %tx_hash,
+                            "submitted attestation"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("submission error: {e}");
                     }
                 }
             }
@@ -141,19 +146,16 @@ impl BridgeSidecar {
 pub fn load_sharing(path: &str) -> Result<Sharing<MinSig>> {
     use commonware_utils::NZU32;
 
-    let hex_content = std::fs::read_to_string(path).map_err(|e| {
-        BridgeError::Config(format!("failed to read sharing file {path}: {e}"))
-    })?;
+    let hex_content = std::fs::read_to_string(path)
+        .map_err(|e| BridgeError::Config(format!("failed to read sharing file {path}: {e}")))?;
 
     let hex_trimmed = hex_content.trim().trim_start_matches("0x");
-    let bytes = const_hex::decode(hex_trimmed).map_err(|e| {
-        BridgeError::Config(format!("invalid hex in sharing file: {e}"))
-    })?;
+    let bytes = const_hex::decode(hex_trimmed)
+        .map_err(|e| BridgeError::Config(format!("invalid hex in sharing file: {e}")))?;
 
     // Maximum supported validator count for the bridge (reasonable upper bound)
     let max_validators = NZU32!(1000);
 
-    Sharing::<MinSig>::read_cfg(&mut &bytes[..], &max_validators).map_err(|e| {
-        BridgeError::Config(format!("failed to parse sharing: {e}"))
-    })
+    Sharing::<MinSig>::read_cfg(&mut &bytes[..], &max_validators)
+        .map_err(|e| BridgeError::Config(format!("failed to parse sharing: {e}")))
 }
