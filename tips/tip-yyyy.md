@@ -23,7 +23,7 @@ TIP-1000 increased storage creation costs to 250,000 gas per operation and 1,000
    - Keep general gas limit at 30M (would prefer lower)
    - Limit contract code to 1,000 gas/byte (would prefer 2,500)
 
-2. **New account throughput penalty**: TIP-20 transfer to new address costs 300,000 gas (vs 50,000 to existing). At 500M gas/block:
+2. **New account throughput penalty**: TIP-20 transfer to new address costs 300,000 gas (vs 50,000 to existing). At 500M payment lane gas limit:
    - Existing accounts: 10,000 transfers/block = 20,000 TPS
    - New accounts: 1,667 transfers/block = 3,334 TPS
    - 6x throughput reduction despite execution stack handling it fine
@@ -51,7 +51,8 @@ User Authorization:
 
 Protocol Limits:
   execution_gas <= max_transaction_gas_limit (EIP-7825, e.g. 16M)
-  block_execution_gas <= block_gas_limit (e.g. 500M)
+  general_execution_gas <= general_gas_limit (e.g. 25M, for non-payment txs)
+  payment_execution_gas <= payment_lane_limit (500M, for payment txs)
 
 Cost:
   total_gas = execution_gas + storage_gas
@@ -60,8 +61,9 @@ Cost:
 
 **Rationale**:
 - User's `gas_limit` bounds total cost (no surprise charges)
-- Protocol limits bound only execution gas (block time constraint)
+- Protocol limits bound only execution gas (block time constraint, not disk I/O)
 - Storage doesn't reduce block execution capacity or prevent large contracts
+- Note: Tempo has two block limits - general gas limit (~25M) for contracts and payment lane limit (500M) for simple transfers
 
 ## Storage Gas Operations
 
@@ -83,7 +85,6 @@ Contract code storage cost increases from 1,000 to **2,500 gas/byte**.
 Example for 24KB contract:
 - Contract code: `24,576 × 2,500 = 61,440,000` storage gas
 - Contract metadata: `500,000` storage gas
-- Account creation: `250,000` storage gas
 - Execution gas for deployment: ~2M
 - Total gas: ~64M
 - User must set `transaction.gas_limit >= 64M` (authorizes cost)
@@ -107,9 +108,9 @@ Example for 24KB contract:
 - Total cost: 50,000 gas
 
 ### Block Throughput
-At 500M execution gas block limit:
+At 500M payment lane execution gas limit:
 - Each transfer (new or existing) consumes ~50k execution gas
-- 10,000 transfers per block (regardless of new vs existing accounts)
+- 10,000 transfers per block = 20,000 TPS (regardless of new vs existing accounts)
 - Storage gas doesn't reduce block capacity
 
 ---
@@ -118,7 +119,9 @@ At 500M execution gas block limit:
 
 1. **User Authorization**: `execution_gas + storage_gas` MUST NOT exceed `transaction.gas_limit` (prevents surprise costs)
 2. **Protocol Transaction Limit**: `execution_gas` MUST NOT exceed `max_transaction_gas_limit` (EIP-7825 limit, e.g. 16M)
-3. **Protocol Block Limit**: Block `execution_gas` MUST NOT exceed `block_gas_limit` (e.g. 500M)
+3. **Protocol Block Limits**: Block `execution_gas` MUST NOT exceed applicable limit:
+   - General transactions: `general_gas_limit` (25M target, currently 30M)
+   - Payment lane transactions: `payment_lane_limit` (500M)
 4. **Storage Gas Exemption**: Storage gas MUST NOT count toward protocol limits (transaction and block)
 5. **Total Cost**: Transaction cost MUST equal `(execution_gas + storage_gas) × (base_fee_per_gas + priority_fee)`
 6. **Classification**: Every operation MUST be classified as either execution gas or storage gas, not both
@@ -134,7 +137,8 @@ At 500M execution gas block limit:
 | Storage gas counts toward user's gas_limit | Yes | Yes (no change) |
 | Storage gas counts toward protocol limits | Yes | No (exempted) |
 | Max transaction gas limit (EIP-7825) | 30M | Can reduce to 16M |
-| Block gas limit for execution | 500M | 500M (unchanged) |
+| Block gas limit for execution | 30M | 25M (ideal target) |
+| Block gas limit for payments lane | 500M | 500M (unchanged) |
 | Block gas limit for storage | 500M (shared) | Unlimited (exempted) |
 
 ---
