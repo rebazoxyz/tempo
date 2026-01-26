@@ -99,7 +99,7 @@ impl ConsensusIndexer {
                     self.cache.update_finalized(block).await;
                 }
             }
-            processed += (end - height + 1) as u64;
+            processed += end - height + 1;
             debug!(processed, latest_height, "gap fill batch stored");
             if processed.is_multiple_of(10_000) {
                 tracing::info!(processed, latest_height, "gap fill progress");

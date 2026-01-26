@@ -1,3 +1,5 @@
+//! Consensus indexer binary entrypoint.
+
 use clap::Parser;
 use consensus_indexer::{
     db::ConsensusDb, feed::ConsensusFeed, indexer::ConsensusIndexer, state::ConsensusCache,
