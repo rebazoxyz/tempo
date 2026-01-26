@@ -28,6 +28,7 @@ use alloy::{
     consensus::TxReceipt,
     primitives::{U256, uint},
 };
+use alloy_rpc_types_eth::state::StateOverride;
 use reth_ethereum::tasks::{
     TaskSpawner,
     pool::{BlockingTaskGuard, BlockingTaskPool},
@@ -42,9 +43,11 @@ use reth_node_builder::{
     rpc::{EthApiBuilder, EthApiCtx},
 };
 use reth_provider::{ChainSpecProvider, ProviderError};
+use reth_revm::database::EvmStateProvider;
 use reth_rpc::{DynRpcConverter, eth::EthApi};
+use reth_rpc_convert::{RpcConvert, RpcConverter};
 use reth_rpc_eth_api::{
-    EthApiTypes, RpcConverter, RpcNodeCore, RpcNodeCoreExt, RpcTxReq,
+    EthApiTypes, RpcNodeCore, RpcNodeCoreExt,
     helpers::{
         Call, EthApiSpec, EthBlocks, EthCall, EthFees, EthState, EthTransactions, LoadBlock,
         LoadFee, LoadPendingBlock, LoadReceipt, LoadState, LoadTransaction, SpawnBlocking, Trace,
@@ -54,7 +57,7 @@ use reth_rpc_eth_api::{
 };
 use reth_rpc_eth_types::{
     EthApiError, EthStateCache, FeeHistoryCache, FillTransaction, GasPriceOracle, PendingBlock,
-    StateOverride, builder::config::PendingBlockKind, receipt::EthReceiptConverter,
+    builder::config::PendingBlockKind, receipt::EthReceiptConverter,
 };
 use tempo_alloy::{TempoNetwork, rpc::TempoTransactionReceipt};
 use tempo_evm::TempoEvmConfig;
@@ -351,20 +354,21 @@ impl<N: FullNodeTypes<Types = TempoNode>> EstimateCall for TempoEthApi<N> {
         state_override: Option<StateOverride>,
     ) -> Result<U256, Self::Error>
     where
-        S: reth_rpc_eth_api::helpers::estimate::EvmStateProvider,
+        S: EvmStateProvider,
     {
         // Capture the original nonce before it gets cleared by take_nonce()
-        let original_nonce = request.as_ref().nonce();
+        let original_nonce = request.nonce;
 
         // Check if this is a create transaction
-        let is_create = request.as_ref().to().is_none();
+        let is_create = request.to.is_none();
 
         // Check if T1 is active (TIP-1000 applies)
         let is_t1 = evm_env.cfg_env.spec.is_t1();
 
         // Get base estimate from parent implementation
         let base_estimate =
-            self.inner.estimate_gas_with(evm_env, request, state, state_override)?;
+            self.inner
+                .estimate_gas_with(evm_env, request, state, state_override)?;
 
         // TIP-1000 (T1+ only): If the original request had nonce=0, add new account cost
         // This covers the case where eth_estimateGas is called for a first transaction

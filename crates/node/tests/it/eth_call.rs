@@ -442,10 +442,11 @@ async fn test_eth_estimate_gas_tip1000_nonce_zero_explicit() -> eyre::Result<()>
     assert!(mint_tx.status());
 
     // Verify account nonce is now > 0
-    let current_nonce = provider
-        .get_transaction_count(caller)
-        .await?;
-    assert!(current_nonce > 0, "Account nonce should be > 0 after sending transaction");
+    let current_nonce = provider.get_transaction_count(caller).await?;
+    assert!(
+        current_nonce > 0,
+        "Account nonce should be > 0 after sending transaction"
+    );
 
     // Build a transaction request with explicit nonce=0
     let calldata = token.mint(caller, U256::from(1000)).calldata().clone();
