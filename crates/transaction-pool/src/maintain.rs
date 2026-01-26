@@ -33,7 +33,7 @@ use tracing::{debug, error};
 /// Collects all invalidation events from a block into a single structure,
 /// allowing efficient batch processing of pool updates.
 #[derive(Debug, Default)]
-pub struct BlockPoolUpdates {
+pub struct TempoPoolUpdates {
     /// Transaction hashes that have expired (valid_before <= tip_timestamp).
     pub expired_txs: Vec<TxHash>,
     /// Revoked keychain keys: (account, public_key).
@@ -48,8 +48,8 @@ pub struct BlockPoolUpdates {
     pub mined_tx_hashes: Vec<TxHash>,
 }
 
-impl BlockPoolUpdates {
-    /// Creates a new empty `BlockPoolUpdates`.
+impl TempoPoolUpdates {
+    /// Creates a new empty `TempoPoolUpdates`.
     pub fn new() -> Self {
         Self::default()
     }
@@ -279,7 +279,7 @@ where
                 let tip_timestamp = tip.tip().header().timestamp();
 
                 // 1. Collect all block-level updates into a single structure
-                let mut updates = BlockPoolUpdates::from_chain(tip);
+                let mut updates = TempoPoolUpdates::from_chain(tip);
 
                 // Add expired transactions (from local tracking state)
                 let expired = state.drain_expired(tip_timestamp);

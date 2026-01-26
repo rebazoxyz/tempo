@@ -293,7 +293,7 @@ async fn test_evict_tx_on_validator_token_change() -> eyre::Result<()> {
 
     // Instead, let's verify the eviction function works correctly by checking that
     // the function runs without error when there are no transactions.
-    let updates = tempo_transaction_pool::BlockPoolUpdates {
+    let updates = tempo_transaction_pool::TempoPoolUpdates {
         validator_token_changes: vec![(user_addr, new_validator_token)],
         ..Default::default()
     };
@@ -336,7 +336,7 @@ async fn test_evict_tx_on_validator_token_change() -> eyre::Result<()> {
 
     // Now simulate a validator changing to a token that has no pool with PATH_USD
     // This should evict the transaction because pool(PATH_USD, new_validator_token) doesn't exist
-    let updates = tempo_transaction_pool::BlockPoolUpdates {
+    let updates = tempo_transaction_pool::TempoPoolUpdates {
         validator_token_changes: vec![(user_addr, new_validator_token)],
         ..Default::default()
     };

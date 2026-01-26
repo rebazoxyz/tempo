@@ -143,7 +143,7 @@ where
     ///
     /// All checks are combined into one scan to avoid iterating the pool multiple times
     /// per block.
-    pub fn evict_invalidated_transactions(&self, updates: &crate::maintain::BlockPoolUpdates) {
+    pub fn evict_invalidated_transactions(&self, updates: &crate::maintain::TempoPoolUpdates) {
         use reth_storage_api::StateProvider;
         use tempo_precompiles::{
             TIP_FEE_MANAGER_ADDRESS,
