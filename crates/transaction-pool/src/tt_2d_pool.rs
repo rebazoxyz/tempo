@@ -621,7 +621,8 @@ impl AA2dPool {
 
     /// Removes the transaction by its hash from all internal sets.
     ///
-    /// This does __not__ shift the independent transaction forward or mark descendants as pending.
+    /// This does __not__ shift the independent transaction forward but it does demote descendants
+    /// to queued status since removing a transaction creates a nonce gap.
     fn remove_transaction_by_hash(
         &mut self,
         tx_hash: &B256,
@@ -640,7 +641,28 @@ impl AA2dPool {
             .aa_transaction_id()
             .expect("is AA transaction");
         self.remove_transaction_by_id(&id)?;
+
+        // Demote all descendants to queued status since removing this transaction creates a gap
+        self.demote_descendants(&id);
+
         Some(tx)
+    }
+
+    /// Demotes all descendants of the given transaction to queued status (`is_pending = false`).
+    ///
+    /// This should be called after removing a transaction to ensure descendants don't remain
+    /// marked as pending when they're no longer executable due to the nonce gap.
+    fn demote_descendants(&mut self, id: &AA2dTransactionId) {
+        for (_, tx) in self
+            .by_id
+            .range_mut((Excluded(id), Unbounded))
+            .take_while(|(other, _)| id.seq_id == other.seq_id)
+        {
+            if std::mem::replace(&mut tx.is_pending, false) {
+                self.pending_count -= 1;
+                self.queued_count += 1;
+            }
+        }
     }
 
     /// Removes and returns all matching transactions and their dependent transactions from the
@@ -860,7 +882,12 @@ impl AA2dPool {
             .find(|(_, tx)| tx.is_pending == is_pending)
             .map(|(id, _)| *id)?;
 
-        self.remove_transaction_by_id(&id_to_remove)
+        let tx = self.remove_transaction_by_id(&id_to_remove)?;
+
+        // Demote descendants since removing this transaction creates a nonce gap
+        self.demote_descendants(&id_to_remove);
+
+        Some(tx)
     }
 
     /// Returns a reference to the metrics for this pool
@@ -1983,18 +2010,23 @@ mod tests {
         let removed = pool.remove_transactions([&tx1_hash].into_iter());
         assert_eq!(removed.len(), 1, "Should remove tx1");
 
-        // Note: Current implementation doesn't automatically re-scan and update
-        // is_pending flags after removal. This is a known limitation.
-        // The is_pending flag for tx2 remains true even though there's now a gap.
-        // However, tx2 won't be included in independent_transactions or best_transactions
-        // until the gap is filled.
-
         // Verify tx1 is removed from pool
         assert!(!pool.by_id.contains_key(&tx1_id), "tx1 should be removed");
         assert!(!pool.contains(&tx1_hash), "tx1 should be removed");
 
         // Verify tx0 and tx2 remain
         assert_eq!(pool.by_id.len(), 2, "Should have 2 transactions left");
+
+        // Verify tx2 is now demoted to queued since tx1 removal creates a gap
+        assert!(
+            !pool.by_id.get(&tx2_id).unwrap().is_pending,
+            "tx2 should be demoted to queued after tx1 removal creates a gap"
+        );
+
+        // Verify counts: tx0 is pending, tx2 is queued
+        let (pending_count, queued_count) = pool.pending_and_queued_txn_count();
+        assert_eq!(pending_count, 1, "Only tx0 should be pending");
+        assert_eq!(queued_count, 1, "tx2 should be queued");
 
         pool.assert_invariants();
     }
