@@ -143,7 +143,10 @@ where
     ///
     /// All checks are combined into one scan to avoid iterating the pool multiple times
     /// per block.
-    pub fn evict_invalidated_transactions(&self, updates: &crate::maintain::TempoPoolUpdates) {
+    pub fn evict_invalidated_transactions(
+        &self,
+        updates: &crate::maintain::TempoPoolUpdates,
+    ) -> usize {
         use reth_storage_api::StateProvider;
         use tempo_precompiles::{
             TIP_FEE_MANAGER_ADDRESS,
@@ -153,7 +156,7 @@ where
         };
 
         if !updates.has_invalidation_events() {
-            return;
+            return 0;
         }
 
         // Need state provider for validator token changes and blacklist checks
@@ -162,7 +165,7 @@ where
         {
             match self.client().latest() {
                 Ok(provider) => Some(provider),
-                Err(_) => return,
+                Err(_) => return 0,
             }
         } else {
             None
@@ -292,10 +295,11 @@ where
             }
         }
 
-        if !to_remove.is_empty() {
+        let evicted_count = to_remove.len();
+        if evicted_count > 0 {
             tracing::debug!(
                 target: "txpool",
-                total = to_remove.len(),
+                total = evicted_count,
                 revoked_count,
                 liquidity_count,
                 blacklisted_count,
@@ -303,6 +307,7 @@ where
             );
             self.remove_transactions(to_remove);
         }
+        evicted_count
     }
 
     fn add_validated_transactions(

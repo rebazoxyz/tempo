@@ -2,6 +2,7 @@
 
 use crate::{
     TempoTransactionPool,
+    metrics::TempoPoolMaintenanceMetrics,
     paused::{PausedEntry, PausedFeeTokenPool},
     transaction::TempoPooledTransaction,
     tt_2d_pool::AASequenceId,
@@ -18,6 +19,7 @@ use reth_transaction_pool::{PoolTransaction, TransactionOrigin, TransactionPool}
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
+    time::Instant,
 };
 use tempo_chainspec::TempoChainSpec;
 use tempo_contracts::precompiles::{IAccountKeychain, IFeeManager, ITIP20, ITIP403Registry};
@@ -184,6 +186,7 @@ where
         + 'static,
 {
     let mut state = TempoPoolState::default();
+    let metrics = TempoPoolMaintenanceMetrics::default();
 
     // Subscribe to new transactions and chain events
     let mut new_txs = pool.new_transactions_listener();
@@ -264,6 +267,8 @@ where
                     CanonStateNotification::Commit { new } => new,
                 };
 
+                let block_update_start = Instant::now();
+
                 let tip = &new;
                 let bundle_state = tip.execution_outcome().state().state();
                 let tip_timestamp = tip.tip().header().timestamp();
@@ -283,18 +288,22 @@ where
                 updates.expired_txs = expired.into_iter().filter(|h| pool.contains(h)).collect();
 
                 // 2. Evict expired AA transactions
-                if !updates.expired_txs.is_empty() {
+                let expired_start = Instant::now();
+                let expired_count = updates.expired_txs.len();
+                if expired_count > 0 {
                     debug!(
                         target: "txpool",
-                        count = updates.expired_txs.len(),
+                        count = expired_count,
                         tip_timestamp,
                         "Evicting expired AA transactions"
                     );
                     pool.remove_transactions(updates.expired_txs.clone());
+                    metrics.expired_transactions_evicted.increment(expired_count as u64);
                 }
-
+                metrics.expired_eviction_duration_seconds.record(expired_start.elapsed());
 
                 // 3. Handle fee token pause/unpause events
+                let pause_start = Instant::now();
                 for (token, is_paused) in &updates.pause_events {
                     if *is_paused {
                         // Pause: remove from main pool and store in paused pool
@@ -328,6 +337,7 @@ where
                                     .collect();
 
                                 state.paused_pool.insert_batch(*token, entries);
+                                metrics.transactions_paused.increment(count as u64);
                                 debug!(
                                     target: "txpool",
                                     %token,
@@ -341,6 +351,7 @@ where
                         let paused_entries = state.paused_pool.drain_token(token);
                         if !paused_entries.is_empty() {
                             let count = paused_entries.len();
+                            metrics.transactions_unpaused.increment(count as u64);
                             let pool_clone = pool.clone();
                             let token = *token;
                             tokio::spawn(async move {
@@ -383,27 +394,33 @@ where
                 if !updates.revoked_keys.is_empty() {
                     state.paused_pool.evict_by_revoked_keys(&updates.revoked_keys);
                 }
+                metrics.pause_events_duration_seconds.record(pause_start.elapsed());
 
                 // 6. Update 2D nonce pool
+                let nonce_pool_start = Instant::now();
                 pool.notify_aa_pool_on_state_updates(bundle_state);
 
                 // 7. Remove included expiring nonce transactions
                 // Expiring nonce txs use tx hash for replay protection rather than sequential nonces,
                 // so we need to remove them on inclusion rather than relying on nonce changes.
                 pool.remove_included_expiring_nonce_txs(mined_tx_hashes.iter());
+                metrics.nonce_pool_update_duration_seconds.record(nonce_pool_start.elapsed());
 
                 // 8. Update AMM liquidity cache (must happen before validator token eviction)
+                let amm_start = Instant::now();
                 amm_cache.on_new_state(tip.execution_outcome());
                 for block in tip.blocks_iter() {
                     if let Err(err) = amm_cache.on_new_block(block.sealed_header(), pool.client()) {
                         error!(target: "txpool", ?err, "AMM liquidity cache update failed");
                     }
                 }
+                metrics.amm_cache_update_duration_seconds.record(amm_start.elapsed());
 
                 // 9. Evict invalidated transactions in a single pool scan
                 // This checks both revoked keys and validator token changes together
                 // to avoid scanning all transactions multiple times per block.
                 if updates.has_invalidation_events() {
+                    let invalidation_start = Instant::now();
                     debug!(
                         target: "txpool",
                         revoked_keys = updates.revoked_keys.len(),
@@ -411,8 +428,13 @@ where
                         blacklist_additions = updates.blacklist_additions.len(),
                         "Processing transaction invalidation events"
                     );
-                    pool.evict_invalidated_transactions(&updates);
+                    let evicted = pool.evict_invalidated_transactions(&updates);
+                    metrics.transactions_invalidated.increment(evicted as u64);
+                    metrics.invalidation_eviction_duration_seconds.record(invalidation_start.elapsed());
                 }
+
+                // Record total block update duration
+                metrics.block_update_duration_seconds.record(block_update_start.elapsed());
             }
         }
     }
