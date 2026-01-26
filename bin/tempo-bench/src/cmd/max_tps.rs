@@ -185,25 +185,46 @@ pub struct MaxTpsArgs {
 impl MaxTpsArgs {
     const WEIGHT_PRECISION: f64 = 1000.0;
 
-    pub async fn run(mut self) -> eyre::Result<()> {
+    pub async fn run(self) -> eyre::Result<()> {
         RethTracer::new().init()?;
 
-        // In reth mode, enforce compatible settings
+        // In reth mode, use the separate reth_bench module with standard Ethereum network
         if self.reth_mode {
-            info!("Running in Reth-compatible mode");
-            self.disable_2d_nonces = true;
-            // Force ERC-20 only transactions
-            self.tip20_weight = 0.0;
-            self.place_order_weight = 0.0;
-            self.swap_weight = 0.0;
-            if self.erc20_weight == 0.0 {
-                self.erc20_weight = 1.0;
-            }
+            info!("Running in Reth-compatible mode (using standard Ethereum network)");
+
             if self.faucet {
                 eyre::bail!(
                     "--faucet is not supported in --reth-mode. Pre-fund accounts using genesis or dev mode."
                 );
             }
+
+            // Set file descriptor limit if provided
+            if let Some(fd_limit) = self.fd_limit {
+                increase_nofile_limit(fd_limit).context("Failed to increase nofile limit")?;
+            }
+
+            let report = super::reth_bench::run_reth_benchmark(
+                self.target_urls,
+                self.tps,
+                self.duration,
+                self.accounts.get(),
+                self.mnemonic.resolve(),
+                self.from_mnemonic_index,
+                self.max_concurrent_requests,
+            )
+            .await?;
+
+            // Write report to file
+            let path = "report.json";
+            let file = std::fs::File::create(path)?;
+            let writer = std::io::BufWriter::new(file);
+            serde_json::to_writer_pretty(writer, &report)?;
+            info!(path, "Generated report");
+
+            // Also print to stdout
+            println!("{}", serde_json::to_string_pretty(&report)?);
+
+            return Ok(());
         }
 
         let accounts = self.accounts.get();
