@@ -274,9 +274,9 @@ where
             return Ok(false);
         }
 
-        // Store position (1-indexed)
+        // Store position (1-indexed: position N means index N-1)
         let length = self.values.len()?;
-        self.positions.at_mut(&value).write(length as u32)?;
+        self.positions.at_mut(&value).write(length as u32 + 1)?;
 
         // Push value to the array
         self.values.push(value)?;
