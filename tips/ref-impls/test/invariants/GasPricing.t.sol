@@ -122,11 +122,7 @@ contract GasPricingInvariantTest is InvariantBase {
     /// @notice TEMPO-GAS5: CREATE must cost 500k base + code + account creation
     /// @dev Violations occur if tx succeeds with gas clearly below threshold
     function invariant_TEMPO_GAS5_CreateCost() public view {
-        assertEq(
-            ghost_createViolations,
-            0,
-            "TEMPO-GAS5: CREATE succeeded with insufficient gas"
-        );
+        assertEq(ghost_createViolations, 0, "TEMPO-GAS5: CREATE succeeded with insufficient gas");
     }
 
     /// @notice TEMPO-GAS8: Multiple new slots must cost 250k each
@@ -216,20 +212,17 @@ contract GasPricingInvariantTest is InvariantBase {
         uint256 privateKey = actorKeys[senderIdx];
 
         bytes memory initcode = InitcodeHelper.counterInitcode();
-        
+
         // Expected gas: base tx + CREATE base + code deposit + account creation
-        uint256 expectedGas = BASE_TX_GAS 
-            + CREATE_BASE_GAS 
-            + (initcode.length * CODE_DEPOSIT_PER_BYTE) 
-            + ACCOUNT_CREATION_GAS;
+        uint256 expectedGas = BASE_TX_GAS + CREATE_BASE_GAS
+            + (initcode.length * CODE_DEPOSIT_PER_BYTE) + ACCOUNT_CREATION_GAS;
 
         uint64 nonce = uint64(vm.getNonce(sender));
 
         // Test 1: Insufficient gas (200k - way below ~800k expected)
         uint64 lowGas = 200_000;
-        bytes memory lowGasTx = TxBuilder.buildLegacyCreateWithGas(
-            vmRlp, vm, initcode, nonce, lowGas, privateKey
-        );
+        bytes memory lowGasTx =
+            TxBuilder.buildLegacyCreateWithGas(vmRlp, vm, initcode, nonce, lowGas, privateKey);
 
         vm.coinbase(validator);
         address expectedAddr = TxBuilder.computeCreateAddress(sender, nonce);
@@ -247,9 +240,8 @@ contract GasPricingInvariantTest is InvariantBase {
         // Test 2: Sufficient gas
         nonce = uint64(vm.getNonce(sender));
         uint64 highGas = uint64(expectedGas + GAS_TOLERANCE);
-        bytes memory highGasTx = TxBuilder.buildLegacyCreateWithGas(
-            vmRlp, vm, initcode, nonce, highGas, privateKey
-        );
+        bytes memory highGasTx =
+            TxBuilder.buildLegacyCreateWithGas(vmRlp, vm, initcode, nonce, highGas, privateKey);
 
         expectedAddr = TxBuilder.computeCreateAddress(sender, nonce);
 
@@ -315,7 +307,7 @@ contract GasPricingInvariantTest is InvariantBase {
 
         // Test 2: Sufficient gas for all slots
         nonce = uint64(vm.getNonce(sender));
-        
+
         // Fresh slots for second test
         bytes32[] memory slots2 = new bytes32[](numSlots);
         for (uint256 i = 0; i < numSlots; i++) {
@@ -323,9 +315,8 @@ contract GasPricingInvariantTest is InvariantBase {
         }
         callData = abi.encodeCall(GasTestStorage.storeMultiple, (slots2));
 
-        uint64 highGas = uint64(
-            BASE_TX_GAS + CALL_OVERHEAD + (SSTORE_SET_GAS * numSlots) + GAS_TOLERANCE
-        );
+        uint64 highGas =
+            uint64(BASE_TX_GAS + CALL_OVERHEAD + (SSTORE_SET_GAS * numSlots) + GAS_TOLERANCE);
         bytes memory highGasTx = TxBuilder.buildLegacyCallWithGas(
             vmRlp, vm, address(storageContract), callData, nonce, highGas, privateKey
         );

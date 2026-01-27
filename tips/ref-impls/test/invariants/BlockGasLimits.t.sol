@@ -108,9 +108,7 @@ contract BlockGasLimitsInvariantTest is InvariantBase {
     /// @dev Violations occur if tx with gas > 30M is accepted
     function invariant_TEMPO_BLOCK3_TxGasCap() public view {
         assertEq(
-            ghost_txOverCapViolations,
-            0,
-            "TEMPO-BLOCK3: Transaction over 30M gas cap was accepted"
+            ghost_txOverCapViolations, 0, "TEMPO-BLOCK3: Transaction over 30M gas cap was accepted"
         );
     }
 
@@ -194,7 +192,7 @@ contract BlockGasLimitsInvariantTest is InvariantBase {
 
         // Test 2: Tx over the cap (should be rejected)
         nonce = uint64(vm.getNonce(sender));
-        
+
         // Gas amount over cap: 30M + 1 to 30M + 10M based on multiplier
         uint256 overAmount = bound(gasMultiplier, 1, 10_000_000);
         uint64 overCapGas = uint64(TX_GAS_CAP + overAmount);
@@ -233,18 +231,15 @@ contract BlockGasLimitsInvariantTest is InvariantBase {
 
         // Calculate required gas
         uint256 requiredGas = 53_000 // CREATE tx base
-            + CREATE_BASE_GAS 
-            + (initcode.length * CODE_DEPOSIT_PER_BYTE)
-            + ACCOUNT_CREATION_GAS
+            + CREATE_BASE_GAS + (initcode.length * CODE_DEPOSIT_PER_BYTE) + ACCOUNT_CREATION_GAS
             + 100_000; // Buffer for memory expansion etc.
 
         // Should fit in TX_GAS_CAP
         uint64 gasLimit = uint64(requiredGas > TX_GAS_CAP ? TX_GAS_CAP : requiredGas);
 
         uint64 nonce = uint64(vm.getNonce(sender));
-        bytes memory createTx = TxBuilder.buildLegacyCreateWithGas(
-            vmRlp, vm, initcode, nonce, gasLimit, privateKey
-        );
+        bytes memory createTx =
+            TxBuilder.buildLegacyCreateWithGas(vmRlp, vm, initcode, nonce, gasLimit, privateKey);
 
         vm.coinbase(validator);
         address expectedAddr = TxBuilder.computeCreateAddress(sender, nonce);
@@ -288,35 +283,35 @@ contract BlockGasLimitsInvariantTest is InvariantBase {
         // <runtime>      ; targetSize bytes
 
         bytes memory initcode = new bytes(14 + targetSize);
-        
+
         // PUSH2 size (big endian)
         initcode[0] = 0x61; // PUSH2
         initcode[1] = bytes1(uint8(targetSize >> 8));
         initcode[2] = bytes1(uint8(targetSize));
-        
+
         // PUSH1 0x0e (14 = offset where runtime starts)
         initcode[3] = 0x60; // PUSH1
         initcode[4] = 0x0e;
-        
+
         // PUSH1 0x00
         initcode[5] = 0x60;
         initcode[6] = 0x00;
-        
+
         // CODECOPY
         initcode[7] = 0x39;
-        
+
         // PUSH2 size
         initcode[8] = 0x61;
         initcode[9] = bytes1(uint8(targetSize >> 8));
         initcode[10] = bytes1(uint8(targetSize));
-        
+
         // PUSH1 0x00
         initcode[11] = 0x60;
         initcode[12] = 0x00;
-        
+
         // RETURN
         initcode[13] = 0xf3;
-        
+
         // Copy runtime code
         for (uint256 i = 0; i < targetSize; i++) {
             initcode[14 + i] = runtime[i];
